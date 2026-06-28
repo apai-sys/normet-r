@@ -1,7 +1,7 @@
 # normet: Normalisation, Decomposition, and Counterfactual Modelling for Air Quality Time-series
 
 [![CRAN](https://www.r-pkg.org/badges/version/normet)](https://CRAN.R-project.org/package=normet)
-[![R-CMD-check](https://github.com/normet-dev/normet-r/actions/workflows/R-CMD-check.yaml/badge.svg)](https://github.com/normet-dev/normet-r/actions/workflows/R-CMD-check.yaml)
+[![R-CMD-check](https://github.com/apai-sys/normet-r/actions/workflows/R-CMD-check.yaml/badge.svg)](https://github.com/apai-sys/normet-r/actions/workflows/R-CMD-check.yaml)
 
 `normet` is an R package for **air quality time-series analysis**. It covers the full workflow from data acquisition through weather normalisation, decomposition, uncertainty quantification, and causal impact evaluation.
 
@@ -24,7 +24,7 @@
 
 ```r
 # install.packages("devtools")
-devtools::install_github("normet-dev/normet-r")
+devtools::install_github("apai-sys/normet-r")
 ```
 
 ### Backend setup
@@ -406,7 +406,7 @@ nm_stop_h2o()
   year         = {2025},
   note         = {R package version 0.0.1},
   organization = {University of Manchester},
-  url          = {https://github.com/normet-dev/normet-r},
+  url          = {https://github.com/apai-sys/normet-r},
 }
 ```
 
@@ -418,4 +418,4 @@ GPL-3 — see [LICENSE](LICENSE).
 
 ## Contributing
 
-Issues and pull requests welcome: [github.com/normet-dev/normet-r](https://github.com/normet-dev/normet-r)
+Issues and pull requests welcome: [github.com/apai-sys/normet-r](https://github.com/apai-sys/normet-r)
