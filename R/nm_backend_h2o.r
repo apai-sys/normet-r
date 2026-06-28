@@ -333,6 +333,7 @@ nm_train_h2o <- function(df, value = "value", predictors = NULL, model_config = 
     max_models = NULL,
     max_runtime_secs = 60,
     nfolds = 5,
+    cv_type = "random",
     include_algos = c("GBM"),
     sort_metric = "AUTO",
     save_model = FALSE,
@@ -379,6 +380,18 @@ nm_train_h2o <- function(df, value = "value", predictors = NULL, model_config = 
       }
     }
 
+    # Time-aware internal validation (mirrors the Python flaml `split_type="time"`
+    # fix): with cv_type="time", assign rows to contiguous time-ordered blocks and
+    # pass them as a fold_column so cross-validation respects temporal order
+    # instead of using leaky random folds. Ordered by `date_unix` when present.
+    use_time_cv <- identical(final_config$cv_type, "time")
+    if (use_time_cv) {
+      ord <- if ("date_unix" %in% names(df_train)) order(df_train[["date_unix"]]) else seq_len(nrow(df_train))
+      fid <- integer(nrow(df_train))
+      fid[ord] <- as.integer(cut(seq_along(ord), breaks = final_config$nfolds, labels = FALSE)) - 1L
+      df_train[[".fold"]] <- fid
+    }
+
     # Ensure H2O connection exists (Check before Action)
     # [FIX] Use clusterIsUp() for robust health check
     if (!h2o::h2o.clusterIsUp()) {
@@ -391,7 +404,7 @@ nm_train_h2o <- function(df, value = "value", predictors = NULL, model_config = 
     df_h2o <- h2o::as.h2o(df_train, destination_frame = paste0("train_", Sys.getpid()))
 
     response <- value
-    x_vars <- setdiff(colnames(df_h2o), response)
+    x_vars <- setdiff(colnames(df_h2o), c(response, if (use_time_cv) ".fold"))
 
     if (verbose) {
       limit_msg <- if (!is.null(final_config$max_runtime_secs)) paste0(final_config$max_runtime_secs, "s") else "Unlimited"
@@ -401,8 +414,14 @@ nm_train_h2o <- function(df, value = "value", predictors = NULL, model_config = 
 
     # Construct arguments for AutoML
     # Remove our internal control keys, pass the rest to H2O
-    internal_keys <- c("max_retries", "save_model", "filename", "path")
+    internal_keys <- c("max_retries", "save_model", "filename", "path", "cv_type")
     automl_params <- final_config[setdiff(names(final_config), internal_keys)]
+
+    # With time-aware CV, drive cross-validation from the fold column instead of nfolds.
+    if (use_time_cv) {
+      automl_params$nfolds <- NULL
+      automl_params$fold_column <- ".fold"
+    }
 
     automl_args <- c(
       list(x = x_vars, y = response, training_frame = df_h2o),

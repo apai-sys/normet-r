@@ -79,7 +79,8 @@ nm_train_lgb <- function(df, value = "value", predictors = NULL,
   cfg <- list(
     n_trials = 50, cv_folds = 5, nrounds = 1000, early_stopping_rounds = 20,
     num_leaves_min = NULL, num_leaves_max = NULL,
-    learning_rate_min = 0.01, learning_rate_max = 0.3
+    learning_rate_min = 0.01, learning_rate_max = 0.3,
+    cv_type = "random"
   )
   if (!is.null(model_config)) cfg <- utils::modifyList(cfg, model_config)
 
@@ -102,6 +103,18 @@ nm_train_lgb <- function(df, value = "value", predictors = NULL,
     x, label = y,
     categorical_feature = if (length(cat_features) > 0) cat_features else NULL
   )
+
+  # Time-aware internal validation (mirrors the Python flaml `split_type="time"`
+  # fix): with cv_type="time", use contiguous time-ordered blocks as CV folds
+  # instead of random folds, so model selection is not fooled by temporally
+  # leaked random folds on autocorrelated air-quality series. Folds are ordered
+  # by `date_unix` when present, otherwise by row order.
+  folds_arg <- NULL
+  if (identical(cfg$cv_type, "time")) {
+    ord <- if ("date_unix" %in% names(df)) order(df[["date_unix"]]) else seq_len(n)
+    blk <- cut(seq_len(n), breaks = cfg$cv_folds, labels = FALSE)
+    folds_arg <- split(ord, blk)
+  }
 
   best_score <- Inf
   best_params <- NULL
@@ -132,7 +145,8 @@ nm_train_lgb <- function(df, value = "value", predictors = NULL,
 
     cv <- lightgbm::lgb.cv(
       params = params, data = dtrain, nrounds = cfg$nrounds,
-      nfold = cfg$cv_folds, early_stopping_rounds = cfg$early_stopping_rounds,
+      nfold = cfg$cv_folds, folds = folds_arg,
+      early_stopping_rounds = cfg$early_stopping_rounds,
       verbose = -1L
     )
 
