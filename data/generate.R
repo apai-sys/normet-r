@@ -178,8 +178,8 @@ rownames(scm) <- NULL
 
 # ── Save ─────────────────────────────────────────────────────────────────────
 
-save(my1, file = "data/MY1.RData", compress = "xz")
-save(scm,  file = "data/SCM.RData",  compress = "xz")
+save(my1, file = "data/MY1.RData", compress = "bzip2")
+save(scm,  file = "data/SCM.RData",  compress = "bzip2")
 
 cat("MY1:", nrow(my1), "rows x", ncol(my1), "cols\n")
 cat("SCM:", nrow(scm),  "rows x", ncol(scm),  "cols\n")
