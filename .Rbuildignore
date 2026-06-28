@@ -17,4 +17,4 @@
 ^LICENSE\.md$
 ^doc$
 ^Meta$
-^data/generate\.R$
+^data-raw$
