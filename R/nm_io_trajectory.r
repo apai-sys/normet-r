@@ -211,6 +211,43 @@ nm_build_trajectory_features <- function(tdumps, source_regions = NULL,
   out
 }
 
+# Parse an ARL met filename to an approximate [start, end] UTC date range.
+# Understands GDAS1 naming: gdas1.{mon}{yy}.w{n}
+# Returns NULL for unrecognised filenames (caller should keep them).
+.parse_arl_date_range <- function(path) {
+  bn <- basename(path)
+  m  <- regexec("gdas1\\.([a-z]{3})(\\d{2})\\.w(\\d)", bn)[[1]]
+  if (m[1] < 0) return(NULL)
+  parts <- regmatches(bn, regexec("gdas1\\.([a-z]{3})(\\d{2})\\.w(\\d)", bn))[[1]]
+  mon_n <- match(parts[2], tolower(month.abb))
+  yr    <- 2000L + as.integer(parts[3])
+  wk    <- as.integer(parts[4])
+  day_s <- (wk - 1L) * 7L + 1L
+  # End of week: clamp to the last second of the current month (handles
+  # short months — e.g. feb.w5 day_e=35 would overflow with ISOdatetime).
+  # Use the first second of the NEXT month minus 1s as a safe upper bound.
+  next_mon  <- if (mon_n == 12L) 1L else mon_n + 1L
+  next_yr   <- if (mon_n == 12L) yr + 1L else yr
+  month_end <- ISOdatetime(next_yr, next_mon, 1L, 0L, 0L, 0L, tz = "UTC") - 1L
+  week_end  <- ISOdatetime(yr, mon_n, 1L, 0L, 0L, 0L, tz = "UTC") +
+               (wk * 7L - 1L) * 86400L + 86399L
+  list(
+    start = ISOdatetime(yr, mon_n, day_s, 0L, 0L, 0L, tz = "UTC"),
+    end   = min(week_end, month_end)
+  )
+}
+
+# Keep only met files whose date range overlaps [window_start, window_end].
+# Files with unrecognised names are always kept (conservative).
+.filter_met_files <- function(paths, window_start, window_end) {
+  keep <- vapply(paths, function(p) {
+    r <- .parse_arl_date_range(p)
+    if (is.null(r)) return(TRUE)
+    r$end >= window_start && r$start <= window_end
+  }, logical(1), USE.NAMES = FALSE)
+  paths[keep]
+}
+
 # Render a HYSPLIT CONTROL file (character vector of lines) for one backward
 # trajectory. Internal helper -- bare function, no man page.
 .traj_control_text <- function(time, lat, lon, height_m, hours_back, met_files,
@@ -311,8 +348,10 @@ nm_run_back_trajectories <- function(times, lat, lon, met_files, hysplit_exec,
   for (i in seq_along(times)) {
     ts <- times[i]
     name <- paste0("tdump_", format(ts, "%Y%m%d%H", tz = "UTC"))
+    run_mets <- .filter_met_files(mets, ts - hours_back * 3600, ts)
+    if (length(run_mets) == 0) run_mets <- mets
     writeLines(
-      .traj_control_text(ts, lat, lon, height_m, hours_back, mets, name,
+      .traj_control_text(ts, lat, lon, height_m, hours_back, run_mets, name,
                          top_of_model, vert_motion),
       "CONTROL"
     )
