@@ -1,3 +1,16 @@
+#' Format a quantile probability as a column name (e.g. 0.025 -> "q025")
+#'
+#' Mirrors normet-py's \code{_format_quantile_name} so quantile column names
+#' match exactly across languages.
+#'
+#' @keywords internal
+.nm_format_quantile_name <- function(q) {
+  q <- as.numeric(q)
+  if (q < 0 || q > 1) stop("Quantile must be in [0,1]: got ", q)
+  sprintf("q%03d", round(q * 1000))
+}
+
+
 #' Generate a Resampled Data Frame (data.table version)
 #'
 #' @keywords internal
@@ -396,14 +409,44 @@ nm_normalise_h2o <- function(df, model, resample_vars = NULL,
 #' @param verbose Logical. Default TRUE.
 #' @param n_cores Integer or NULL. Number of parallel workers for resampling.
 #'   If NULL, uses \code{min(detectCores(logical = FALSE) - 1, 4)}.
+#' @param return_quantiles Numeric vector of probabilities in [0,1] (e.g.
+#'   \code{c(0.025, 0.5, 0.975)}), or NULL (default). When supplied, the
+#'   output gains one column per quantile (named \code{qXXX}, e.g.
+#'   \code{q025}), giving a prediction interval on the deweathered signal
+#'   itself -- not to be confused with \code{nm_conformal_effect_interval()},
+#'   which is a conformal interval on a \emph{causal (SCM) effect estimate}.
+#'   Ports normet-py's \code{normalise(..., return_quantiles=...)}.
+#'   \strong{Memory note}: quantiles require the full per-date, per-seed
+#'   sample distribution, so supplying \code{return_quantiles} switches off
+#'   the O(1) running-sum/transient-batch accumulation (Sect. "Transient
+#'   memory pipeline") in favour of materialising all \code{n_samples}
+#'   predictions per row -- O(n_samples x nrow(df)) memory, same as
+#'   \code{aggregate=FALSE}. This mirrors normet-py's own behaviour: FLAML/
+#'   lightgbm's \code{return_quantiles} likewise bypasses its \code{batch_size}
+#'   O(1) pipeline for the same reason (quantiles are not summarisable via a
+#'   running sum). Ignored (with a warning) if \code{aggregate=FALSE}, since
+#'   the full per-seed table is already returned in that case.
 #'
-#' @return A data frame with normalised results.
+#' @return A data frame with normalised results. If \code{return_quantiles}
+#'   is set, includes one \code{qXXX} column per requested quantile.
 #' @export
 nm_normalise_lgb <- function(df, model, resample_vars = NULL,
                              n_samples = 300, replace = TRUE,
                              aggregate = TRUE, seed = 7654321,
                              resample_df = NULL, memory_save = TRUE,
-                             verbose = TRUE, n_cores = NULL) {
+                             verbose = TRUE, n_cores = NULL,
+                             return_quantiles = NULL) {
+
+  if (!is.null(return_quantiles)) {
+    if (any(return_quantiles < 0 | return_quantiles > 1)) {
+      stop("`return_quantiles` must all be in [0, 1].")
+    }
+    if (!aggregate) {
+      warning("`return_quantiles` is ignored when aggregate=FALSE (the full per-seed table already contains everything needed to compute quantiles yourself).")
+      return_quantiles <- NULL
+    }
+  }
+  want_quantiles <- !is.null(return_quantiles)
 
   log <- nm_get_logger("analysis.normalise.lgb")
   nm_require("data.table")
@@ -472,7 +515,10 @@ nm_normalise_lgb <- function(df, model, resample_vars = NULL,
   # --- 6. Core loop ---
   running_stats <- NULL
   results_list <- NULL
-  store_in_ram <- !aggregate
+  # `want_quantiles` needs the full per-date, per-seed sample matrix, so it
+  # forces the same "store every batch in RAM" path as aggregate=FALSE
+  # instead of the O(1) running-sum accumulation used otherwise.
+  store_in_ram <- !aggregate || want_quantiles
   if (store_in_ram) results_list <- vector("list", length(seed_chunks))
 
   for (i in seq_along(seed_chunks)) {
@@ -491,7 +537,30 @@ nm_normalise_lgb <- function(df, model, resample_vars = NULL,
     # Predict in-process (no serialization)
     preds_batch <- nm_predict_lgb(model, df_batch, verbose = FALSE)
 
-    if (aggregate) {
+    if (want_quantiles) {
+      # Store the full batch (needed for quantiles) AND keep the O(1)
+      # running-sum mean, so the final mean matches the non-quantile path
+      # exactly rather than being recomputed from the (identical) stored data.
+      batch_dt <- data.table::data.table(
+        date = df_batch$date, observed = df_batch$value, normalised = preds_batch)
+      batch_stats <- batch_dt[, .(
+        sum_norm = sum(normalised, na.rm = TRUE),
+        n_norm = sum(!is.na(normalised)),
+        sum_obs  = sum(observed, na.rm = TRUE),
+        n_obs    = sum(!is.na(observed))
+      ), by = date]
+      if (is.null(running_stats)) {
+        running_stats <- batch_stats
+      } else {
+        running_stats <- data.table::rbindlist(list(running_stats, batch_stats))
+        running_stats <- running_stats[, .(
+          sum_norm = sum(sum_norm), n_norm = sum(n_norm),
+          sum_obs  = sum(sum_obs),  n_obs   = sum(n_obs)
+        ), by = date]
+      }
+      results_list[[i]] <- batch_dt[, .(date, normalised)]
+      rm(batch_dt, batch_stats)
+    } else if (aggregate) {
       batch_dt <- data.table::data.table(
         date = df_batch$date, observed = df_batch$value, normalised = preds_batch)
       batch_stats <- batch_dt[, .(
@@ -523,7 +592,23 @@ nm_normalise_lgb <- function(df, model, resample_vars = NULL,
   }
 
   # --- 7. Assemble output ---
-  if (aggregate) {
+  if (want_quantiles) {
+    df_out <- running_stats[, .(date = date, observed = sum_obs / n_obs,
+      normalised = sum_norm / n_norm)]
+    data.table::setorder(df_out, date)
+
+    all_samples <- data.table::rbindlist(results_list)
+    q_names <- vapply(return_quantiles, .nm_format_quantile_name, character(1))
+    q_dt <- all_samples[, as.list(stats::setNames(
+      stats::quantile(normalised, probs = return_quantiles, na.rm = TRUE, names = FALSE),
+      q_names)), by = date]
+
+    df_out <- merge(df_out, q_dt, by = "date", all.x = TRUE)
+    data.table::setorder(df_out, date)
+    data.table::setDF(df_out)
+    if (verbose) log$info("Normalisation complete (with %d quantile column(s)).", length(return_quantiles))
+    return(df_out)
+  } else if (aggregate) {
     df_out <- running_stats[, .(date = date, observed = sum_obs / n_obs,
       normalised = sum_norm / n_norm)]
     data.table::setorder(df_out, date)
@@ -568,9 +653,16 @@ nm_normalise_lgb <- function(df, model, resample_vars = NULL,
 #'        call (e.g. `n_cores`, `seed`, `replace`, `memory_save`,
 #'        `feature_names`).
 #'
+#' @param return_history Logical. If TRUE, also return a per-batch
+#'   convergence trace (`n`, `global_mean`, `rel_change`) -- useful for
+#'   visualising/auditing the convergence path (e.g. the "tolerance
+#'   tunnel" diagnostic plot). Default FALSE.
+#'
 #' @return A list containing:
 #' * `best_n`: Total samples used.
 #' * `res`: Data frame with `date`, `observed`, `normalised`.
+#' * `history`: (only if `return_history=TRUE`) data frame with one row
+#'   per batch: `n` (cumulative samples), `global_mean`, `rel_change`.
 #'
 #' @export
 nm_normalise_auto <- function(df, model, resample_vars = NULL,
@@ -579,8 +671,20 @@ nm_normalise_auto <- function(df, model, resample_vars = NULL,
                               stability_streak = 5,
                               batch_size = 100,
                               max_samples = 5000,
+                              seed = 7654321,
                               verbose = TRUE,
+                              return_history = FALSE,
                               ...) {
+  # NOTE: `seed` is varied per batch below (seed + total_n) so each batch
+  # draws an independent Monte-Carlo resample. Without this, every batch
+  # would call nm_normalise() with the identical seed and therefore produce
+  # bit-identical resampled predictions, making the convergence check
+  # meaningless (the "global mean" would trivially be constant from the
+  # second batch onward regardless of true stability). Do not pass `seed`
+  # via `...` -- it is intercepted below and ignored if supplied that way.
+  dots <- list(...)
+  dots$seed <- NULL
+
   # --- 0. Argument Pre-processing ---
   if (is.character(convergence_tol)) {
     if (grepl("%", convergence_tol)) {
@@ -600,6 +704,7 @@ nm_normalise_auto <- function(df, model, resample_vars = NULL,
   total_n <- 0
   stable_count <- 0
   prev_global_mean <- 0
+  history_list <- if (return_history) list() else NULL
 
   # Accumulator Table: Stores running sums for each date
   # Key: date, Value: sum_norm, n_obs
@@ -615,18 +720,20 @@ nm_normalise_auto <- function(df, model, resample_vars = NULL,
   # --- 2. Main Loop ---
   while (total_n < max_samples) {
     # === Step A: Run Batch (Aggregate = TRUE) ===
+    # seed = seed + total_n varies every batch (matches nm_rolling's
+    # seed + i pattern) so each batch is an independent Monte-Carlo draw.
     batch_res <- tryCatch(
       {
-        nm_normalise(
+        do.call(nm_normalise, c(list(
           df = df,
           model = model,
           resample_vars = resample_vars,
           resample_df = resample_df,
           n_samples = batch_size,
           aggregate = TRUE,
-          verbose = FALSE,
-          ...
-        )
+          seed = seed + total_n,
+          verbose = FALSE
+        ), dots))
       },
       error = function(e) stop("Batch simulation failed: ", e$message))
 
@@ -649,6 +756,7 @@ nm_normalise_auto <- function(df, model, resample_vars = NULL,
 
     total_n <- total_n + batch_size
 
+    rel_change <- NA_real_
     if (total_n > batch_size) {
       # Calculate relative change from previous total state
       rel_change <- abs((current_global_mean - prev_global_mean) / prev_global_mean)
@@ -661,6 +769,12 @@ nm_normalise_auto <- function(df, model, resample_vars = NULL,
 
       if (verbose) setTxtProgressBar(pb, total_n)
 
+      if (return_history) {
+        history_list[[length(history_list) + 1]] <- data.frame(
+          n = total_n, global_mean = current_global_mean,
+          rel_change = rel_change, stable_count = stable_count)
+      }
+
       if (stable_count >= stability_streak) {
         if (verbose) {
           message(sprintf("\n\n--- Convergence Reached! ---"))
@@ -669,6 +783,10 @@ nm_normalise_auto <- function(df, model, resample_vars = NULL,
         }
         break
       }
+    } else if (return_history) {
+      history_list[[length(history_list) + 1]] <- data.frame(
+        n = total_n, global_mean = current_global_mean,
+        rel_change = NA_real_, stable_count = 0L)
     }
 
     prev_global_mean <- current_global_mean
@@ -687,8 +805,12 @@ nm_normalise_auto <- function(df, model, resample_vars = NULL,
   final_data <- accumulator_dt[, .(date, observed, normalised)]
   data.table::setDF(final_data)
 
-  return(list(
+  out <- list(
     best_n = total_n,
     res = final_data
-  ))
+  )
+  if (return_history) {
+    out$history <- if (length(history_list) > 0) do.call(rbind, history_list) else data.frame()
+  }
+  out
 }
