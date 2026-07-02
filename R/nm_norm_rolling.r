@@ -9,7 +9,13 @@
 #' @param value Target variable name.
 #' @param predictors Character vector of ALL features to be used for training the model (if model is NULL).
 #' @param resample_vars Variables to be resampled (de-weathered).
-#' @param resample_df Resampling pool. Defaults to the full dataset.
+#' @param resample_df Resampling pool. If NULL (default), each window draws
+#'   \emph{exclusively from its own date range} -- this is what tests
+#'   whether meteorological influence separates by timescale, since
+#'   resampling from a fixed full-record pool at every window would make
+#'   the window width irrelevant to the result. Pass an explicit data
+#'   frame (e.g. another site's data) to use a single external pool
+#'   globally across all windows instead (for spatial intercomparison).
 #' @param split_method Split method for training (if model is NULL).
 #' @param fraction Training fraction (if model is NULL).
 #' @param backend Backend for training (if model is NULL): 'lightgbm' (default) or 'h2o'.
@@ -79,10 +85,15 @@ nm_rolling <- function(df,
     df[, date := as.POSIXct(date)]
   }
 
-  # Default resample pool is the FULL dataset
-  if (is.null(resample_df)) {
-    resample_df <- df
-  } else {
+  # Default resample pool: window-local (drawn exclusively from each
+  # window's own date range), matching nm_rolling's documented design --
+  # this is what actually tests whether meteorological influence separates
+  # by timescale, since a full-record pool would make window width
+  # irrelevant to the resampled distribution. If the caller passes an
+  # explicit `resample_df` (e.g. an external site's data for spatial
+  # intercomparison), that pool is used globally across all windows instead.
+  use_local_resample_pool <- is.null(resample_df)
+  if (!use_local_resample_pool) {
     resample_df <- data.table::as.data.table(resample_df)
   }
 
@@ -161,7 +172,7 @@ nm_rolling <- function(df,
             df = dfa,
             model = model,
             resample_vars = resample_vars,
-            resample_df = resample_df,
+            resample_df = if (use_local_resample_pool) dfa else resample_df,
             n_samples = n_samples,
             replace = TRUE,
             aggregate = TRUE,
