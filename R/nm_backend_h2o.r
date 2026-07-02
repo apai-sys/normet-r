@@ -345,6 +345,22 @@ nm_train_h2o <- function(df, value = "value", predictors = NULL, model_config = 
   # Merge user config
   final_config <- default_model_config
   if (!is.null(model_config)) {
+    unknown_keys <- setdiff(names(model_config), names(default_model_config))
+    if (length(unknown_keys) > 0) {
+      hw_keys <- c("max_mem_size", "nthreads", "port", "name", "n_cores", "ip")
+      hint <- if (any(unknown_keys %in% hw_keys)) {
+        sprintf(" (%s %s hardware/cluster setting(s) that belong in h2o.init(), not model_config)",
+          paste(intersect(unknown_keys, hw_keys), collapse = ", "),
+          if (sum(unknown_keys %in% hw_keys) > 1) "look like" else "looks like a")
+      } else {
+        ""
+      }
+      stop(sprintf(
+        "Unrecognised model_config key(s): %s%s.\nValid model_config keys are: %s.",
+        paste(unknown_keys, collapse = ", "), hint,
+        paste(names(default_model_config), collapse = ", ")
+      ), call. = FALSE)
+    }
     final_config <- utils::modifyList(default_model_config, model_config)
   }
 
@@ -467,7 +483,14 @@ nm_train_h2o <- function(df, value = "value", predictors = NULL, model_config = 
   }
 
   if (is.null(model)) {
-    stop("Failed to train the model after ", final_config$max_retries, " attempts.")
+    # Leave H2O in a definitively clean (stopped) state before raising --
+    # otherwise the cluster can be mid-restart from the retry loop above,
+    # and a *later* R-level error/GC touching that half-initialised JVM
+    # connection can segfault the whole R session instead of just failing
+    # this call.
+    tryCatch(nm_stop_h2o(quiet = TRUE), error = function(e) NULL)
+    stop("Failed to train the model after ", final_config$max_retries, " attempts.",
+        call. = FALSE)
   }
 
   # --- 5. Attach backend and metadata ---
