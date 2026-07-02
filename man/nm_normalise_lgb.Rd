@@ -15,7 +15,8 @@ nm_normalise_lgb(
   resample_df = NULL,
   memory_save = TRUE,
   verbose = TRUE,
-  n_cores = NULL
+  n_cores = NULL,
+  return_quantiles = NULL
 )
 }
 \arguments{
@@ -43,9 +44,25 @@ If FALSE, returns all iterations (one row per sample).}
 
 \item{n_cores}{Integer or NULL. Number of parallel workers for resampling.
 If NULL, uses \code{min(detectCores(logical = FALSE) - 1, 4)}.}
+
+\item{return_quantiles}{Numeric vector of probabilities in [0,1] (e.g.
+\code{c(0.025, 0.5, 0.975)}), or NULL (default). When supplied, the
+output gains one column per quantile (named \code{qXXX}, e.g.
+\code{q025}), giving a prediction interval on the deweathered signal
+itself -- not to be confused with \code{nm_conformal_effect_interval()},
+which is a conformal interval on a \emph{causal (SCM) effect estimate}.
+Ports normet-py's \code{normalise(..., return_quantiles=...)}.
+\strong{Memory note}: quantiles require the full per-date, per-seed
+sample distribution, so supplying \code{return_quantiles} switches off
+the O(1) running-sum/transient-batch accumulation in favour of
+materialising all \code{n_samples} predictions per row --
+O(n_samples x nrow(df)) memory, same as \code{aggregate=FALSE}.
+Ignored (with a warning) if \code{aggregate=FALSE}, since
+the full per-seed table is already returned in that case.}
 }
 \value{
-A data frame with normalised results.
+A data frame with normalised results. If \code{return_quantiles}
+is set, includes one \code{qXXX} column per requested quantile.
 }
 \description{
 A lightweight normalisation path for lightgbm models. Unlike the H2O path,
