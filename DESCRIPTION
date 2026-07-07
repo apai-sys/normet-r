@@ -1,0 +1,60 @@
+Package: normet
+Type: Package
+Title: Normalisation, Decomposition, and Counterfactual Modelling for Air Quality Time-series
+Version: 1.0.0
+Authors@R: person("Congbo", "Song", email = "congbo.song@manchester.ac.uk", role = c("aut", "cre"),
+                   comment = c(ORCID = "https://orcid.org/0000-0001-7948-4834"))
+Maintainer: Congbo Song <congbo.song@manchester.ac.uk>
+Description: Provides a suite of tools for advanced air quality time series analysis.
+    Core functionalities include meteorological normalisation (de-weathering)
+    to reveal underlying trends in data like air pollution concentrations,
+    and causal inference using both classic and machine learning-based
+    Synthetic Control Methods (SCM). The package features high-level workflows
+    for uncertainty quantification, time-series decomposition, and robust
+    placebo tests, powered by H2O AutoML or lightgbm backends.
+License: GPL-3
+Encoding: UTF-8
+LazyData: true
+LazyDataCompression: xz
+URL: https://github.com/apai-sys/normet-r
+BugReports: https://github.com/apai-sys/normet-r/issues
+Imports:
+    data.table (>= 1.12.0),
+    digest,
+    dplyr (>= 1.0.0),
+    doSNOW (>= 1.0.19),
+    foreach (>= 1.5.0),
+    ggplot2 (>= 3.3.0),
+    glmnet (>= 4.0),
+    httr2 (>= 1.0.0),
+    jsonlite (>= 1.7.0),
+    lgr (>= 0.3.0),
+    lubridate (>= 1.7.0),
+    magrittr (>= 2.0.0),
+    memoise (>= 2.0.0),
+    parallel,
+    progress (>= 1.2.0),
+    quadprog (>= 1.5),
+    rlang (>= 0.4.0),
+    zoo (>= 1.8.0)
+Suggests:
+    arrow,
+    base64enc,
+    devtools,
+    ecmwfr,
+    forecast,
+    h2o (>= 3.30.0),
+    knitr,
+    lightgbm (>= 3.0.0),
+    memuse,
+    patchwork,
+    rmarkdown,
+    sf,
+    solitude,
+    testthat (>= 3.0.0)
+Depends:
+    R (>= 4.0)
+Config/testthat/edition: 3
+Roxygen: list(markdown = TRUE)
+VignetteBuilder: knitr
+Config/roxygen2/version: 8.0.0

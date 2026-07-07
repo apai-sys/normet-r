@@ -1,0 +1,327 @@
+---
+title: "Getting Started with normet"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Getting Started with normet}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  fig.width = 7,
+  fig.height = 4
+)
+```
+
+```{r setup}
+library(normet)
+```
+
+## Introduction
+
+`normet` provides a workflow for **meteorological normalisation** (de-weathering)
+of air quality time series, together with tools for **time-series decomposition**
+and **causal inference** (Synthetic Control Methods).
+
+The typical workflow is:
+
+1. Prepare the data (`nm_prepare_data()`).
+2. Train a machine-learning model that predicts the pollutant from time and
+   meteorological variables (`nm_build_model()` / `nm_train_model()`).
+3. Use the model to remove the influence of meteorology, revealing the
+   underlying trend (`nm_normalise()`).
+4. Optionally decompose the trend further, look at rolling windows, partial
+   dependence, or run a counterfactual analysis with Synthetic Control Methods.
+
+This vignette walks through that workflow using the `my1` and `scm` datasets
+bundled with the package. To keep the vignette fast to build, the model
+configurations below use very small search budgets (`n_trials = 1`); for real
+analyses you will normally want larger budgets (the function defaults).
+
+```{r, eval = !requireNamespace("lightgbm", quietly = TRUE), echo = FALSE, results = "asis"}
+cat("**Note:** the `lightgbm` package is not installed, so the model-training",
+    "examples below are not evaluated. Install it with",
+    "`install.packages(\"lightgbm\")` to run the full workflow.\n")
+```
+
+## Example data
+
+`my1` contains real hourly NO2 observations from the UK AURN station at
+London Marylebone Road (MY1, kerbside) merged with ERA5 meteorology, covering
+January to August 2020 — the meteorological-normalisation case study from the
+normet model-description paper. The window spans the UK COVID-19 lockdown
+(from 2020-03-23), so normalisation reveals a clear emission-driven
+change:
+
+```{r}
+dim(my1)
+my1[1:3, c("date", "NO2", "ws", "wd", "temp", "RH", "blh", "ssrd")]
+```
+
+`scm` is a real monthly panel of observed and meteorologically normalised
+(`NO2_dw`) NO2 for 104 UK
+monitoring sites (2016–2021), used in the Synthetic Control Method section
+below to estimate the effect of the London Ultra Low Emission Zone (ULEZ,
+launched 2019-04-08) at the treated site MY1:
+
+```{r}
+dim(scm)
+scm[scm$code == "MY1", ][1:3, ]
+```
+
+Two further datasets support the transport-aware normalisation case study:
+`my1_pm25` (hourly PM2.5 and meteorology at MY1) and `traj_my1` (6-hourly
+HYSPLIT back-trajectory features arriving at MY1), plus a two-day sample of
+raw HYSPLIT tdump files in `system.file("extdata", "traj", package =
+"normet")`.
+
+## 1. Prepare and train a model
+
+`nm_build_model()` standardises the date column, adds time features
+(`date_unix`, `day_julian`, `weekday`, `hour`), splits the data into training
+and testing sets, and trains a model in one step. It returns both the prepared
+data (`df_prep`) and the trained model.
+
+```{r, eval = requireNamespace("lightgbm", quietly = TRUE)}
+covariates <- c("ws", "wd", "temp", "RH", "blh", "ssrd")
+predictors <- c(covariates, "date_unix", "day_julian", "weekday", "hour")
+
+model_config <- list(
+  n_trials = 1, cv_folds = 2, nrounds = 15,
+  num_leaves_min = 5, num_leaves_max = 15
+)
+
+build <- nm_build_model(
+  my1[1:150, c("date", "NO2", covariates)],
+  value = "NO2", predictors = predictors,
+  model_config = model_config, seed = 42, verbose = FALSE
+)
+
+head(build$df_prep)
+nm_extract_features(build$model)
+```
+
+The target column is renamed to `value` in `df_prep`, regardless of its
+original name. Predictions for any data frame containing the predictor
+columns can be obtained with `nm_predict()`:
+
+```{r, eval = requireNamespace("lightgbm", quietly = TRUE)}
+preds <- nm_predict(build$model, build$df_prep)
+head(preds)
+```
+
+## 2. Save and reload the model
+
+Models can be persisted with `nm_save_model()` and restored with
+`nm_load_model()`. Both dispatch automatically based on the model's backend
+(`lightgbm` or `h2o`).
+
+```{r, eval = requireNamespace("lightgbm", quietly = TRUE)}
+tmp <- tempfile()
+nm_save_model(build$model, path = tmp, filename = "model.rds", verbose = FALSE)
+model2 <- nm_load_model(path = tmp, filename = "model.rds", backend = "lightgbm", verbose = FALSE)
+unlink(tmp, recursive = TRUE)
+
+identical(nm_extract_features(build$model), nm_extract_features(model2))
+```
+
+## 3. Meteorological normalisation
+
+`nm_normalise()` repeatedly resamples the meteorological predictors and
+averages the resulting predictions, producing a meteorologically normalised
+("de-weathered") series that
+isolates the trend from weather-driven variability.
+
+```{r, eval = requireNamespace("lightgbm", quietly = TRUE)}
+norm <- nm_normalise(
+  build$df_prep, build$model,
+  resample_vars = covariates, n_samples = 5, n_cores = 1, verbose = FALSE
+)
+head(norm)
+nm_plot_normalise(norm)
+```
+
+## 4. How many samples? Adaptive convergence
+
+The precision of the normalised series improves with the number of
+Monte-Carlo resamples, following the central-limit ~1/sqrt(n) law. Rather
+than guessing `n_samples`, `nm_normalise_auto()` draws resamples in batches
+and stops automatically once the *whole series* is converged: by default
+(`convergence_metric = "series"`) it stops when the 95th percentile of the
+per-timestamp relative standard error of the cumulative mean falls below the
+tolerance for a stability streak of consecutive checks. The legacy
+`"global"` criterion (batch-to-batch change of the global mean) is retained
+as an option but weakens as sampling proceeds and can stop while individual
+timestamps still carry sampling noise.
+
+```{r, eval = requireNamespace("lightgbm", quietly = TRUE)}
+auto <- nm_normalise_auto(
+  build$df_prep, build$model, resample_vars = covariates,
+  batch_size = 2, max_samples = 10, convergence_tol = 0.2,
+  n_cores = 1, verbose = FALSE, return_history = TRUE
+)
+auto$best_n
+auto$history[, c("n", "metric", "stable_count")]
+```
+
+(The tolerance here is deliberately loose so the vignette builds quickly;
+the default — 3% on the per-timestamp relative standard error — is
+appropriate for real analyses.)
+
+## 5. Decomposition
+
+`nm_decompose()` separates the series into components attributable to
+different drivers. With `method = "emission"`, it isolates the contribution
+of the time-based features (trend, seasonality, weekday, hour) from the
+meteorology-driven "noise":
+
+```{r, eval = requireNamespace("lightgbm", quietly = TRUE)}
+decomp <- nm_decompose(
+  method = "emission", df = build$df_prep, model = build$model,
+  predictors = predictors, n_samples = 2, n_cores = 1, verbose = FALSE
+)
+head(decomp)
+```
+
+## 6. Rolling normalisation
+
+For trend analysis, `nm_rolling()` applies the normalisation within a moving
+window, producing one normalised value per window for each timestamp:
+
+```{r, eval = requireNamespace("lightgbm", quietly = TRUE)}
+roll <- nm_rolling(
+  build$df_prep, model = build$model, predictors = predictors,
+  resample_vars = covariates, window_days = 4, rolling_every = 8,
+  n_samples = 1, n_cores = 1, verbose = FALSE
+)
+head(roll)
+```
+
+## 7. Transport-aware normalisation
+
+Standard normalisation resamples only **local** meteorology, but pollutants
+like PM2.5 at a kerbside site are also shaped by **long-range transport**.
+Augmenting the predictors with HYSPLIT back-trajectory features lets the
+normalisation marginalise over transport too; the difference between the
+local-only and transport-aware normalised series is the transport
+contribution. This is the paper's COVID-19 PM2.5 case study, supported by
+the bundled `my1_pm25` (hourly PM2.5 + ERA5 meteorology) and `traj_my1`
+(6-hourly trajectory-derived source-sector features) datasets.
+
+Raw HYSPLIT endpoint files can be parsed with `nm_read_trajectory_tdump()`
+(a two-day sample ships with the package), and `traj_my1` was built from
+such files with `nm_build_trajectory_features()`:
+
+```{r}
+tdump <- system.file("extdata", "traj", "tdump_2020010100", package = "normet")
+head(nm_read_trajectory_tdump(tdump), 3)
+traj_my1[1:3, 1:6]
+```
+
+Join the 6-hourly trajectory features onto the hourly PM2.5 panel and train
+two models — local meteorology only, and transport-aware — then normalise
+with each:
+
+```{r, eval = requireNamespace("lightgbm", quietly = TRUE)}
+met_cols <- c("ws_era5", "wd_era5", "temp_era5", "blh", "sp", "ssrd", "tcc", "tp")
+traj_cols <- grep("^traj_", names(traj_my1), value = TRUE)
+
+pm <- my1_pm25[!is.na(my1_pm25$pm25), c("date", "pm25", met_cols)]
+pm$date6 <- as.POSIXct(round(as.numeric(pm$date) / 21600) * 21600,
+                       origin = "1970-01-01", tz = "UTC")
+traj6 <- traj_my1
+names(traj6)[names(traj6) == "date"] <- "date6"
+pm <- merge(pm, traj6[, c("date6", traj_cols)], by = "date6")
+pm <- pm[order(pm$date), c("date", "pm25", met_cols, traj_cols)][1:200, ]
+
+preds_local <- c(met_cols, "date_unix", "day_julian", "weekday", "hour")
+preds_transport <- c(met_cols, traj_cols, "date_unix", "day_julian", "weekday", "hour")
+
+b1 <- nm_build_model(pm[, c("date", "pm25", met_cols)], value = "pm25",
+                     predictors = preds_local,
+                     model_config = model_config, seed = 42, verbose = FALSE)
+dw_local <- nm_normalise(b1$df_prep, b1$model, resample_vars = met_cols,
+                         n_samples = 5, n_cores = 1, verbose = FALSE)
+
+b2 <- nm_build_model(pm, value = "pm25", predictors = preds_transport,
+                     model_config = model_config, seed = 42, verbose = FALSE)
+dw_transport <- nm_normalise(b2$df_prep, b2$model,
+                             resample_vars = c(met_cols, traj_cols),
+                             n_samples = 5, n_cores = 1, verbose = FALSE)
+
+transport_contribution <- dw_local$normalised - dw_transport$normalised
+summary(transport_contribution)
+```
+
+Positive values flag hours where a local-only normalisation would attribute
+transport-driven concentration to local emissions. (With the tiny training
+subset and budgets used here this is illustrative only — see the paper for
+the full eight-month analysis.)
+
+## 8. Partial dependence
+
+`nm_pdp()` computes partial dependence values for one or more predictors,
+showing how the model's predictions vary with that predictor while
+marginalising over the others:
+
+```{r, eval = requireNamespace("lightgbm", quietly = TRUE)}
+pdp <- nm_pdp(build$df_prep, build$model, var_list = c("temp"), n_cores = 1, verbose = FALSE)
+head(pdp)
+nm_plot_pdp(pdp)
+```
+
+## 9. End-to-end pipeline
+
+`nm_do_all()` chains data preparation, model training, and normalisation in a
+single call, returning the normalised result, the trained model, and the
+prepared data:
+
+```{r, eval = requireNamespace("lightgbm", quietly = TRUE)}
+result <- nm_do_all(
+  my1[1:150, c("date", "NO2", covariates)],
+  value = "NO2", predictors = predictors,
+  model_config = model_config, n_samples = 5, seed = 42,
+  n_cores = 1, memory_save = FALSE, verbose = FALSE
+)
+names(result)
+head(result$res)
+```
+
+## 10. Causal inference: Synthetic Control Method
+
+`nm_run_scm()` provides a unified interface to several Synthetic Control
+Method variants (`nm_scm()` is the augmented SCM implementation it dispatches
+to by default). Given a panel of one treated unit and several donor units, it
+estimates a synthetic counterfactual for the treated unit and the resulting
+treatment effect:
+
+Following the paper's primary ULEZ design, we take the pre-COVID window
+(2017-01 to 2020-02), use traffic-type sites as the donor pool, and keep
+donors with complete coverage so the donor matrix is fully defined:
+
+```{r}
+win <- scm[scm$date >= as.Date("2017-01-01") & scm$date < as.Date("2020-03-01"), ]
+traffic <- win[grepl("Traffic", win$type), ]
+n_months <- length(unique(traffic$date))
+cov <- tapply(!is.na(traffic$NO2_dw), traffic$code, sum)
+panel <- traffic[traffic$code %in% names(cov)[cov == n_months], ]
+
+res <- nm_run_scm(
+  df = panel, date_col = "date", unit_col = "code", outcome_col = "NO2_dw",
+  treated_unit = "MY1", cutoff_date = "2019-04-01",
+  scm_backend = "scm", verbose = FALSE
+)
+head(res)
+nm_plot_time_series(res, value = "effect", title = "ULEZ effect on normalised NO2 at MY1")
+```
+
+## Next steps
+
+This vignette covers the core workflow. See the function reference
+(`?nm_normalise`, `?nm_decompose`, `?nm_run_scm`, etc.) for additional
+options, including the H2O AutoML backend (`backend = "h2o"`), other SCM
+variants (`scm_backend = "mlscm"`, `"abadie"`, `"did"`, `"mcnnm"`), and
+significance/diagnostic tools for causal estimates.

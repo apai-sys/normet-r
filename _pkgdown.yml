@@ -1,0 +1,69 @@
+url: https://github.com/apai-sys/normet-r
+template:
+  bootstrap: 5
+
+reference:
+- title: Pipeline
+  contents:
+  - nm_do_all
+  - nm_do_all_unc
+  - nm_do_all_multisite
+  - nm_run_workflow
+  - nm_build_model
+  - nm_train_model
+
+- title: Data Preparation
+  contents:
+  - nm_process_date
+  - nm_prepare_data
+  - nm_add_lag_features
+  - nm_add_rolling_features
+  - nm_cyclical_encode
+  - nm_analyze_lag
+
+- title: Weather Normalisation
+  contents:
+  - nm_normalise
+  - nm_normalise_auto
+  - nm_normalise_h2o
+  - nm_normalise_lgb
+  - nm_normalise_ext
+  - nm_rolling
+  - nm_decompose
+
+- title: Causal Inference
+  contents:
+  - nm_run_scm
+  - nm_scm
+  - nm_mlscm
+  - nm_placebo_in_space
+  - nm_placebo_in_time
+  - nm_uncertainty_bands
+  - nm_effect_bands_space
+  - nm_bayesian_scm
+
+- title: Model Interpretation
+  contents:
+  - nm_feature_importance
+  - nm_pdp
+  - nm_modStats
+  - nm_extract_features
+
+- title: Plotting
+  contents:
+  - nm_plot_pdp
+  - nm_plot_pdp_grid
+  - nm_plot_normalise
+  - nm_plot_scm_dashboard
+  - nm_plot_effect_with_bands
+  - nm_plot_uncertainty_bands
+  - nm_plot_decomposition_stack
+
+- title: Utilities
+  contents:
+  - nm_save_model
+  - nm_load_model
+  - nm_init_h2o
+  - nm_stop_h2o
+  - nm_get_logger
+

@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "normet-r-gui"
+version = "1.0.0"
+description = "Qt front-end for the normet R package (runs analyses via Rscript)"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = [
+    "pandas>=1.5",
+    "matplotlib>=3.6",
+    "PySide6>=6.5",
+]
+
+[project.gui-scripts]
+normet-r-gui = "normet_r_gui:main"
+
+[tool.setuptools]
+packages = ["normet_r_gui"]
+
+[tool.setuptools.package-data]
+normet_r_gui = ["bridge.R"]
