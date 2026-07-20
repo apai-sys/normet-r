@@ -48,6 +48,16 @@ nm_generate_resampled <- function(df, resample_vars, replace, seed, resample_df)
 #' @param df The input data frame.
 #' @param model The trained model object.
 #' @param verbose Logical. If TRUE, prints dispatch info. Default is TRUE.
+#' @param cache_dir Character. Directory for on-disk result caching (a
+#'        \code{\link{nm_make_cache}}-style location, keyed via
+#'        \code{\link{nm_config_hash}}/\code{\link{nm_dataframe_hash}}/
+#'        \code{\link{nm_model_hash}}). If NULL (default), caching is
+#'        disabled. Useful since \code{\link{nm_decompose}} calls
+#'        \code{nm_normalise} once per fixed time-variable/meteorological
+#'        feature, each a full Monte Carlo resample-and-predict over
+#'        \code{n_samples} draws. The model is fingerprinted via
+#'        \code{nm_model_hash}, so a re-fit model (even with identical data
+#'        and config) correctly invalidates the cache.
 #' @param ... Additional arguments passed to the implementation function
 #'        (e.g., `n_samples`, `aggregate`, `resample_vars` for H2O).
 #'
@@ -60,7 +70,7 @@ nm_generate_resampled <- function(df, resample_vars, replace, seed, resample_df)
 #'   predictors <- c(covariates, "date_unix", "day_julian", "weekday", "hour")
 #'   build <- nm_build_model(
 #'     my1[1:150, c("date", "NO2", covariates)],
-#'     value = "NO2", predictors = predictors,
+#'     target = "NO2", covariates = predictors,
 #'     model_config = list(n_trials = 1, cv_folds = 2, nrounds = 15,
 #'                          num_leaves_min = 5, num_leaves_max = 15),
 #'     seed = 42, verbose = FALSE
@@ -74,18 +84,43 @@ nm_generate_resampled <- function(df, resample_vars, replace, seed, resample_df)
 #' }
 #'
 #' @export
-nm_normalise <- function(df, model, verbose = TRUE, ...) {
+nm_normalise <- function(df, model, verbose = TRUE, cache_dir = NULL, ...) {
   log <- nm_get_logger("analysis.normalise")
+
+  # --- 0. Optional Cache Check ---
+  cache_key <- NULL
+  if (!is.null(cache_dir)) {
+    dots <- list(...)
+    resample_vars <- dots$resample_vars
+    resample_pool <- if (!is.null(dots$resample_df)) dots$resample_df else df
+    key_cols <- intersect(unique(c(resample_vars, "value", "date")), colnames(df))
+    resample_key_cols <- intersect(
+      if (!is.null(resample_vars)) resample_vars else colnames(resample_pool),
+      colnames(resample_pool)
+    )
+    cache_key <- nm_config_hash(
+      dots[setdiff(names(dots), "resample_df")],
+      nm_dataframe_hash(df, cols = key_cols, include_index = FALSE),
+      nm_dataframe_hash(resample_pool, cols = resample_key_cols, include_index = FALSE),
+      nm_model_hash(model)
+    )
+    cached <- nm_cache_load(cache_dir, cache_key)
+    if (!is.null(cached)) {
+      if (verbose) log$info("normalise() cache hit (%s).", cache_key)
+      return(cached)
+    }
+    if (verbose) log$info("normalise() cache miss (%s). Computing...", cache_key)
+  }
 
   # --- 1. Backend Detection + Dispatch ---
   model_backend <- nm_detect_backend(model)
   if (!is.null(model_backend) && startsWith(model_backend, "h2o")) {
     if (verbose) log$info("Dispatching to H2O backend for normalisation.")
-    return(nm_normalise_h2o(df = df, model = model, verbose = verbose, ...))
+    result <- nm_normalise_h2o(df = df, model = model, verbose = verbose, ...)
 
   } else if (!is.null(model_backend) && model_backend == "lightgbm") {
     if (verbose) log$info("Dispatching to lightgbm backend for normalisation.")
-    return(nm_normalise_lgb(df = df, model = model, verbose = verbose, ...))
+    result <- nm_normalise_lgb(df = df, model = model, verbose = verbose, ...)
 
   } else {
     backend_name <- if (is.null(model_backend)) "NULL" else model_backend
@@ -93,6 +128,14 @@ nm_normalise <- function(df, model, verbose = TRUE, ...) {
     log$error(err_msg)
     stop(err_msg)
   }
+
+  # --- 2. Optional Cache Save ---
+  if (!is.null(cache_dir) && !is.null(cache_key)) {
+    nm_cache_save(cache_dir, cache_key, result)
+    if (verbose) log$info("normalise() result cached to '%s'.", cache_dir)
+  }
+
+  result
 }
 
 

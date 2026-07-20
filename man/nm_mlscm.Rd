@@ -15,7 +15,7 @@ nm_mlscm(
   backend = "lightgbm",
   model_config = NULL,
   split_method = "random",
-  fraction = 1,
+  train_fraction = 1,
   seed = 7654321,
   n_cores = NULL,
   max_mem_size = NULL,
@@ -43,7 +43,7 @@ nm_mlscm(
 
 \item{split_method}{Data splitting method for validation ("random", "time", etc.).}
 
-\item{fraction}{Fraction of pre-treatment data used for training (default 1.0).}
+\item{train_fraction}{Fraction of pre-treatment data used for training (default 1.0).}
 
 \item{seed}{Random seed for reproducibility.}
 

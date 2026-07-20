@@ -6,9 +6,9 @@
 \usage{
 nm_do_all_unc(
   df = NULL,
-  value = "value",
+  target = "value",
   backend = "lightgbm",
-  predictors = NULL,
+  covariates = NULL,
   resample_vars = NULL,
   resample_df = NULL,
   n_samples = 300,
@@ -18,7 +18,7 @@ nm_do_all_unc(
   weighted_method = "r2",
   seed = 7654321,
   split_method = "random",
-  fraction = 0.75,
+  train_fraction = 0.75,
   model_config = NULL,
   n_cores = NULL,
   max_mem_size = NULL,
@@ -29,11 +29,11 @@ nm_do_all_unc(
 \arguments{
 \item{df}{The raw input data frame.}
 
-\item{value}{The target variable name as a string (default 'value').}
+\item{target}{The target variable name as a string (default 'value').}
 
 \item{backend}{The modeling backend to use (default 'lightgbm', or 'h2o').}
 
-\item{predictors}{Character vector of features used for \strong{training}.}
+\item{covariates}{Character vector of features used for \strong{training}.}
 
 \item{resample_vars}{Character vector of variables to resample during normalisation.}
 
@@ -53,7 +53,7 @@ nm_do_all_unc(
 
 \item{split_method}{Method for splitting data (e.g., 'random').}
 
-\item{fraction}{Proportion of data used for training (default 0.75).}
+\item{train_fraction}{Proportion of data used for training (default 0.75).}
 
 \item{model_config}{List of configuration parameters for \code{nm_build_model}.}
 

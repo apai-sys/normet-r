@@ -6,7 +6,7 @@
 \usage{
 nm_plot_polar(
   df,
-  value = NULL,
+  target = NULL,
   ws_col = "ws",
   wd_col = "wd",
   statistic = "mean",
@@ -17,9 +17,9 @@ nm_plot_polar(
 )
 }
 \arguments{
-\item{df}{Data frame with wind speed, direction, and value columns.}
+\item{df}{Data frame with wind speed, direction, and target columns.}
 
-\item{value}{Character. Column to aggregate (e.g., concentration).}
+\item{target}{Character. Column to aggregate (e.g., concentration).}
 
 \item{ws_col}{Character. Wind speed column. Default "ws".}
 

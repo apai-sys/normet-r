@@ -11,7 +11,7 @@ utils::globalVariables(c(
   "set", "s", "normalised", "p_value", "ref_band_event_time",
   "placebo_stats", "date_d", "var", "value", "sum_norm", "i.normalised",
   "n_total", "observed", "n_norm", "sum_obs", "n_obs", "pdp_mean",
-  "variable", "code", "season_temp", "month_temp",
+  "variable", "code", "season_temp", "ym_temp", "season_year_temp", "sy_key_temp",
   "synthetic", "synthetic_low", "synthetic_high",
   "effect_low", "effect_high", "contribution", "pdp_std", "theta_rad", "r",
   "weight", "donor", "site", ".x"

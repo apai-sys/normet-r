@@ -6,8 +6,8 @@
 \usage{
 nm_train_lgb(
   df,
-  value = "value",
-  predictors = NULL,
+  target = "value",
+  covariates = NULL,
   model_config = NULL,
   seed = 7654321,
   verbose = TRUE
@@ -16,9 +16,9 @@ nm_train_lgb(
 \arguments{
 \item{df}{Training data frame or data.table.}
 
-\item{value}{Target column name. Default \code{"value"}.}
+\item{target}{Target column name. Default \code{"value"}.}
 
-\item{predictors}{Character vector of feature column names. Factor/character
+\item{covariates}{Character vector of feature column names. Factor/character
 columns (e.g. \code{"weekday"}) are automatically encoded as categorical
 features for lightgbm.}
 

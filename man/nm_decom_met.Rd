@@ -7,11 +7,11 @@
 nm_decom_met(
   df = NULL,
   model = NULL,
-  value = "value",
-  predictors = NULL,
+  target = "value",
+  covariates = NULL,
   backend = "lightgbm",
   split_method = "random",
-  fraction = 0.75,
+  train_fraction = 0.75,
   model_config = NULL,
   n_samples = 300,
   seed = 7654321,
@@ -20,7 +20,9 @@ nm_decom_met(
   max_mem_size = NULL,
   resample_df = NULL,
   memory_save = FALSE,
-  verbose = TRUE
+  verbose = TRUE,
+  cache_dir = NULL,
+  variable_order = NULL
 )
 }
 \arguments{
@@ -28,15 +30,15 @@ nm_decom_met(
 
 \item{model}{Pre-trained model. If NULL, a model will be trained.}
 
-\item{value}{The target variable name as a string (default 'value').}
+\item{target}{The target variable name as a string (default 'value').}
 
-\item{predictors}{Character vector of features used for \strong{training} (if model is NULL).}
+\item{covariates}{Character vector of features used for \strong{training} (if model is NULL).}
 
 \item{backend}{The modeling backend (default 'lightgbm', or 'h2o').}
 
 \item{split_method}{Method for splitting data (e.g., 'random').}
 
-\item{fraction}{Proportion of data used for training.}
+\item{train_fraction}{Proportion of data used for training.}
 
 \item{model_config}{List of configuration parameters for model training.}
 
@@ -59,6 +61,23 @@ If NULL, defaults to \code{df}.}
 \item{memory_save}{Logical. Enable memory-efficient processing.}
 
 \item{verbose}{Logical. Print progress messages.}
+
+\item{cache_dir}{Character. Directory for on-disk caching of the internal
+model fit (when \code{model} is NULL, forwarded to
+\code{\link{nm_build_model}}) and of every per-component
+\code{\link{nm_normalise}} call. If NULL (default), disabled.}
+
+\item{variable_order}{Character vector or NULL (default). Explicit
+meteorological-feature decomposition order. If NULL, order is
+derived from fitted feature importance via \code{importance_ascending},
+which can silently reorder "which component comes first" across
+refits of the same features/data with a different seed --
+results aren't directly comparable run to run. Pass an explicit
+vector (must be exactly the model's non-time-variable features,
+in any permutation) to get a decomposition order that stays
+fixed and comparable across runs regardless of the underlying
+model's importance ranking. An incomplete/mismatched vector
+raises an immediate, clear error.}
 }
 \value{
 A data frame containing:
@@ -83,4 +102,15 @@ The function uses a sequential "Freeze-and-Shuffle" approach:
 \item \strong{Step 3 (Next Weather Var)}: Freeze the next variable (plus previous ones) and compare to the previous state.
 \item \strong{Residuals}: \code{met_noise} captures the variance not explained by the model's main effects.
 }
+
+Note the asymmetry with \code{\link{nm_decom_emi}}: that function
+freezes time variables in a \emph{hardcoded} calendar order (\code{date_unix}
+before \code{day_julian} before \code{weekday} before \code{hour}, chosen so each
+component has a specific temporal-frequency meaning -- see its
+details), whereas this function orders meteorological variables by
+\emph{fitted importance} (\code{importance_ascending}), which can vary run to run
+with the underlying model. The two are not directly comparable in how
+"which component comes first" was decided. Pass \code{variable_order} to pin
+an explicit order instead, for results that stay comparable across
+model refits.
 }

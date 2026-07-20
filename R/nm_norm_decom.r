@@ -18,11 +18,14 @@
 #' @param method The decomposition method to use. One of `"emission"` or `"meteorology"`.
 #' @param df Data frame containing the input data.
 #' @param model Optional pre-trained model. If `NULL`, a model will be trained.
-#' @param value The target variable name as a string.
+#' @param target The target variable name as a string.
 #' @param backend The modeling backend to use (default 'lightgbm', or 'h2o').
-#' @param predictors The names of the features used for training (if model is NULL).
-#' @param split_method Method for splitting data for model training (e.g., 'random').
-#' @param fraction Proportion of data for training if a model is trained.
+#' @param covariates The names of the features used for training (if model is NULL).
+#' @param split_method Method for splitting data for model training (e.g.,
+#'   'random'). See \code{\link{nm_split_into_sets}} for the exact mechanics
+#'   and its warning about `"month_ts"`/`"season_ts"`'s fixed-position
+#'   training blind spot.
+#' @param train_fraction Proportion of data for training if a model is trained.
 #' @param model_config A list of configuration parameters for model training.
 #' @param n_samples Number of samples for the normalisation process.
 #' @param seed A random seed for reproducibility.
@@ -35,6 +38,17 @@
 #' @param resample_df External resampling pool. If NULL, `df` is used.
 #' @param memory_save Logical flag for memory-efficient normalisation.
 #' @param verbose Should the function print progress messages and logs?
+#' @param cache_dir Character. Directory for on-disk caching of the internal
+#'        model fit (when `model` is NULL) and of every per-component
+#'        \code{\link{nm_normalise}} call in the decomposition loop -- see
+#'        \code{\link{nm_normalise}}'s `cache_dir` for why this matters
+#'        (each step is a full Monte Carlo resample-and-predict). If NULL
+#'        (default), caching is disabled.
+#' @param variable_order Character vector or NULL. Explicit meteorological-
+#'        feature decomposition order, forwarded to \code{\link{nm_decom_met}}
+#'        (ignored when `method = "emission"`, which always uses its own
+#'        hardcoded calendar order). See \code{\link{nm_decom_met}}'s
+#'        `variable_order` for details.
 #'
 #' @return A data frame with the decomposed components.
 #'
@@ -45,14 +59,14 @@
 #'   predictors <- c(covariates, "date_unix", "day_julian", "weekday", "hour")
 #'   build <- nm_build_model(
 #'     my1[1:150, c("date", "NO2", covariates)],
-#'     value = "NO2", predictors = predictors,
+#'     target = "NO2", covariates = predictors,
 #'     model_config = list(n_trials = 1, cv_folds = 2, nrounds = 15,
 #'                          num_leaves_min = 5, num_leaves_max = 15),
 #'     seed = 42, verbose = FALSE
 #'   )
 #'   decomp <- nm_decompose(
 #'     method = "emission", df = build$df_prep, model = build$model,
-#'     predictors = predictors, n_samples = 2, n_cores = 1, verbose = FALSE
+#'     covariates = predictors, n_samples = 2, n_cores = 1, verbose = FALSE
 #'   )
 #'   head(decomp)
 #' }
@@ -62,11 +76,11 @@
 nm_decompose <- function(method = "emission",
                          df = NULL,
                          model = NULL,
-                         value = "value",
-                         predictors = NULL,
+                         target = "value",
+                         covariates = NULL,
                          backend = "lightgbm",
                          split_method = "random",
-                         fraction = 0.75,
+                         train_fraction = 0.75,
                          model_config = NULL,
                          n_samples = 300,
                          seed = 7654321,
@@ -75,10 +89,12 @@ nm_decompose <- function(method = "emission",
                          max_mem_size = NULL,
                          resample_df = NULL,
                          memory_save = FALSE,
-                         verbose = TRUE) {
+                         verbose = TRUE,
+                         cache_dir = NULL,
+                         variable_order = NULL) {
   # --- 1. Validate Common Inputs ---
-  if (is.null(df) || is.null(value)) stop("`df` and `value` must be provided.")
-  if (is.null(model) && is.null(predictors)) stop("Either `model` or `predictors` must be provided.")
+  if (is.null(df) || is.null(target)) stop("`df` and `target` must be provided.")
+  if (is.null(model) && is.null(covariates)) stop("Either `model` or `covariates` must be provided.")
   if (is.null(model) && is.null(backend)) stop("When training a model, `backend` must be specified.")
 
   # --- 2. Dispatch Based on Method ---
@@ -86,11 +102,11 @@ nm_decompose <- function(method = "emission",
     return(nm_decom_emi(
       df = df,
       model = model,
-      value = value,
-      predictors = predictors,
+      target = target,
+      covariates = covariates,
       backend = backend,
       split_method = split_method,
-      fraction = fraction,
+      train_fraction = train_fraction,
       model_config = model_config,
       n_samples = n_samples,
       seed = seed,
@@ -98,7 +114,8 @@ nm_decompose <- function(method = "emission",
       max_mem_size = max_mem_size,
       resample_df = resample_df,
       memory_save = memory_save,
-      verbose = verbose
+      verbose = verbose,
+      cache_dir = cache_dir
     ))
   }
 
@@ -106,11 +123,11 @@ nm_decompose <- function(method = "emission",
     return(nm_decom_met(
       df = df,
       model = model,
-      value = value,
-      predictors = predictors,
+      target = target,
+      covariates = covariates,
       backend = backend,
       split_method = split_method,
-      fraction = fraction,
+      train_fraction = train_fraction,
       model_config = model_config,
       n_samples = n_samples,
       seed = seed,
@@ -119,7 +136,9 @@ nm_decompose <- function(method = "emission",
       max_mem_size = max_mem_size,
       resample_df = resample_df,
       memory_save = memory_save,
-      verbose = verbose
+      verbose = verbose,
+      cache_dir = cache_dir,
+      variable_order = variable_order
     ))
   }
 
@@ -145,13 +164,44 @@ nm_decompose <- function(method = "emission",
 #' }
 #' The final differences between these states reveal the net contribution of each component.
 #'
+#' **This fixed order is not just bookkeeping -- it determines what each
+#' component can and cannot represent.** Because `date_unix` is frozen
+#' *before* `day_julian`, `weekday`, and `hour`, the returned `date_unix`
+#' ("Trend") component is computed while every within-year calendar
+#' position is still being shuffled -- it cannot carry a recurring,
+#' calendar-aligned signal (e.g. a Christmas/New Year dip that recurs every
+#' year), only a genuine long-term drift. Conversely, `day_julian`
+#' (labelled "Seasonality" above) is computed with `date_unix` already
+#' frozen at *each row's own observed value*, so it is NOT a pooled,
+#' climatological quantity the way a bottom-up seasonal factor would be --
+#' it stays native to the specific year and can register a one-off,
+#' non-repeating event (e.g. a single year's holiday dip, or a structural
+#' break such as a lockdown) despite its "Seasonality" label. If you need
+#' to examine a recurring calendar effect, look at `day_julian`, not
+#' `date_unix`, even though "Trend" sounds like the more natural place to
+#' look for it.
+#'
+#' Time variables are opt-in at the model level (see
+#' \code{\link{nm_build_model}}'s `covariates`), not mandatory -- this
+#' function adapts automatically. Only whichever of
+#' `date_unix`/`day_julian`/`weekday`/`hour` actually ended up as a model
+#' feature get decomposed into their own component; the rest are simply
+#' absent from the result (no error). A model trained on none of the four
+#' (e.g. meteorology/traffic predictors only) still decomposes cleanly into
+#' `base`/`emi_base`/`emi_noise` with no time-variable columns at all.
+#'
 #' @param df The input data frame. Must contain a 'date' column and the target variable.
 #' @param model Pre-trained model. If NULL, a new model will be trained.
-#' @param value The target variable name as a string (default 'value').
-#' @param predictors Character vector of features used for **training** (if model is NULL).
+#' @param target The target variable name as a string (default 'value').
+#' @param covariates Character vector of features used for **training** (if model is NULL).
 #' @param backend The modeling backend to use (default 'lightgbm', or 'h2o').
-#' @param split_method Method for splitting data (e.g., 'random').
-#' @param fraction Proportion of data used for training (default 0.75).
+#' @param split_method Method for splitting data (e.g., 'random'). See
+#'   \code{\link{nm_split_into_sets}} for the exact mechanics -- in
+#'   particular, `"month_ts"`/`"season_ts"` hold out a block at a *fixed
+#'   relative position* within every period, which can create a permanent
+#'   training blind spot aligned with a specific calendar window (see that
+#'   function's warning).
+#' @param train_fraction Proportion of data used for training (default 0.75).
 #' @param model_config List of configuration parameters for model training.
 #' @param n_samples Number of resampling iterations per step (default 300).
 #' @param seed Random seed for reproducibility.
@@ -163,6 +213,10 @@ nm_decompose <- function(method = "emission",
 #'        If NULL, defaults to `df`.
 #' @param memory_save Logical. Enable memory-efficient processing.
 #' @param verbose Logical. Print progress messages.
+#' @param cache_dir Character. Directory for on-disk caching of the internal
+#'        model fit (when `model` is NULL, forwarded to
+#'        \code{\link{nm_build_model}}) and of every per-component
+#'        \code{\link{nm_normalise}} call. If NULL (default), disabled.
 #'
 #' @return A data frame containing:
 #' \itemize{
@@ -175,14 +229,15 @@ nm_decompose <- function(method = "emission",
 #' }
 #'
 #' @export
-nm_decom_emi <- function(df = NULL, model = NULL, value = "value",
-                         predictors = NULL, backend = "lightgbm",
-                         split_method = "random", fraction = 0.75,
+nm_decom_emi <- function(df = NULL, model = NULL, target = "value",
+                         covariates = NULL, backend = "lightgbm",
+                         split_method = "random", train_fraction = 0.75,
                          model_config = NULL, n_samples = 300, seed = 7654321,
                          n_cores = NULL,
                          max_mem_size = NULL,
                          resample_df = NULL,
-                         memory_save = FALSE, verbose = TRUE) {
+                         memory_save = FALSE, verbose = TRUE,
+                         cache_dir = NULL) {
 
   log <- nm_get_logger("analysis.decompose.emissions")
 
@@ -199,15 +254,15 @@ nm_decom_emi <- function(df = NULL, model = NULL, value = "value",
   df_work <- nm_process_date(df)
 
   # Filter NAs in target to prevent training errors
-  if (!value %in% names(df_work)) stop(sprintf("Target column '%s' not found in df.", value))
+  if (!target %in% names(df_work)) stop(sprintf("Target column '%s' not found in df.", target))
   df_work <- df_work %>%
-    dplyr::filter(!is.na(date) & !is.na(.data[[value]])) %>%
+    dplyr::filter(!is.na(date) & !is.na(.data[[target]])) %>%
     dplyr::arrange(date)
 
   # Standardize target column name locally
-  observed_series <- df_work[[value]]
-  if (value != "value") {
-    df_work$value <- df_work[[value]]
+  observed_series <- df_work[[target]]
+  if (target != "value") {
+    df_work$value <- df_work[[target]]
   }
 
   # Prepare Resampling Pool
@@ -223,14 +278,15 @@ nm_decom_emi <- function(df = NULL, model = NULL, value = "value",
 
     build_results <- nm_build_model(
       df = df_work,
-      value = "value",
+      target = "value",
       backend = backend,
-      predictors = predictors,
+      covariates = covariates,
       split_method = split_method,
-      fraction = fraction,
+      train_fraction = train_fraction,
       model_config = model_config,
       seed = seed,
-      verbose = verbose
+      verbose = verbose,
+      cache_dir = cache_dir
     )
     df_work <- build_results$df_prep
     model <- build_results$model
@@ -240,10 +296,10 @@ nm_decom_emi <- function(df = NULL, model = NULL, value = "value",
   model_feats <- if (backend == "h2o" && inherits(model, "H2OModel")) {
     model@parameters$x
   } else {
-    predictors
+    covariates
   }
 
-  if (is.null(model_feats)) stop("Could not determine model features. Please provide `predictors` or a valid H2O model.")
+  if (is.null(model_feats)) stop("Could not determine model features. Please provide `covariates` or a valid H2O model.")
 
   model_feats <- intersect(model_feats, colnames(df_work))
   if (length(model_feats) == 0) stop("None of the model features match columns in `df`.")
@@ -303,7 +359,8 @@ nm_decom_emi <- function(df = NULL, model = NULL, value = "value",
       memory_save = memory_save,
       verbose = FALSE,
       aggregate = TRUE,
-      n_cores = n_cores_eff
+      n_cores = n_cores_eff,
+      cache_dir = cache_dir
     )
 
     tmp_results[[var_to_freeze]] <- df_norm$normalised
@@ -362,13 +419,24 @@ nm_decom_emi <- function(df = NULL, model = NULL, value = "value",
 #'   \item **Residuals**: `met_noise` captures the variance not explained by the model's main effects.
 #' }
 #'
+#' Note the asymmetry with \code{\link{nm_decom_emi}}: that function
+#' freezes time variables in a *hardcoded* calendar order (`date_unix`
+#' before `day_julian` before `weekday` before `hour`, chosen so each
+#' component has a specific temporal-frequency meaning -- see its
+#' details), whereas this function orders meteorological variables by
+#' *fitted importance* (`importance_ascending`), which can vary run to run
+#' with the underlying model. The two are not directly comparable in how
+#' "which component comes first" was decided. Pass `variable_order` to pin
+#' an explicit order instead, for results that stay comparable across
+#' model refits.
+#'
 #' @param df The input data frame. Must contain a 'date' column.
 #' @param model Pre-trained model. If NULL, a model will be trained.
-#' @param value The target variable name as a string (default 'value').
-#' @param predictors Character vector of features used for **training** (if model is NULL).
+#' @param target The target variable name as a string (default 'value').
+#' @param covariates Character vector of features used for **training** (if model is NULL).
 #' @param backend The modeling backend (default 'lightgbm', or 'h2o').
 #' @param split_method Method for splitting data (e.g., 'random').
-#' @param fraction Proportion of data used for training.
+#' @param train_fraction Proportion of data used for training.
 #' @param model_config List of configuration parameters for model training.
 #' @param n_samples Number of resampling iterations per step (default 300).
 #' @param seed Random seed for reproducibility.
@@ -382,6 +450,21 @@ nm_decom_emi <- function(df = NULL, model = NULL, value = "value",
 #'        If NULL, defaults to `df`.
 #' @param memory_save Logical. Enable memory-efficient processing.
 #' @param verbose Logical. Print progress messages.
+#' @param cache_dir Character. Directory for on-disk caching of the internal
+#'        model fit (when `model` is NULL, forwarded to
+#'        \code{\link{nm_build_model}}) and of every per-component
+#'        \code{\link{nm_normalise}} call. If NULL (default), disabled.
+#' @param variable_order Character vector or NULL (default). Explicit
+#'        meteorological-feature decomposition order. If NULL, order is
+#'        derived from fitted feature importance via `importance_ascending`,
+#'        which can silently reorder "which component comes first" across
+#'        refits of the same features/data with a different seed --
+#'        results aren't directly comparable run to run. Pass an explicit
+#'        vector (must be exactly the model's non-time-variable features,
+#'        in any permutation) to get a decomposition order that stays
+#'        fixed and comparable across runs regardless of the underlying
+#'        model's importance ranking. An incomplete/mismatched vector
+#'        raises an immediate, clear error.
 #'
 #' @return A data frame containing:
 #' \itemize{
@@ -394,20 +477,22 @@ nm_decom_emi <- function(df = NULL, model = NULL, value = "value",
 #' }
 #'
 #' @export
-nm_decom_met <- function(df = NULL, model = NULL, value = "value",
-                         predictors = NULL, backend = "lightgbm",
-                         split_method = "random", fraction = 0.75,
+nm_decom_met <- function(df = NULL, model = NULL, target = "value",
+                         covariates = NULL, backend = "lightgbm",
+                         split_method = "random", train_fraction = 0.75,
                          model_config = NULL, n_samples = 300, seed = 7654321,
                          importance_ascending = FALSE,
                          n_cores = NULL,
                          max_mem_size = NULL,
                          resample_df = NULL,
-                         memory_save = FALSE, verbose = TRUE) {
+                         memory_save = FALSE, verbose = TRUE,
+                         cache_dir = NULL,
+                         variable_order = NULL) {
 
   log <- nm_get_logger("analysis.decompose.met")
 
   # --- 1. Setup & H2O Init ---
-  if (is.null(df) || is.null(value)) stop("`df` and `value` must be provided.")
+  if (is.null(df) || is.null(target)) stop("`df` and `target` must be provided.")
 
   if (backend == "h2o") {
     # Pass both cores and memory settings
@@ -418,14 +503,14 @@ nm_decom_met <- function(df = NULL, model = NULL, value = "value",
   # --- 2. Prepare Data ---
   df_work <- nm_process_date(df)
 
-  if (!value %in% names(df_work)) stop(sprintf("Target column '%s' not found.", value))
+  if (!target %in% names(df_work)) stop(sprintf("Target column '%s' not found.", target))
   df_work <- df_work %>%
-    dplyr::filter(!is.na(date) & !is.na(.data[[value]])) %>%
+    dplyr::filter(!is.na(date) & !is.na(.data[[target]])) %>%
     dplyr::arrange(date)
 
-  observed_series <- df_work[[value]]
-  if (value != "value") {
-    df_work$value <- df_work[[value]]
+  observed_series <- df_work[[target]]
+  if (target != "value") {
+    df_work$value <- df_work[[target]]
   }
 
   # Prepare Resampling Pool
@@ -439,9 +524,9 @@ nm_decom_met <- function(df = NULL, model = NULL, value = "value",
   if (is.null(model)) {
     if (verbose) log$info("Training model via backend='%s'...", backend)
     build_results <- nm_build_model(
-      df = df_work, value = "value", backend = backend, predictors = predictors,
-      split_method = split_method, fraction = fraction, model_config = model_config,
-      seed = seed, verbose = verbose
+      df = df_work, target = "value", backend = backend, covariates = covariates,
+      split_method = split_method, train_fraction = train_fraction, model_config = model_config,
+      seed = seed, verbose = verbose, cache_dir = cache_dir
     )
     df_work <- build_results$df_prep
     model <- build_results$model
@@ -452,7 +537,7 @@ nm_decom_met <- function(df = NULL, model = NULL, value = "value",
     nm_extract_features(model, importance_ascending = importance_ascending),
     error = function(e) {
       if (backend == "h2o" && inherits(model, "H2OModel")) return(model@parameters$x)
-      return(predictors)
+      return(covariates)
     }
   )
 
@@ -463,6 +548,20 @@ nm_decom_met <- function(df = NULL, model = NULL, value = "value",
   # Isolate Weather Variables (Remove Time Components)
   time_vars <- c("hour", "weekday", "day_julian", "date_unix")
   contrib_candidates <- feat_sorted[!feat_sorted %in% time_vars]
+
+  if (!is.null(variable_order)) {
+    actual_set <- unique(contrib_candidates)
+    requested_set <- unique(variable_order)
+    if (!setequal(actual_set, requested_set)) {
+      missing <- setdiff(actual_set, requested_set)
+      extra <- setdiff(requested_set, actual_set)
+      stop(sprintf(
+        "`variable_order` must be exactly the model's meteorological (non-time) features, in any order. Missing: %s. Not in model: %s.",
+        paste(missing, collapse = ", "), paste(extra, collapse = ", ")
+      ))
+    }
+    contrib_candidates <- variable_order
+  }
 
   if (length(contrib_candidates) == 0) log$warn("No weather variables found to decompose.")
 
@@ -514,7 +613,8 @@ nm_decom_met <- function(df = NULL, model = NULL, value = "value",
       memory_save = memory_save,
       verbose = FALSE,
       aggregate = TRUE,
-      n_cores = n_cores_eff
+      n_cores = n_cores_eff,
+      cache_dir = cache_dir
     )
 
     tmp_results[[var_to_freeze]] <- df_norm$normalised

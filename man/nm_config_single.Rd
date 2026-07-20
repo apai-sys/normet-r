@@ -5,12 +5,12 @@
 \title{Create a Configuration for a Single Normalisation Run}
 \usage{
 nm_config_single(
-  value,
+  target,
   backend = "lightgbm",
-  predictors = NULL,
+  covariates = NULL,
   resample_vars = NULL,
   split_method = "random",
-  fraction = 0.75,
+  train_fraction = 0.75,
   model_config = NULL,
   n_samples = 300,
   aggregate = TRUE,
@@ -23,17 +23,17 @@ nm_config_single(
 )
 }
 \arguments{
-\item{value}{The target variable name.}
+\item{target}{The target variable name.}
 
 \item{backend}{The modeling backend: 'lightgbm' (default) or 'h2o'.}
 
-\item{predictors}{Character vector of feature names for training.}
+\item{covariates}{Character vector of feature names for training.}
 
 \item{resample_vars}{Character vector of variables to resample.}
 
 \item{split_method}{Method for splitting data.}
 
-\item{fraction}{Proportion of data for training.}
+\item{train_fraction}{Proportion of data for training.}
 
 \item{model_config}{List of model configuration parameters.}
 

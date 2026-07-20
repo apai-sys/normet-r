@@ -9,17 +9,17 @@
 #' }
 #'
 #' @param df The raw input data frame.
-#' @param value The target variable name as a string (default 'value').
+#' @param target The target variable name as a string (default 'value').
 #' @param backend The modeling backend to use for training: 'lightgbm' (default) or 'h2o'.
-#' @param predictors The names of the features used for **training**.
+#' @param covariates The names of the features used for **training**.
 #' @param resample_vars Character vector of variables to resample (shuffle) during normalisation.
-#'        If NULL, defaults to all predictors except time variables.
+#'        If NULL, defaults to all covariates except time variables.
 #' @param resample_df External resampling pool. If NULL, `df` is used as the source pool.
 #' @param n_samples Number of resampling iterations for normalisation.
 #' @param aggregate Logical. If TRUE, returns aggregated means; if FALSE, returns raw rows.
 #' @param seed A random seed for reproducibility.
 #' @param split_method Method for splitting data for model training (e.g., 'random').
-#' @param fraction Proportion of data used for training (default 0.75).
+#' @param train_fraction Proportion of data used for training (default 0.75).
 #' @param model_config A list of configuration parameters passed to the model training function.
 #' @param n_cores Number of CPU cores to use for **H2O cluster initialization**.
 #' @param max_mem_size Maximum memory for H2O (e.g., "16G"). If NULL, auto-detected.
@@ -44,7 +44,7 @@
 #'   predictors <- c(covariates, "date_unix", "day_julian", "weekday", "hour")
 #'   result <- nm_do_all(
 #'     my1[1:150, c("date", "NO2", covariates)],
-#'     value = "NO2", predictors = predictors,
+#'     target = "NO2", covariates = predictors,
 #'     model_config = list(n_trials = 1, cv_folds = 2, nrounds = 15,
 #'                          num_leaves_min = 5, num_leaves_max = 15),
 #'     n_samples = 5, seed = 42, n_cores = 1, memory_save = FALSE, verbose = FALSE
@@ -55,10 +55,10 @@
 #' }
 #'
 #' @export
-nm_do_all <- function(df = NULL, value = "value", backend = "lightgbm", predictors = NULL,
+nm_do_all <- function(df = NULL, target = "value", backend = "lightgbm", covariates = NULL,
                       resample_vars = NULL, resample_df = NULL, n_samples = 300,
                       aggregate = TRUE, seed = 7654321,
-                      split_method = "random", fraction = 0.75,
+                      split_method = "random", train_fraction = 0.75,
                       model_config = NULL, n_cores = NULL,
                       max_mem_size = NULL,
                       memory_save = TRUE, verbose = TRUE,
@@ -67,7 +67,7 @@ nm_do_all <- function(df = NULL, value = "value", backend = "lightgbm", predicto
   start_time <- Sys.time()
 
   if (verbose) {
-    log$info("Starting pipeline | backend=%s | value=%s | n_samples=%d", backend, value, n_samples)
+    log$info("Starting pipeline | backend=%s | target=%s | n_samples=%d", backend, target, n_samples)
   }
 
   # --- 0. Cache check ---
@@ -75,8 +75,8 @@ nm_do_all <- function(df = NULL, value = "value", backend = "lightgbm", predicto
   if (!is.null(cache_dir)) {
     cache_key <- nm_config_hash(
       nm_dataframe_hash(df, include_index = FALSE),
-      value, backend, predictors, resample_vars, n_samples,
-      aggregate, seed, split_method, fraction, model_config
+      target, backend, covariates, resample_vars, n_samples,
+      aggregate, seed, split_method, train_fraction, model_config
     )
     cached <- nm_cache_load(cache_dir, cache_key)
     if (!is.null(cached)) {
@@ -94,11 +94,11 @@ nm_do_all <- function(df = NULL, value = "value", backend = "lightgbm", predicto
   # --- 2) & 3) Prepare data and Train model ---
   build_results <- nm_build_model(
     df = df,
-    value = value,
+    target = target,
     backend = backend,
-    predictors = predictors,
+    covariates = covariates,
     split_method = split_method,
-    fraction = fraction,
+    train_fraction = train_fraction,
     model_config = model_config,
     seed = seed,
     verbose = verbose
@@ -156,9 +156,9 @@ nm_do_all <- function(df = NULL, value = "value", backend = "lightgbm", predicto
 #' }
 #'
 #' @param df The raw input data frame.
-#' @param value The target variable name as a string (default 'value').
+#' @param target The target variable name as a string (default 'value').
 #' @param backend The modeling backend to use (default 'lightgbm', or 'h2o').
-#' @param predictors Character vector of features used for **training**.
+#' @param covariates Character vector of features used for **training**.
 #' @param resample_vars Character vector of variables to resample during normalisation.
 #' @param resample_df External resampling pool.
 #' @param n_samples Number of resampling iterations per model for normalisation.
@@ -168,7 +168,7 @@ nm_do_all <- function(df = NULL, value = "value", backend = "lightgbm", predicto
 #' @param weighted_method Metric for model weighting: "r2" (default) or "rmse".
 #' @param seed Base random seed for reproducibility.
 #' @param split_method Method for splitting data (e.g., 'random').
-#' @param fraction Proportion of data used for training (default 0.75).
+#' @param train_fraction Proportion of data used for training (default 0.75).
 #' @param model_config List of configuration parameters for `nm_build_model`.
 #' @param n_cores Number of CPU cores to use for **H2O Initialization**.
 #' @param max_mem_size Maximum memory for H2O (e.g., "16G"). If NULL, auto-detected.
@@ -184,10 +184,10 @@ nm_do_all <- function(df = NULL, value = "value", backend = "lightgbm", predicto
 #' @importFrom dplyr rename_with bind_cols bind_rows filter left_join
 #' @importFrom progress progress_bar
 #' @export
-nm_do_all_unc <- function(df = NULL, value = "value", backend = "lightgbm", predictors = NULL,
+nm_do_all_unc <- function(df = NULL, target = "value", backend = "lightgbm", covariates = NULL,
                           resample_vars = NULL, resample_df = NULL, n_samples = 300, n_models = 5,
                           memory_save = TRUE, confidence_level = 0.95, weighted_method = "r2", seed = 7654321,
-                          split_method = "random", fraction = 0.75, model_config = NULL,
+                          split_method = "random", train_fraction = 0.75, model_config = NULL,
                           n_cores = NULL, max_mem_size = NULL, verbose = TRUE, cleanup_every = 5) {
 
   log <- nm_get_logger("workflow.do_all_unc")
@@ -212,8 +212,8 @@ nm_do_all_unc <- function(df = NULL, value = "value", backend = "lightgbm", pred
   .run_one <- function(current_seed) {
     tryCatch(
       nm_do_all(
-        df = df, value = value, backend = backend, predictors = predictors,
-        resample_vars = resample_vars, split_method = split_method, fraction = fraction,
+        df = df, target = target, backend = backend, covariates = covariates,
+        resample_vars = resample_vars, split_method = split_method, train_fraction = train_fraction,
         model_config = model_config, n_samples = n_samples, seed = current_seed,
         n_cores = NULL, resample_df = resample_df,
         memory_save = memory_save, verbose = FALSE, aggregate = TRUE

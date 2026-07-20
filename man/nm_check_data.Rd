@@ -4,7 +4,7 @@
 \alias{nm_check_data}
 \title{Check Data Validity}
 \usage{
-nm_check_data(dt, covariates, value)
+nm_check_data(dt, covariates, target)
 }
 \description{
 Check Data Validity

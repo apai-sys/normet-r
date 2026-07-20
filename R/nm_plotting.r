@@ -54,8 +54,8 @@ nm_resample_mean <- function(df, resample, date_col = "date") {
 #'
 #' Wind-direction x wind-speed concentration polar plot ("openair" style).
 #'
-#' @param df Data frame with wind speed, direction, and value columns.
-#' @param value Character. Column to aggregate (e.g., concentration).
+#' @param df Data frame with wind speed, direction, and target columns.
+#' @param target Character. Column to aggregate (e.g., concentration).
 #' @param ws_col Character. Wind speed column. Default "ws".
 #' @param wd_col Character. Wind direction column (degrees). Default "wd".
 #' @param statistic Character. Aggregation: "mean", "median", "max", "sum",
@@ -67,16 +67,16 @@ nm_resample_mean <- function(df, resample, date_col = "date") {
 #'
 #' @return A ggplot2 object.
 #' @export
-nm_plot_polar <- function(df, value = NULL, ws_col = "ws", wd_col = "wd",
+nm_plot_polar <- function(df, target = NULL, ws_col = "ws", wd_col = "wd",
                           statistic = "mean", n_bins_ws = 8, n_bins_wd = 36,
                           title = NULL, ...) {
-  if (is.null(value)) stop("`value` column required.")
-  for (col in c(value, ws_col, wd_col)) {
+  if (is.null(target)) stop("`target` column required.")
+  for (col in c(target, ws_col, wd_col)) {
     if (!col %in% colnames(df)) stop("Column '", col, "' not in df.")
   }
   nm_require("ggplot2")
 
-  sub <- df[is.finite(df[[ws_col]]) & is.finite(df[[wd_col]]) & is.finite(df[[value]]), , drop = FALSE]
+  sub <- df[is.finite(df[[ws_col]]) & is.finite(df[[wd_col]]) & is.finite(df[[target]]), , drop = FALSE]
   if (nrow(sub) == 0) stop("No valid rows.")
 
   ws_max <- quantile(sub[[ws_col]], 0.99, na.rm = TRUE)
@@ -94,7 +94,7 @@ nm_plot_polar <- function(df, value = NULL, ws_col = "ws", wd_col = "wd",
     function(x) match.fun(statistic)(x, na.rm = TRUE)
   }
 
-  grid <- aggregate(as.formula(paste0("`", value, "` ~ wd_bin + ws_bin")),
+  grid <- aggregate(as.formula(paste0("`", target, "` ~ wd_bin + ws_bin")),
     data = sub, FUN = agg_fun)
 
   # Compute bin midpoints for polar coordinates
@@ -104,14 +104,14 @@ nm_plot_polar <- function(df, value = NULL, ws_col = "ws", wd_col = "wd",
   grid$r <- sapply(as.character(grid$ws_bin), ws_mid)
   grid$theta_rad <- grid$theta * pi / 180
 
-  ggplot2::ggplot(grid, ggplot2::aes(x = theta_rad, y = r, fill = !!rlang::sym(value))) +
+  ggplot2::ggplot(grid, ggplot2::aes(x = theta_rad, y = r, fill = !!rlang::sym(target))) +
     ggplot2::geom_tile(width = 2 * pi / n_bins_wd, height = ws_max / n_bins_ws) +
     ggplot2::scale_fill_viridis_c() +
     ggplot2::coord_polar(start = -pi / 2, direction = 1) +
     ggplot2::scale_x_continuous(labels = c("N", "NE", "E", "SE", "S", "SW", "W", "NW"),
       breaks = seq(0, 7 * pi / 4, pi / 4)) +
-    ggplot2::labs(title = title %||% paste(value, "by wind direction x speed"),
-      fill = paste0(statistic, "(", value, ")")) +
+    ggplot2::labs(title = title %||% paste(target, "by wind direction x speed"),
+      fill = paste0(statistic, "(", target, ")")) +
     ggplot2::theme_minimal()
 }
 
@@ -304,7 +304,7 @@ nm_plot_scm_dashboard <- function(scm_result, cutoff_date, diagnostics = NULL, t
 #'   predictors <- c(covariates, "date_unix", "day_julian", "weekday", "hour")
 #'   build <- nm_build_model(
 #'     my1[1:150, c("date", "NO2", covariates)],
-#'     value = "NO2", predictors = predictors,
+#'     target = "NO2", covariates = predictors,
 #'     model_config = list(n_trials = 1, cv_folds = 2, nrounds = 15,
 #'                          num_leaves_min = 5, num_leaves_max = 15),
 #'     seed = 42, verbose = FALSE
@@ -418,7 +418,7 @@ nm_plot_bayesian_scm <- function(result, cutoff_date,
 #' Plot a time series with optional confidence/uncertainty bands.
 #'
 #' @param df Data frame with a date column.
-#' @param value Character. Column to plot.
+#' @param target Character. Column to plot.
 #' @param ci_low Character. Lower bound column.
 #' @param ci_high Character. Upper bound column.
 #' @param resample Character. Pandas-style resample rule (e.g. \code{"D"} for
@@ -441,14 +441,14 @@ nm_plot_bayesian_scm <- function(result, cutoff_date,
 #'   treated_unit = "MY1", cutoff_date = "2019-04-01",
 #'   scm_backend = "scm", verbose = FALSE
 #' )
-#' nm_plot_time_series(res, value = "effect", title = "ULEZ effect on normalised NO2")
+#' nm_plot_time_series(res, target = "effect", title = "ULEZ effect on normalised NO2")
 #' }
 #'
 #' @export
-nm_plot_time_series <- function(df, value = NULL, ci_low = NULL, ci_high = NULL,
+nm_plot_time_series <- function(df, target = NULL, ci_low = NULL, ci_high = NULL,
                                 resample = NULL,
                                 title = NULL, ylabel = NULL, color = "#2c7bb6", ...) {
-  if (is.null(value) || !value %in% colnames(df)) stop("`value` column required.")
+  if (is.null(target) || !target %in% colnames(df)) stop("`target` column required.")
   nm_require("ggplot2")
 
   if (!"date" %in% colnames(df)) {
@@ -461,7 +461,7 @@ nm_plot_time_series <- function(df, value = NULL, ci_low = NULL, ci_high = NULL,
   df$date <- as.Date(df$date)
   df <- nm_resample_mean(df, resample, date_col = "date")
 
-  p <- ggplot2::ggplot(df, ggplot2::aes(x = date, y = !!rlang::sym(value))) +
+  p <- ggplot2::ggplot(df, ggplot2::aes(x = date, y = !!rlang::sym(target))) +
     ggplot2::geom_line(color = color, linewidth = 1)
 
   if (!is.null(ci_low) && !is.null(ci_high) &&
@@ -471,7 +471,7 @@ nm_plot_time_series <- function(df, value = NULL, ci_low = NULL, ci_high = NULL,
     fill = color, alpha = 0.15)
   }
 
-  p + ggplot2::labs(title = title %||% paste("Time series of", value),
-    y = ylabel %||% value) +
+  p + ggplot2::labs(title = title %||% paste("Time series of", target),
+    y = ylabel %||% target) +
     ggplot2::theme_minimal()
 }

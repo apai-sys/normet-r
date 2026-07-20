@@ -5,12 +5,12 @@
 \title{Create a Configuration for a Rolling Window Normalisation Run}
 \usage{
 nm_config_rolling(
-  value,
+  target,
   backend = "lightgbm",
-  predictors = NULL,
+  covariates = NULL,
   resample_vars = NULL,
   split_method = "random",
-  fraction = 0.75,
+  train_fraction = 0.75,
   model_config = NULL,
   n_samples = 300,
   window_days = 14,
@@ -24,17 +24,17 @@ nm_config_rolling(
 )
 }
 \arguments{
-\item{value}{The target variable name as a string.}
+\item{target}{The target variable name as a string.}
 
 \item{backend}{The modeling backend to use if a model needs to be trained: 'lightgbm' (default) or 'h2o'.}
 
-\item{predictors}{The names of the features used for training.}
+\item{covariates}{The names of the features used for training.}
 
 \item{resample_vars}{The names of variables to be resampled during normalisation.}
 
 \item{split_method}{Method for splitting data for model training.}
 
-\item{fraction}{Proportion of data for training.}
+\item{train_fraction}{Proportion of data for training.}
 
 \item{model_config}{A list of configuration parameters for model training.}
 

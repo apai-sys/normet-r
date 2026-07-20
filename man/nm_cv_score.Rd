@@ -6,8 +6,8 @@
 \usage{
 nm_cv_score(
   df,
-  value = "value",
-  predictors = NULL,
+  target = "value",
+  covariates = NULL,
   backend = "lightgbm",
   n_splits = 5,
   gap = 0,
@@ -23,9 +23,9 @@ nm_cv_score(
 \arguments{
 \item{df}{A data frame containing a date column, target \code{value}, and predictors.}
 
-\item{value}{Character. Target column name. Default \code{"value"}.}
+\item{target}{Character. Target column name. Default \code{"value"}.}
 
-\item{predictors}{Character vector. Predictor column names.}
+\item{covariates}{Character vector. Predictor column names.}
 
 \item{backend}{Character. Model backend. Default \code{"lightgbm"} (or \code{"h2o"}).}
 

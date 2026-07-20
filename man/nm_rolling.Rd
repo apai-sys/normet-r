@@ -7,12 +7,12 @@
 nm_rolling(
   df,
   model = NULL,
-  value = "value",
-  predictors = NULL,
+  target = "value",
+  covariates = NULL,
   resample_vars = NULL,
   resample_df = NULL,
   split_method = "random",
-  fraction = 0.75,
+  train_fraction = 0.75,
   backend = "lightgbm",
   model_config = NULL,
   n_samples = 300,
@@ -30,9 +30,9 @@ nm_rolling(
 
 \item{model}{Pre-trained model. If NULL, a model is trained internally using the full dataset.}
 
-\item{value}{Target variable name.}
+\item{target}{Target variable name.}
 
-\item{predictors}{Character vector of ALL features to be used for training the model (if model is NULL).}
+\item{covariates}{Character vector of ALL features to be used for training the model (if model is NULL).}
 
 \item{resample_vars}{Variables to be resampled (de-weathered).}
 
@@ -46,7 +46,7 @@ globally across all windows instead (for spatial intercomparison).}
 
 \item{split_method}{Split method for training (if model is NULL).}
 
-\item{fraction}{Training fraction (if model is NULL).}
+\item{train_fraction}{Training fraction (if model is NULL).}
 
 \item{backend}{Backend for training (if model is NULL): 'lightgbm' (default) or 'h2o'.}
 
@@ -83,13 +83,13 @@ if (requireNamespace("lightgbm", quietly = TRUE)) {
   predictors <- c(covariates, "date_unix", "day_julian", "weekday", "hour")
   build <- nm_build_model(
     my1[1:150, c("date", "NO2", covariates)],
-    value = "NO2", predictors = predictors,
+    target = "NO2", covariates = predictors,
     model_config = list(n_trials = 1, cv_folds = 2, nrounds = 15,
                          num_leaves_min = 5, num_leaves_max = 15),
     seed = 42, verbose = FALSE
   )
   roll <- nm_rolling(
-    build$df_prep, model = build$model, predictors = predictors,
+    build$df_prep, model = build$model, covariates = predictors,
     resample_vars = covariates, window_days = 4, rolling_every = 8,
     n_samples = 1, n_cores = 1, verbose = FALSE
   )

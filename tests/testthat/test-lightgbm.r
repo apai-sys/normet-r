@@ -15,8 +15,8 @@ test_that("nm_train_lgb trains a model and predictions work", {
 
   model <- nm_train_lgb(
     df = df,
-    value = "value",
-    predictors = c("x1", "x2"),
+    target = "value",
+    covariates = c("x1", "x2"),
     model_config = list(n_trials = 5, cv_folds = 2),
     seed = 42,
     verbose = FALSE
@@ -52,8 +52,8 @@ test_that("nm_train_lgb handles factor predictors (weekday) without degenerating
 
   model <- nm_train_lgb(
     df = df,
-    value = "value",
-    predictors = predictors,
+    target = "value",
+    covariates = predictors,
     model_config = list(n_trials = 2, cv_folds = 2, num_leaves_min = 5, num_leaves_max = 15),
     seed = 42,
     verbose = FALSE
@@ -80,8 +80,8 @@ test_that("nm_normalise works with lightgbm model", {
   )
 
   result <- nm_build_model(
-    df, value = "value",
-    predictors = c("temp", "ws"),
+    df, target = "value",
+    covariates = c("temp", "ws"),
     model_config = list(n_trials = 5, cv_folds = 2),
     seed = 42, verbose = FALSE
   )
@@ -122,8 +122,8 @@ test_that("nm_pdp works with lightgbm model", {
   )
 
   result <- nm_build_model(
-    df, value = "value",
-    predictors = c("temp", "ws"),
+    df, target = "value",
+    covariates = c("temp", "ws"),
     model_config = list(n_trials = 5, cv_folds = 2),
     seed = 42, verbose = FALSE
   )
@@ -185,8 +185,8 @@ test_that("nm_extract_features detects lightgbm model", {
   )
 
   result <- nm_build_model(
-    df, value = "value",
-    predictors = c("a", "b", "c"),
+    df, target = "value",
+    covariates = c("a", "b", "c"),
     model_config = list(n_trials = 3, cv_folds = 2),
     seed = 42, verbose = FALSE
   )

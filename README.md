@@ -50,8 +50,8 @@ weather_vars <- c("u10", "v10", "d2m", "t2m", "blh", "sp", "ssrd", "tcc", "tp", 
 
 results <- nm_do_all(
   df            = my1,
-  value         = "PM2.5",
-  predictors    = predictors,
+  target        = "PM2.5",
+  covariates    = predictors,
   resample_vars = weather_vars,
   n_samples     = 300
 )
@@ -130,7 +130,7 @@ met <- nm_fetch_openmeteo_timeseries(
   date_to   = "2022-12-31"
 )
 # Columns use short names: site, date, t2m, d2m, rh2m, sp, tcc, tp, ssrd,
-# u10, v10, lat, lon — same ERA5 naming/units as nm_fetch_era5_timeseries.
+# u10, v10, blh, lat, lon — same ERA5 naming/units as nm_fetch_era5_timeseries.
 ```
 
 ### HYSPLIT Back-Trajectories
@@ -174,10 +174,10 @@ traj <- nm_run_back_trajectories(
 ```r
 df_prep <- nm_prepare_data(
   df           = my1,
-  value        = "PM2.5",
-  predictors   = weather_vars,
+  target       = "PM2.5",
+  covariates   = weather_vars,
   split_method = "random",
-  fraction     = 0.75
+  train_fraction = 0.75
 )
 ```
 
@@ -186,8 +186,8 @@ df_prep <- nm_prepare_data(
 ```r
 model <- nm_train_model(
   df           = df_prep,
-  value        = "value",
-  predictors   = predictors,
+  target       = "value",
+  covariates   = predictors,
   backend      = "lightgbm",          # or "h2o"
   model_config = list(n_trials = 50, cv_folds = 5)
 )
@@ -232,7 +232,7 @@ head(auto$res)   # date | observed | normalised
 ```r
 df_rolling <- nm_rolling(
   df            = df_prep,
-  value         = "value",
+  target        = "value",
   model         = model,
   resample_vars = weather_vars,
   n_samples     = 300,
@@ -244,8 +244,8 @@ df_rolling <- nm_rolling(
 ### 6. Decomposition
 
 ```r
-df_emi <- nm_decompose(method = "emission",    df = df_prep, value = "value", model = model, n_samples = 300)
-df_met <- nm_decompose(method = "meteorology", df = df_prep, value = "value", model = model, n_samples = 300)
+df_emi <- nm_decompose(method = "emission",    df = df_prep, target = "value", model = model, n_samples = 300)
+df_met <- nm_decompose(method = "meteorology", df = df_prep, target = "value", model = model, n_samples = 300)
 ```
 
 ### 7. Uncertainty ensemble
@@ -253,8 +253,8 @@ df_met <- nm_decompose(method = "meteorology", df = df_prep, value = "value", mo
 ```r
 unc <- nm_do_all_unc(
   df            = my1,
-  value         = "PM2.5",
-  predictors    = predictors,
+  target        = "PM2.5",
+  covariates    = predictors,
   resample_vars = weather_vars,
   n_models      = 10,
   n_samples     = 300
@@ -365,8 +365,8 @@ nm_loo_weight_stability(df = scm, ..., treated_unit = treated,
 multi <- nm_do_all_multisite(
   df       = df_network,
   site_col = "site",
-  value    = "PM2.5",
-  predictors    = predictors,
+  target   = "PM2.5",
+  covariates    = predictors,
   resample_vars = weather_vars,
   n_samples     = 300
 )
@@ -403,9 +403,9 @@ nm_init_h2o()
 
 model_h2o <- nm_train_model(
   df           = df_prep,
-  value        = "value",
+  target       = "value",
   backend      = "h2o",
-  predictors   = predictors,
+  covariates   = predictors,
   model_config = list(include_algos = c("GBM", "XGBoost"), max_runtime_secs = 120)
 )
 

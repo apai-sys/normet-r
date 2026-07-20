@@ -6,16 +6,16 @@
 \usage{
 nm_do_all(
   df = NULL,
-  value = "value",
+  target = "value",
   backend = "lightgbm",
-  predictors = NULL,
+  covariates = NULL,
   resample_vars = NULL,
   resample_df = NULL,
   n_samples = 300,
   aggregate = TRUE,
   seed = 7654321,
   split_method = "random",
-  fraction = 0.75,
+  train_fraction = 0.75,
   model_config = NULL,
   n_cores = NULL,
   max_mem_size = NULL,
@@ -28,14 +28,14 @@ nm_do_all(
 \arguments{
 \item{df}{The raw input data frame.}
 
-\item{value}{The target variable name as a string (default 'value').}
+\item{target}{The target variable name as a string (default 'value').}
 
 \item{backend}{The modeling backend to use for training: 'lightgbm' (default) or 'h2o'.}
 
-\item{predictors}{The names of the features used for \strong{training}.}
+\item{covariates}{The names of the features used for \strong{training}.}
 
 \item{resample_vars}{Character vector of variables to resample (shuffle) during normalisation.
-If NULL, defaults to all predictors except time variables.}
+If NULL, defaults to all covariates except time variables.}
 
 \item{resample_df}{External resampling pool. If NULL, \code{df} is used as the source pool.}
 
@@ -47,7 +47,7 @@ If NULL, defaults to all predictors except time variables.}
 
 \item{split_method}{Method for splitting data for model training (e.g., 'random').}
 
-\item{fraction}{Proportion of data used for training (default 0.75).}
+\item{train_fraction}{Proportion of data used for training (default 0.75).}
 
 \item{model_config}{A list of configuration parameters passed to the model training function.}
 
@@ -88,7 +88,7 @@ if (requireNamespace("lightgbm", quietly = TRUE)) {
   predictors <- c(covariates, "date_unix", "day_julian", "weekday", "hour")
   result <- nm_do_all(
     my1[1:150, c("date", "NO2", covariates)],
-    value = "NO2", predictors = predictors,
+    target = "NO2", covariates = predictors,
     model_config = list(n_trials = 1, cv_folds = 2, nrounds = 15,
                          num_leaves_min = 5, num_leaves_max = 15),
     n_samples = 5, seed = 42, n_cores = 1, memory_save = FALSE, verbose = FALSE

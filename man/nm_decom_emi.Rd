@@ -7,11 +7,11 @@
 nm_decom_emi(
   df = NULL,
   model = NULL,
-  value = "value",
-  predictors = NULL,
+  target = "value",
+  covariates = NULL,
   backend = "lightgbm",
   split_method = "random",
-  fraction = 0.75,
+  train_fraction = 0.75,
   model_config = NULL,
   n_samples = 300,
   seed = 7654321,
@@ -19,7 +19,8 @@ nm_decom_emi(
   max_mem_size = NULL,
   resample_df = NULL,
   memory_save = FALSE,
-  verbose = TRUE
+  verbose = TRUE,
+  cache_dir = NULL
 )
 }
 \arguments{
@@ -27,15 +28,20 @@ nm_decom_emi(
 
 \item{model}{Pre-trained model. If NULL, a new model will be trained.}
 
-\item{value}{The target variable name as a string (default 'value').}
+\item{target}{The target variable name as a string (default 'value').}
 
-\item{predictors}{Character vector of features used for \strong{training} (if model is NULL).}
+\item{covariates}{Character vector of features used for \strong{training} (if model is NULL).}
 
 \item{backend}{The modeling backend to use (default 'lightgbm', or 'h2o').}
 
-\item{split_method}{Method for splitting data (e.g., 'random').}
+\item{split_method}{Method for splitting data (e.g., 'random'). See
+\code{\link{nm_split_into_sets}} for the exact mechanics -- in
+particular, \code{"month_ts"}/\code{"season_ts"} hold out a block at a \emph{fixed
+relative position} within every period, which can create a permanent
+training blind spot aligned with a specific calendar window (see that
+function's warning).}
 
-\item{fraction}{Proportion of data used for training (default 0.75).}
+\item{train_fraction}{Proportion of data used for training (default 0.75).}
 
 \item{model_config}{List of configuration parameters for model training.}
 
@@ -55,6 +61,11 @@ If NULL, defaults to \code{df}.}
 \item{memory_save}{Logical. Enable memory-efficient processing.}
 
 \item{verbose}{Logical. Print progress messages.}
+
+\item{cache_dir}{Character. Directory for on-disk caching of the internal
+model fit (when \code{model} is NULL, forwarded to
+\code{\link{nm_build_model}}) and of every per-component
+\code{\link{nm_normalise}} call. If NULL (default), disabled.}
 }
 \value{
 A data frame containing:
@@ -80,4 +91,30 @@ The function works by iteratively "freezing" time components while keeping other
 \item \strong{...and so on}.
 }
 The final differences between these states reveal the net contribution of each component.
+
+\strong{This fixed order is not just bookkeeping -- it determines what each
+component can and cannot represent.} Because \code{date_unix} is frozen
+\emph{before} \code{day_julian}, \code{weekday}, and \code{hour}, the returned \code{date_unix}
+("Trend") component is computed while every within-year calendar
+position is still being shuffled -- it cannot carry a recurring,
+calendar-aligned signal (e.g. a Christmas/New Year dip that recurs every
+year), only a genuine long-term drift. Conversely, \code{day_julian}
+(labelled "Seasonality" above) is computed with \code{date_unix} already
+frozen at \emph{each row's own observed value}, so it is NOT a pooled,
+climatological quantity the way a bottom-up seasonal factor would be --
+it stays native to the specific year and can register a one-off,
+non-repeating event (e.g. a single year's holiday dip, or a structural
+break such as a lockdown) despite its "Seasonality" label. If you need
+to examine a recurring calendar effect, look at \code{day_julian}, not
+\code{date_unix}, even though "Trend" sounds like the more natural place to
+look for it.
+
+Time variables are opt-in at the model level (see
+\code{\link{nm_build_model}}'s \code{covariates}), not mandatory -- this
+function adapts automatically. Only whichever of
+\code{date_unix}/\code{day_julian}/\code{weekday}/\code{hour} actually ended up as a model
+feature get decomposed into their own component; the rest are simply
+absent from the result (no error). A model trained on none of the four
+(e.g. meteorology/traffic predictors only) still decomposes cleanly into
+\code{base}/\code{emi_base}/\code{emi_noise} with no time-variable columns at all.
 }
