@@ -18,7 +18,7 @@
 #'   predictors <- c(covariates, "date_unix", "day_julian", "weekday", "hour")
 #'   build <- nm_build_model(
 #'     my1[1:150, c("date", "NO2", covariates)],
-#'     value = "NO2", predictors = predictors,
+#'     target = "NO2", covariates = predictors,
 #'     model_config = list(n_trials = 1, cv_folds = 2, nrounds = 15,
 #'                          num_leaves_min = 5, num_leaves_max = 15),
 #'     seed = 42, verbose = FALSE
@@ -73,7 +73,7 @@ nm_save_model <- function(model, path = "./", filename = "model", verbose = TRUE
 #'   predictors <- c(covariates, "date_unix", "day_julian", "weekday", "hour")
 #'   build <- nm_build_model(
 #'     my1[1:150, c("date", "NO2", covariates)],
-#'     value = "NO2", predictors = predictors,
+#'     target = "NO2", covariates = predictors,
 #'     model_config = list(n_trials = 1, cv_folds = 2, nrounds = 15,
 #'                          num_leaves_min = 5, num_leaves_max = 15),
 #'     seed = 42, verbose = FALSE

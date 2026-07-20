@@ -1,5 +1,23 @@
 # normet 1.0.0
 
+### Changed (breaking)
+
+* **Public API argument rename**: to match the equivalent rename in the sibling
+  `normet-py` package, the following parameter names are renamed everywhere
+  they appear across the package's public API: `value` → `target`,
+  `predictors` → `covariates`, `na_rm` → `dropna`, `fraction` → `train_fraction`.
+  Affected functions include `nm_normalise()`, `nm_decompose()`/`nm_decom_emi()`/
+  `nm_decom_met()`, `nm_rolling()`, `nm_mlscm()`, `nm_build_model()`/
+  `nm_train_model()`, `nm_train_h2o()`/`nm_train_lgb()`, `nm_do_all()`/
+  `nm_do_all_unc()`/`nm_do_all_multisite()`/`nm_decompose_multisite()`,
+  `nm_config_single()`/`nm_config_rolling()`, `nm_cv_score()`, and
+  `nm_plot_polar()`/`nm_plot_time_series()` (as well as `nm_prepare_data()`,
+  `nm_check_data()`, `nm_impute_values()`, and `nm_split_into_sets()`, renamed
+  in a preceding pass). Call sites using positional arguments are unaffected;
+  any call using `name = value` syntax with the old argument names must be
+  updated. The `gui/normet_r_gui/bridge.R` task protocol (and the Python GUI
+  frontend that invokes it) is renamed in lockstep: the `value=`/`predictors=`/
+  `fraction=` key=value tokens are now `target=`/`covariates=`/`train_fraction=`.
 * **Backends**: H2O is now an optional (`Suggests`) dependency rather than the
   required default; the lightgbm path (`nm_train_lgb`, `nm_predict_lgb`,
   `nm_normalise_lgb`) runs without it. The package was also restructured into

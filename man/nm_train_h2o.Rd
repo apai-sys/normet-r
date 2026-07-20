@@ -6,8 +6,8 @@
 \usage{
 nm_train_h2o(
   df,
-  value = "value",
-  predictors = NULL,
+  target = "value",
+  covariates = NULL,
   model_config = NULL,
   seed = 7654321,
   verbose = TRUE
@@ -16,9 +16,9 @@ nm_train_h2o(
 \arguments{
 \item{df}{Prepared data frame containing the data. If a "set" column exists, filters for "training".}
 
-\item{value}{Name of the target column (response variable).}
+\item{target}{Name of the target column (response variable).}
 
-\item{predictors}{Character vector of predictor column names.}
+\item{covariates}{Character vector of predictor column names.}
 
 \item{model_config}{Optional list of AutoML configuration overrides.
 Examples: \code{list(max_runtime_secs = 60, include_algos = c("GBM"), nfolds = 5)}.}

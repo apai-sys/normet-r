@@ -8,11 +8,11 @@ nm_decompose(
   method = "emission",
   df = NULL,
   model = NULL,
-  value = "value",
-  predictors = NULL,
+  target = "value",
+  covariates = NULL,
   backend = "lightgbm",
   split_method = "random",
-  fraction = 0.75,
+  train_fraction = 0.75,
   model_config = NULL,
   n_samples = 300,
   seed = 7654321,
@@ -21,7 +21,9 @@ nm_decompose(
   max_mem_size = NULL,
   resample_df = NULL,
   memory_save = FALSE,
-  verbose = TRUE
+  verbose = TRUE,
+  cache_dir = NULL,
+  variable_order = NULL
 )
 }
 \arguments{
@@ -31,15 +33,18 @@ nm_decompose(
 
 \item{model}{Optional pre-trained model. If \code{NULL}, a model will be trained.}
 
-\item{value}{The target variable name as a string.}
+\item{target}{The target variable name as a string.}
 
-\item{predictors}{The names of the features used for training (if model is NULL).}
+\item{covariates}{The names of the features used for training (if model is NULL).}
 
 \item{backend}{The modeling backend to use (default 'lightgbm', or 'h2o').}
 
-\item{split_method}{Method for splitting data for model training (e.g., 'random').}
+\item{split_method}{Method for splitting data for model training (e.g.,
+'random'). See \code{\link{nm_split_into_sets}} for the exact mechanics
+and its warning about \code{"month_ts"}/\code{"season_ts"}'s fixed-position
+training blind spot.}
 
-\item{fraction}{Proportion of data for training if a model is trained.}
+\item{train_fraction}{Proportion of data for training if a model is trained.}
 
 \item{model_config}{A list of configuration parameters for model training.}
 
@@ -61,6 +66,19 @@ ascending importance. (Used only when \code{method = "meteorology"}).}
 \item{memory_save}{Logical flag for memory-efficient normalisation.}
 
 \item{verbose}{Should the function print progress messages and logs?}
+
+\item{cache_dir}{Character. Directory for on-disk caching of the internal
+model fit (when \code{model} is NULL) and of every per-component
+\code{\link{nm_normalise}} call in the decomposition loop -- see
+\code{\link{nm_normalise}}'s \code{cache_dir} for why this matters
+(each step is a full Monte Carlo resample-and-predict). If NULL
+(default), caching is disabled.}
+
+\item{variable_order}{Character vector or NULL. Explicit meteorological-
+feature decomposition order, forwarded to \code{\link{nm_decom_met}}
+(ignored when \code{method = "emission"}, which always uses its own
+hardcoded calendar order). See \code{\link{nm_decom_met}}'s
+\code{variable_order} for details.}
 }
 \value{
 A data frame with the decomposed components.
@@ -87,14 +105,14 @@ if (requireNamespace("lightgbm", quietly = TRUE)) {
   predictors <- c(covariates, "date_unix", "day_julian", "weekday", "hour")
   build <- nm_build_model(
     my1[1:150, c("date", "NO2", covariates)],
-    value = "NO2", predictors = predictors,
+    target = "NO2", covariates = predictors,
     model_config = list(n_trials = 1, cv_folds = 2, nrounds = 15,
                          num_leaves_min = 5, num_leaves_max = 15),
     seed = 42, verbose = FALSE
   )
   decomp <- nm_decompose(
     method = "emission", df = build$df_prep, model = build$model,
-    predictors = predictors, n_samples = 2, n_cores = 1, verbose = FALSE
+    covariates = predictors, n_samples = 2, n_cores = 1, verbose = FALSE
   )
   head(decomp)
 }

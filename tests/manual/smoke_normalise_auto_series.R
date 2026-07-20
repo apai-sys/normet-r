@@ -12,10 +12,10 @@ df <- data.frame(
 df$value <- 5 + 2 * df$met1 - 3 * df$met2 + rnorm(n, 0, 2)
 MET <- c("met1", "met2")
 
-prep <- nm_prepare_data(df, value = "value", covariates = MET,
-                        split_method = "random", fraction = 0.75, seed = 1)
-model <- nm_train_model(prep[prep$set == "training", ], value = "value",
-                        predictors = c(MET, "date_unix", "day_julian", "weekday", "hour"),
+prep <- nm_prepare_data(df, target = "value", covariates = MET,
+                        split_method = "random", train_fraction = 0.75, seed = 1)
+model <- nm_train_model(prep[prep$set == "training", ], target = "value",
+                        covariates = c(MET, "date_unix", "day_julian", "weekday", "hour"),
                         backend = "lightgbm",
                         model_config = list(n_trials = 1, cv_folds = 2, nrounds = 20),
                         verbose = FALSE)

@@ -362,7 +362,7 @@ nm_scm <- function(df, date_col = "date", unit_col = "code", outcome_col = "poll
 #' @param backend ML backend to use (default "lightgbm").
 #' @param model_config List of backend-specific model configuration parameters (e.g., `nfold`, `algorithm`).
 #' @param split_method Data splitting method for validation ("random", "time", etc.).
-#' @param fraction Fraction of pre-treatment data used for training (default 1.0).
+#' @param train_fraction Fraction of pre-treatment data used for training (default 1.0).
 #' @param seed Random seed for reproducibility.
 #' @param n_cores Number of CPU cores for H2O. If NULL, connects to an existing cluster or detects cores automatically.
 #' @param max_mem_size Maximum memory for H2O (e.g., "16G").
@@ -390,7 +390,7 @@ nm_mlscm <- function(df,
                      backend = "lightgbm",
                      model_config = NULL,
                      split_method = "random",
-                     fraction = 1.0,
+                     train_fraction = 1.0,
                      seed = 7654321,
                      n_cores = NULL,
                      max_mem_size = NULL,
@@ -502,11 +502,11 @@ nm_mlscm <- function(df,
   # nm_build_model handles the internal H2O training logic
   build_results <- nm_build_model(
     df = pre_panel_safe,
-    value = treated_safe,
+    target = treated_safe,
     backend = backend,
-    predictors = unname(donors_safe), # Donors are features
+    covariates = unname(donors_safe), # Donors are features
     split_method = split_method,
-    fraction = fraction,
+    train_fraction = train_fraction,
     model_config = model_config,
     seed = seed,
     verbose = verbose

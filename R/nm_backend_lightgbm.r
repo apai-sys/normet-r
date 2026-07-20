@@ -51,8 +51,8 @@ nm_lgb_apply_encoding <- function(df, predictors, factor_levels) {
 #' in-process (no JVM overhead).
 #'
 #' @param df Training data frame or data.table.
-#' @param value Target column name. Default \code{"value"}.
-#' @param predictors Character vector of feature column names. Factor/character
+#' @param target Target column name. Default \code{"value"}.
+#' @param covariates Character vector of feature column names. Factor/character
 #'   columns (e.g. \code{"weekday"}) are automatically encoded as categorical
 #'   features for lightgbm.
 #' @param model_config Optional list. Supported keys:
@@ -69,7 +69,7 @@ nm_lgb_apply_encoding <- function(df, predictors, factor_levels) {
 #'
 #' @return A lightgbm Booster object with attribute \code{backend = "lightgbm"}.
 #' @export
-nm_train_lgb <- function(df, value = "value", predictors = NULL,
+nm_train_lgb <- function(df, target = "value", covariates = NULL,
                          model_config = NULL, seed = 7654321, verbose = TRUE) {
 
   nm_require("lightgbm", hint = "install.packages('lightgbm')")
@@ -85,15 +85,15 @@ nm_train_lgb <- function(df, value = "value", predictors = NULL,
   if (!is.null(model_config)) cfg <- utils::modifyList(cfg, model_config)
 
   n <- nrow(df)
-  n_feat <- length(predictors)
+  n_feat <- length(covariates)
 
   leaves_min <- if (is.null(cfg$num_leaves_min)) max(8L, min(127L, n %/% 20L)) else cfg$num_leaves_min
   leaves_max <- if (is.null(cfg$num_leaves_max)) min(127L, max(16L, n %/% 3L)) else cfg$num_leaves_max
   leaves_max <- max(leaves_min + 1L, leaves_max)
 
-  enc <- nm_lgb_encode_predictors(df, predictors)
+  enc <- nm_lgb_encode_predictors(df, covariates)
   x <- enc$x
-  y <- df[[value]]
+  y <- df[[target]]
 
   if (anyNA(y)) stop("Target column contains NA values.")
   x[!is.finite(x)] <- 0
@@ -175,7 +175,7 @@ nm_train_lgb <- function(df, value = "value", predictors = NULL,
   )
 
   attr(model, "backend") <- "lightgbm"
-  attr(model, "feature_names") <- predictors
+  attr(model, "feature_names") <- covariates
   attr(model, "factor_levels") <- enc$factor_levels
   model
 }

@@ -9,4 +9,18 @@ nm_add_date_variables(dt)
 \description{
 \code{nm_add_date_variables} adds date-related features using data.table.
 }
+\details{
+Always computes and adds all four columns (\code{date_unix},
+\code{day_julian}, \code{weekday}, \code{hour}), regardless of whether
+any of them will actually be used to train a model -- they're opt-in,
+not mandatory. \code{\link{nm_build_model}}/\code{\link{nm_train_model}}
+only use whichever of these four end up in the caller's \code{predictors};
+a subset (e.g. only \code{weekday} and \code{hour}, omitting
+\code{date_unix}/\code{day_julian}) or none at all (training purely on
+meteorology, traffic counts, or other non-temporal predictors) both
+work -- just don't list the ones you don't want.
+\code{\link{nm_decompose}}/\code{\link{nm_decom_emi}} adapt
+automatically, producing a component only for whichever time variables
+actually ended up in the model.
+}
 \keyword{internal}

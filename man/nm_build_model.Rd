@@ -6,29 +6,38 @@
 \usage{
 nm_build_model(
   df,
-  value,
+  target,
   backend = "lightgbm",
-  predictors = NULL,
+  covariates = NULL,
   split_method = "random",
-  fraction = 0.75,
+  train_fraction = 0.75,
   model_config = NULL,
   seed = 7654321,
-  verbose = TRUE
+  verbose = TRUE,
+  cache_dir = NULL
 )
 }
 \arguments{
 \item{df}{The raw input data frame.}
 
-\item{value}{A string indicating the target column in \code{df}.}
+\item{target}{A string indicating the target column in \code{df}.}
 
 \item{backend}{A string for the modeling backend: 'lightgbm' (default) or 'h2o'.}
 
-\item{predictors}{A character vector of ALL features to be used in the model.
-This can include external variables (e.g., "temp") AND specific time variables (e.g., "weekday").}
+\item{covariates}{A character vector of ALL features to be used in the model.
+This can include external variables (e.g., "temp") AND specific time variables (e.g., "weekday").
+Time variables (\code{date_unix}/\code{day_julian}/\code{weekday}/\code{hour}) are
+opt-in, not automatic: \code{\link{nm_add_date_variables}} always
+computes all four internally, but only whichever of them you list
+here become model predictors. Include a subset (e.g. only
+\code{weekday}+\code{hour}) or omit all four entirely to train purely on
+meteorology/traffic/other non-temporal predictors --
+\code{\link{nm_decompose}} adapts automatically to whatever
+subset ends up in the trained model.}
 
 \item{split_method}{A string for the data splitting strategy. Default is 'random'.}
 
-\item{fraction}{A numeric value for the training fraction of the split. Default is 0.75.}
+\item{train_fraction}{A numeric value for the training fraction of the split. Default is 0.75.}
 
 \item{model_config}{Optional list of AutoML configuration overrides.
 Examples: \code{list(max_runtime_secs = 60, include_algos = c("GBM"), nfolds = 5)}.}
@@ -36,6 +45,9 @@ Examples: \code{list(max_runtime_secs = 60, include_algos = c("GBM"), nfolds = 5
 \item{seed}{An integer for the random seed. Default is 7654321.}
 
 \item{verbose}{A logical value to enable logging messages. Default is TRUE.}
+
+\item{cache_dir}{Character. Directory for on-disk model caching, forwarded
+to \code{\link{nm_train_model}}. If NULL (default), disabled.}
 }
 \value{
 A list containing \code{df_prep} (the processed data) and \code{model} (the trained model object).
@@ -52,7 +64,7 @@ if (requireNamespace("lightgbm", quietly = TRUE)) {
   predictors <- c(covariates, "date_unix", "day_julian", "weekday", "hour")
   build <- nm_build_model(
     my1[1:150, c("date", "NO2", covariates)],
-    value = "NO2", predictors = predictors,
+    target = "NO2", covariates = predictors,
     model_config = list(n_trials = 1, cv_folds = 2, nrounds = 15,
                          num_leaves_min = 5, num_leaves_max = 15),
     seed = 42, verbose = FALSE

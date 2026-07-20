@@ -4,7 +4,7 @@
 \alias{nm_impute_values}
 \title{Impute Missing Values (data.table version)}
 \usage{
-nm_impute_values(dt, na_rm)
+nm_impute_values(dt, dropna)
 }
 \description{
 \code{nm_impute_values} imputes or removes missing values using data.table.

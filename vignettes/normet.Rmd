@@ -96,7 +96,7 @@ model_config <- list(
 
 build <- nm_build_model(
   my1[1:150, c("date", "NO2", covariates)],
-  value = "NO2", predictors = predictors,
+  target = "NO2", covariates = predictors,
   model_config = model_config, seed = 42, verbose = FALSE
 )
 
@@ -181,7 +181,7 @@ meteorology-driven "noise":
 ```{r, eval = requireNamespace("lightgbm", quietly = TRUE)}
 decomp <- nm_decompose(
   method = "emission", df = build$df_prep, model = build$model,
-  predictors = predictors, n_samples = 2, n_cores = 1, verbose = FALSE
+  covariates = predictors, n_samples = 2, n_cores = 1, verbose = FALSE
 )
 head(decomp)
 ```
@@ -193,7 +193,7 @@ window, producing one normalised value per window for each timestamp:
 
 ```{r, eval = requireNamespace("lightgbm", quietly = TRUE)}
 roll <- nm_rolling(
-  build$df_prep, model = build$model, predictors = predictors,
+  build$df_prep, model = build$model, covariates = predictors,
   resample_vars = covariates, window_days = 4, rolling_every = 8,
   n_samples = 1, n_cores = 1, verbose = FALSE
 )
@@ -240,13 +240,13 @@ pm <- pm[order(pm$date), c("date", "pm25", met_cols, traj_cols)][1:200, ]
 preds_local <- c(met_cols, "date_unix", "day_julian", "weekday", "hour")
 preds_transport <- c(met_cols, traj_cols, "date_unix", "day_julian", "weekday", "hour")
 
-b1 <- nm_build_model(pm[, c("date", "pm25", met_cols)], value = "pm25",
-                     predictors = preds_local,
+b1 <- nm_build_model(pm[, c("date", "pm25", met_cols)], target = "pm25",
+                     covariates = preds_local,
                      model_config = model_config, seed = 42, verbose = FALSE)
 dw_local <- nm_normalise(b1$df_prep, b1$model, resample_vars = met_cols,
                          n_samples = 5, n_cores = 1, verbose = FALSE)
 
-b2 <- nm_build_model(pm, value = "pm25", predictors = preds_transport,
+b2 <- nm_build_model(pm, target = "pm25", covariates = preds_transport,
                      model_config = model_config, seed = 42, verbose = FALSE)
 dw_transport <- nm_normalise(b2$df_prep, b2$model,
                              resample_vars = c(met_cols, traj_cols),
@@ -282,7 +282,7 @@ prepared data:
 ```{r, eval = requireNamespace("lightgbm", quietly = TRUE)}
 result <- nm_do_all(
   my1[1:150, c("date", "NO2", covariates)],
-  value = "NO2", predictors = predictors,
+  target = "NO2", covariates = predictors,
   model_config = model_config, n_samples = 5, seed = 42,
   n_cores = 1, memory_save = FALSE, verbose = FALSE
 )
@@ -315,7 +315,7 @@ res <- nm_run_scm(
   scm_backend = "scm", verbose = FALSE
 )
 head(res)
-nm_plot_time_series(res, value = "effect", title = "ULEZ effect on normalised NO2 at MY1")
+nm_plot_time_series(res, target = "effect", title = "ULEZ effect on normalised NO2 at MY1")
 ```
 
 ## Next steps

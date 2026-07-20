@@ -6,8 +6,8 @@
 #'
 #' @param df Input data frame containing 'date', target 'value', and predictor columns.
 #' @param model Pre-trained model. If NULL, a model is trained internally using the full dataset.
-#' @param value Target variable name.
-#' @param predictors Character vector of ALL features to be used for training the model (if model is NULL).
+#' @param target Target variable name.
+#' @param covariates Character vector of ALL features to be used for training the model (if model is NULL).
 #' @param resample_vars Variables to be resampled (de-weathered).
 #' @param resample_df Resampling pool. If NULL (default), each window draws
 #'   \emph{exclusively from its own date range} -- this is what tests
@@ -17,7 +17,7 @@
 #'   frame (e.g. another site's data) to use a single external pool
 #'   globally across all windows instead (for spatial intercomparison).
 #' @param split_method Split method for training (if model is NULL).
-#' @param fraction Training fraction (if model is NULL).
+#' @param train_fraction Training fraction (if model is NULL).
 #' @param backend Backend for training (if model is NULL): 'lightgbm' (default) or 'h2o'.
 #' @param model_config Config for training (if model is NULL).
 #' @param n_samples Number of resampling iterations per window.
@@ -39,13 +39,13 @@
 #'   predictors <- c(covariates, "date_unix", "day_julian", "weekday", "hour")
 #'   build <- nm_build_model(
 #'     my1[1:150, c("date", "NO2", covariates)],
-#'     value = "NO2", predictors = predictors,
+#'     target = "NO2", covariates = predictors,
 #'     model_config = list(n_trials = 1, cv_folds = 2, nrounds = 15,
 #'                          num_leaves_min = 5, num_leaves_max = 15),
 #'     seed = 42, verbose = FALSE
 #'   )
 #'   roll <- nm_rolling(
-#'     build$df_prep, model = build$model, predictors = predictors,
+#'     build$df_prep, model = build$model, covariates = predictors,
 #'     resample_vars = covariates, window_days = 4, rolling_every = 8,
 #'     n_samples = 1, n_cores = 1, verbose = FALSE
 #'   )
@@ -56,12 +56,12 @@
 #' @export
 nm_rolling <- function(df,
                        model = NULL,
-                       value = "value",
-                       predictors = NULL,
+                       target = "value",
+                       covariates = NULL,
                        resample_vars = NULL,
                        resample_df = NULL,
                        split_method = "random",
-                       fraction = 0.75,
+                       train_fraction = 0.75,
                        backend = "lightgbm",
                        model_config = NULL,
                        n_samples = 300,
@@ -109,15 +109,15 @@ nm_rolling <- function(df,
   if (is.null(model)) {
     if (verbose) log$info("No model provided. Training new model on full dataset...")
 
-    # Pass 'predictors' to nm_build_model
+    # Pass 'covariates' to nm_build_model
     # Note: Removed n_cores from this call as per new design
     build_results <- nm_build_model(
       df = df,
-      value = value,
+      target = target,
       backend = backend,
-      predictors = predictors,
+      covariates = covariates,
       split_method = split_method,
-      fraction = fraction,
+      train_fraction = train_fraction,
       model_config = model_config,
       seed = seed,
       verbose = verbose

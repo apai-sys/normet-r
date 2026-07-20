@@ -63,8 +63,8 @@ nm_time_series_cv <- function(df, n_splits = 5, gap = 0, test_size = NULL,
 #' Train and evaluate the configured backend across walk-forward CV folds.
 #'
 #' @param df A data frame containing a date column, target \code{value}, and predictors.
-#' @param value Character. Target column name. Default \code{"value"}.
-#' @param predictors Character vector. Predictor column names.
+#' @param target Character. Target column name. Default \code{"value"}.
+#' @param covariates Character vector. Predictor column names.
 #' @param backend Character. Model backend. Default \code{"lightgbm"} (or \code{"h2o"}).
 #' @param n_splits Integer. Number of CV folds. Default 5.
 #' @param gap Integer. Gap between train/test. Default 0.
@@ -78,13 +78,13 @@ nm_time_series_cv <- function(df, n_splits = 5, gap = 0, test_size = NULL,
 #'
 #' @return A data frame with one row per fold, containing metrics and metadata.
 #' @export
-nm_cv_score <- function(df, value = "value", predictors = NULL, backend = "lightgbm",
+nm_cv_score <- function(df, target = "value", covariates = NULL, backend = "lightgbm",
                         n_splits = 5, gap = 0, test_size = NULL,
                         max_train_size = NULL, statistic = NULL,
                         model_config = NULL, seed = 7654321,
                         verbose = FALSE, date_col = "date") {
-  if (is.null(predictors) || length(predictors) == 0) stop("`predictors` must be non-empty.")
-  if (!value %in% colnames(df)) stop("Target column '", value, "' not found.")
+  if (is.null(covariates) || length(covariates) == 0) stop("`covariates` must be non-empty.")
+  if (!target %in% colnames(df)) stop("Target column '", target, "' not found.")
 
   work <- df[order(df[[date_col]]), , drop = FALSE]
   folds <- nm_time_series_cv(
@@ -105,8 +105,8 @@ nm_cv_score <- function(df, value = "value", predictors = NULL, backend = "light
     model <- tryCatch(
       {
         nm_train_model(
-          df = df_tr, value = value, backend = backend,
-          predictors = predictors, model_config = model_config,
+          df = df_tr, target = target, backend = backend,
+          covariates = covariates, model_config = model_config,
           seed = seed, verbose = FALSE
         )
       },
@@ -118,7 +118,7 @@ nm_cv_score <- function(df, value = "value", predictors = NULL, backend = "light
 
     y_pred <- nm_predict(model, df_te, verbose = FALSE)
     df_te$.predict <- y_pred
-    row <- nm_Stats(df_te, mod = ".predict", obs = value, statistic = statistic)
+    row <- nm_Stats(df_te, mod = ".predict", obs = target, statistic = statistic)
     row$fold <- i
     row$train_start <- as.character(work[[date_col]][tr_idx[1]])
     row$train_end <- as.character(work[[date_col]][tr_idx[length(tr_idx)]])

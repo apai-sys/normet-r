@@ -7,8 +7,8 @@
 nm_do_all_multisite(
   df,
   site_col,
-  value = "value",
-  predictors = NULL,
+  target = "value",
+  covariates = NULL,
   backend = "lightgbm",
   n_cores = NULL,
   return_models = FALSE,
@@ -20,9 +20,9 @@ nm_do_all_multisite(
 
 \item{site_col}{Character. Site identifier column.}
 
-\item{value}{The target variable name as a string (default 'value').}
+\item{target}{The target variable name as a string (default 'value').}
 
-\item{predictors}{The names of the features used for \strong{training}.}
+\item{covariates}{The names of the features used for \strong{training}.}
 
 \item{backend}{The modeling backend to use for training: 'lightgbm' (default) or 'h2o'.}
 

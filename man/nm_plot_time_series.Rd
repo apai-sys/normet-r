@@ -6,7 +6,7 @@
 \usage{
 nm_plot_time_series(
   df,
-  value = NULL,
+  target = NULL,
   ci_low = NULL,
   ci_high = NULL,
   resample = NULL,
@@ -19,7 +19,7 @@ nm_plot_time_series(
 \arguments{
 \item{df}{Data frame with a date column.}
 
-\item{value}{Character. Column to plot.}
+\item{target}{Character. Column to plot.}
 
 \item{ci_low}{Character. Lower bound column.}
 
@@ -53,7 +53,7 @@ res <- nm_run_scm(
   treated_unit = "MY1", cutoff_date = "2019-04-01",
   scm_backend = "scm", verbose = FALSE
 )
-nm_plot_time_series(res, value = "effect", title = "ULEZ effect on normalised NO2")
+nm_plot_time_series(res, target = "effect", title = "ULEZ effect on normalised NO2")
 }
 
 }

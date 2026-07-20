@@ -300,8 +300,8 @@ nm_load_h2o <- function(path = "./", filename = "automl", verbose = TRUE) {
 #' }
 #'
 #' @param df Prepared data frame containing the data. If a "set" column exists, filters for "training".
-#' @param value Name of the target column (response variable).
-#' @param predictors Character vector of predictor column names.
+#' @param target Name of the target column (response variable).
+#' @param covariates Character vector of predictor column names.
 #' @param model_config Optional list of AutoML configuration overrides.
 #'        Examples: `list(max_runtime_secs = 60, include_algos = c("GBM"), nfolds = 5)`.
 #' @param seed Random seed for reproducibility. Default is 7654321.
@@ -309,21 +309,21 @@ nm_load_h2o <- function(path = "./", filename = "automl", verbose = TRUE) {
 #'
 #' @return The trained H2O model object (the leader model), with attributes `backend="h2o"`.
 #' @export
-nm_train_h2o <- function(df, value = "value", predictors = NULL, model_config = NULL,
+nm_train_h2o <- function(df, target = "value", covariates = NULL, model_config = NULL,
                          seed = 7654321, verbose = TRUE) {
 
   log <- nm_get_logger("model.train.h2o")
   nm_require("h2o", hint = "install.packages('h2o')")
 
   # --- 1. Validate input ---
-  if (length(unique(predictors)) != length(predictors)) stop("`predictors` contains duplicates.")
-  if (!all(predictors %in% colnames(df))) stop("Some `predictors` not found in input data.")
+  if (length(unique(covariates)) != length(covariates)) stop("`covariates` contains duplicates.")
+  if (!all(covariates %in% colnames(df))) stop("Some `covariates` not found in input data.")
 
   # Select training data
   df_train <- if ("set" %in% colnames(df)) {
-    df %>% dplyr::filter(set == "training") %>% dplyr::select(dplyr::all_of(c(value, predictors)))
+    df %>% dplyr::filter(set == "training") %>% dplyr::select(dplyr::all_of(c(target, covariates)))
   } else {
-    df %>% dplyr::select(dplyr::all_of(c(value, predictors)))
+    df %>% dplyr::select(dplyr::all_of(c(target, covariates)))
   }
 
   # --- 2. Configuration Setup ---
@@ -374,19 +374,19 @@ nm_train_h2o <- function(df, value = "value", predictors = NULL, model_config = 
   train_model_internal <- function() {
     # Data Checks
     if (nrow(df_train) < 5) stop("Too few rows in training data.")
-    if (any(is.na(df_train[[value]]))) stop("Target column contains NA.")
+    if (any(is.na(df_train[[target]]))) stop("Target column contains NA.")
 
     # Variance Check
-    numeric_cols <- predictors[vapply(df_train[predictors], is.numeric, logical(1))]
+    numeric_cols <- covariates[vapply(df_train[covariates], is.numeric, logical(1))]
     if (length(numeric_cols) > 0) {
       zero_var_mask <- apply(df_train[, numeric_cols, drop = FALSE], 2, var, na.rm = TRUE) == 0
-      if (all(zero_var_mask) && length(numeric_cols) == length(predictors)) {
-        stop("All predictors have zero variance.")
+      if (all(zero_var_mask) && length(numeric_cols) == length(covariates)) {
+        stop("All covariates have zero variance.")
       }
     }
 
     # Sanitize Factor Variables
-    cat_cols <- predictors[vapply(df_train[predictors], function(x) is.factor(x) || is.character(x), logical(1))]
+    cat_cols <- covariates[vapply(df_train[covariates], function(x) is.factor(x) || is.character(x), logical(1))]
     if (length(cat_cols) > 0) {
       if (verbose) log$info("Sanitizing %d categorical features...", length(cat_cols))
       for (col in cat_cols) {
@@ -419,7 +419,7 @@ nm_train_h2o <- function(df, value = "value", predictors = NULL, model_config = 
     if (verbose) log$info("Uploading data to H2O cluster...")
     df_h2o <- h2o::as.h2o(df_train, destination_frame = paste0("train_", Sys.getpid()))
 
-    response <- value
+    response <- target
     x_vars <- setdiff(colnames(df_h2o), c(response, if (use_time_cv) ".fold"))
 
     if (verbose) {
@@ -495,7 +495,7 @@ nm_train_h2o <- function(df, value = "value", predictors = NULL, model_config = 
 
   # --- 5. Attach backend and metadata ---
   attr(model, "backend") <- "h2o"
-  attr(model, "names") <- predictors
+  attr(model, "names") <- covariates
 
   if (final_config$save_model) {
     nm_save_model(model, final_config$path, final_config$filename, verbose = verbose)

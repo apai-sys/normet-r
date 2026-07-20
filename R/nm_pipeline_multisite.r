@@ -82,14 +82,14 @@ nm_multisite_apply <- function(df, site_col, func, n_cores = NULL,
 #' @return A data.frame of normalised results (or a list with \code{res}
 #'         and \code{models} if \code{return_models = TRUE}).
 #' @export
-nm_do_all_multisite <- function(df, site_col, value = "value",
-                                predictors = NULL, backend = "lightgbm",
+nm_do_all_multisite <- function(df, site_col, target = "value",
+                                covariates = NULL, backend = "lightgbm",
                                 n_cores = NULL, return_models = FALSE,
                                 ...) {
   models <- list()
 
   per_site <- function(df, ...) {
-    res <- nm_do_all(df = df, value = value, predictors = predictors,
+    res <- nm_do_all(df = df, target = target, covariates = covariates,
       backend = backend, ...)
     if (return_models) models[[length(models) + 1]] <<- res$model
     res$res
@@ -108,11 +108,11 @@ nm_do_all_multisite <- function(df, site_col, value = "value",
 #' @return A data.frame of decomposition results with \code{site_col} appended.
 #' @export
 nm_decompose_multisite <- function(df, site_col, method = "emission",
-                                   value = "value", predictors = NULL,
+                                   target = "value", covariates = NULL,
                                    backend = "lightgbm", n_cores = NULL, ...) {
   per_site <- function(df, ...) {
-    nm_decompose(method = method, df = df, value = value,
-      predictors = predictors, backend = backend, ...)
+    nm_decompose(method = method, df = df, target = target,
+      covariates = covariates, backend = backend, ...)
   }
   nm_multisite_apply(df, site_col, per_site, n_cores = n_cores, ...)
 }

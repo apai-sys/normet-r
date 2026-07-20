@@ -8,8 +8,8 @@ nm_decompose_multisite(
   df,
   site_col,
   method = "emission",
-  value = "value",
-  predictors = NULL,
+  target = "value",
+  covariates = NULL,
   backend = "lightgbm",
   n_cores = NULL,
   ...
@@ -22,9 +22,9 @@ nm_decompose_multisite(
 
 \item{method}{The decomposition method to use. One of \code{"emission"} or \code{"meteorology"}.}
 
-\item{value}{The target variable name as a string.}
+\item{target}{The target variable name as a string.}
 
-\item{predictors}{The names of the features used for training (if model is NULL).}
+\item{covariates}{The names of the features used for training (if model is NULL).}
 
 \item{backend}{The modeling backend to use (default 'lightgbm', or 'h2o').}
 

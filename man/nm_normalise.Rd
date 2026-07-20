@@ -4,7 +4,7 @@
 \alias{nm_normalise}
 \title{Normalise a Time Series Using a Trained Model}
 \usage{
-nm_normalise(df, model, verbose = TRUE, ...)
+nm_normalise(df, model, verbose = TRUE, cache_dir = NULL, ...)
 }
 \arguments{
 \item{df}{The input data frame.}
@@ -12,6 +12,17 @@ nm_normalise(df, model, verbose = TRUE, ...)
 \item{model}{The trained model object.}
 
 \item{verbose}{Logical. If TRUE, prints dispatch info. Default is TRUE.}
+
+\item{cache_dir}{Character. Directory for on-disk result caching (a
+\code{\link{nm_make_cache}}-style location, keyed via
+\code{\link{nm_config_hash}}/\code{\link{nm_dataframe_hash}}/
+\code{\link{nm_model_hash}}). If NULL (default), caching is
+disabled. Useful since \code{\link{nm_decompose}} calls
+\code{nm_normalise} once per fixed time-variable/meteorological
+feature, each a full Monte Carlo resample-and-predict over
+\code{n_samples} draws. The model is fingerprinted via
+\code{nm_model_hash}, so a re-fit model (even with identical data
+and config) correctly invalidates the cache.}
 
 \item{...}{Additional arguments passed to the implementation function
 (e.g., \code{n_samples}, \code{aggregate}, \code{resample_vars} for H2O).}
@@ -30,7 +41,7 @@ if (requireNamespace("lightgbm", quietly = TRUE)) {
   predictors <- c(covariates, "date_unix", "day_julian", "weekday", "hour")
   build <- nm_build_model(
     my1[1:150, c("date", "NO2", covariates)],
-    value = "NO2", predictors = predictors,
+    target = "NO2", covariates = predictors,
     model_config = list(n_trials = 1, cv_folds = 2, nrounds = 15,
                          num_leaves_min = 5, num_leaves_max = 15),
     seed = 42, verbose = FALSE

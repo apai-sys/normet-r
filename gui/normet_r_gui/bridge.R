@@ -216,18 +216,18 @@ if (task == "check") {
 
 } else if (task == "train") {
   df <- read_input()
-  covariates <- p_list("predictors")
-  predictors <- c(covariates, TIME_VARS)
+  covariates <- p_list("covariates")
+  all_covariates <- c(covariates, TIME_VARS)
   backend <- p_chr("backend", "lightgbm")
   ensure_h2o()
 
   build <- nm_build_model(
     df,
-    value = p_chr("value"),
+    target = p_chr("target"),
     backend = backend,
-    predictors = predictors,
+    covariates = all_covariates,
     split_method = p_chr("split_method", "random"),
-    fraction = p_num("fraction", 0.75),
+    train_fraction = p_num("train_fraction", 0.75),
     model_config = model_config_from_params(backend),
     seed = p_num("seed", 7654321),
     verbose = TRUE
@@ -284,8 +284,8 @@ if (task == "check") {
     method = p_chr("method", "emission"),
     df = df,
     model = load_session_model(),
-    value = "value",
-    predictors = c(p_list("predictors"), TIME_VARS),
+    target = "value",
+    covariates = c(p_list("covariates"), TIME_VARS),
     backend = p_chr("backend", "lightgbm"),
     n_samples = p_num("n_samples", 300),
     seed = p_num("seed", 7654321),
@@ -307,8 +307,8 @@ if (task == "check") {
   result <- nm_rolling(
     df,
     model = load_session_model(),
-    value = "value",
-    predictors = c(p_list("predictors"), TIME_VARS),
+    target = "value",
+    covariates = c(p_list("covariates"), TIME_VARS),
     resample_vars = p_list("resample_vars"),
     backend = p_chr("backend", "lightgbm"),
     n_samples = p_num("n_samples", 100),

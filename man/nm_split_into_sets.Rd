@@ -6,18 +6,51 @@
 \usage{
 nm_split_into_sets(
   dt,
-  split_method = c("random", "ts", "season", "month"),
-  fraction = 0.75,
+  split_method = c("random", "ts", "month_ts", "season_ts"),
+  train_fraction = 0.75,
   seed = 123
 )
 }
 \arguments{
 \item{dt}{A data.table containing a column named \code{date}.}
 
-\item{split_method}{Character string, one of \code{c("random", "ts", "season", "month")}.
-\strong{Note on 'season'}: Uses Northern Hemisphere meteorological seasons (Dec-Feb=Winter).}
+\item{split_method}{Character string, one of
+\code{c("random", "ts", "month_ts", "season_ts")}.
+\strong{Note on 'season_ts'}: Uses Northern Hemisphere meteorological
+seasons (Dec-Feb=DJF); December is grouped with the \emph{following} year's
+DJF block. \strong{'month_ts'/'season_ts'} split \emph{chronologically} within each
+individual (year, month) or (meteorological year, season) instance: a
+contiguous \code{1 - train_fraction} block of each block is held out as
+testing, at a random position within the period (seeded by \code{seed},
+reproducible). This combines "ts"'s within-block temporal ordering (a
+contiguous block is held out, not randomly interleaved with training
+rows from the same days) with full-record coverage (every block, across
+every year, contributes training rows) -- avoiding the extrapolation
+failure a single global "ts" cutoff causes for monotonic features such
+as a Unix-time trend.
 
-\item{fraction}{Numeric fraction (0–1) of rows per group to assign to training.}
+\strong{Note:} before this random-position placement, 'month_ts'/'season_ts'
+held out a block at a \emph{fixed relative position} within every period --
+always the trailing \code{1 - train_fraction} -- which meant any calendar
+window consistently falling in that trailing slice (e.g. late December,
+with \code{train_fraction = 0.75}'s trailing ~8 days of a 31-day month) was
+excluded from training in \emph{every} year of the record, not just some of
+them. That created a permanent blind spot: a decomposition or
+feature-importance step built on such a model could systematically fail
+to represent whatever real signal lived in that window (observed
+directly in practice: a genuine, network-corroborated holiday-period
+activity drop was absent from the recovered components under the old
+fixed-trailing \code{"month_ts"} but present under \code{"random"}).
+Randomising the window's start position per period (via \code{seed})
+removes that permanent alignment -- a given calendar window is no
+longer excluded in every year. This doesn't make a \emph{single} run immune
+to coincidentally missing a specific window in some subset of years
+(the window position is still fixed once \code{seed} is fixed, just no
+longer calendar-anchored); \code{"random"} remains the safest default
+for data with a recurring feature you must not systematically lose from
+training.}
+
+\item{train_fraction}{Numeric fraction (0–1) of rows per group to assign to training.}
 
 \item{seed}{Integer random seed for reproducibility.}
 }

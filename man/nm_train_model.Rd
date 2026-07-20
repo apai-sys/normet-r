@@ -6,20 +6,23 @@
 \usage{
 nm_train_model(
   df,
-  value = "value",
-  predictors = NULL,
+  target = "value",
+  covariates = NULL,
   model_config = NULL,
   backend = "lightgbm",
   seed = 7654321,
-  verbose = TRUE
+  verbose = TRUE,
+  cache_dir = NULL
 )
 }
 \arguments{
 \item{df}{Input data frame containing the data to be used for training.}
 
-\item{value}{The target variable name as a string. Default is "value".}
+\item{target}{The target variable name as a string. Default is "value".}
 
-\item{predictors}{Independent/explanatory variables used for training the model.}
+\item{covariates}{Independent/explanatory variables used for training the
+model. Time variables are opt-in, not automatic -- see
+\code{\link{nm_build_model}}'s \code{covariates} for details.}
 
 \item{model_config}{Optional list of AutoML configuration overrides.
 Examples: \code{list(max_runtime_secs = 60, include_algos = c("GBM"), nfolds = 5)}.}
@@ -29,6 +32,14 @@ Examples: \code{list(max_runtime_secs = 60, include_algos = c("GBM"), nfolds = 5
 \item{seed}{A random seed for reproducibility. Default is 7654321.}
 
 \item{verbose}{Should the function print progress messages? Default is TRUE.}
+
+\item{cache_dir}{Character. Directory for on-disk model caching (see
+\code{\link{nm_make_cache}}). If NULL (default), caching is
+disabled. Repeat calls with the same data (hashed on \code{covariates}
+\itemize{
+\item \code{target} + any \code{set} column), \code{model_config}, \code{seed}, and
+\code{backend} are served from disk instead of retraining.
+}}
 }
 \value{
 The trained model object from the specified backend.
@@ -44,11 +55,11 @@ if (requireNamespace("lightgbm", quietly = TRUE)) {
   covariates <- c("ws", "wd", "temp", "RH", "blh", "ssrd")
   df_prep <- nm_prepare_data(
     my1[1:150, c("date", "NO2", covariates)],
-    value = "NO2", covariates = covariates, verbose = FALSE
+    target = "NO2", covariates = covariates, verbose = FALSE
   )
   predictors <- c(covariates, "date_unix", "day_julian", "weekday", "hour")
   model <- nm_train_model(
-    df_prep, value = "value", predictors = predictors,
+    df_prep, target = "value", covariates = predictors,
     model_config = list(n_trials = 1, cv_folds = 2, nrounds = 15,
                          num_leaves_min = 5, num_leaves_max = 15),
     seed = 42, verbose = FALSE

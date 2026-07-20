@@ -1,11 +1,11 @@
 #' Create a Configuration for a Single Normalisation Run
 #'
-#' @param value The target variable name.
+#' @param target The target variable name.
 #' @param backend The modeling backend: 'lightgbm' (default) or 'h2o'.
-#' @param predictors Character vector of feature names for training.
+#' @param covariates Character vector of feature names for training.
 #' @param resample_vars Character vector of variables to resample.
 #' @param split_method Method for splitting data.
-#' @param fraction Proportion of data for training.
+#' @param train_fraction Proportion of data for training.
 #' @param model_config List of model configuration parameters.
 #' @param n_samples Number of samples for normalisation.
 #' @param aggregate Logical flag to return aggregated results.
@@ -18,17 +18,17 @@
 #'
 #' @return A named list of configuration options for `nm_do_all`.
 #' @export
-nm_config_single <- function(value, backend = "lightgbm", predictors = NULL,
+nm_config_single <- function(target, backend = "lightgbm", covariates = NULL,
                              resample_vars = NULL, split_method = "random",
-                             fraction = 0.75, model_config = NULL, n_samples = 300,
+                             train_fraction = 0.75, model_config = NULL, n_samples = 300,
                              aggregate = TRUE, seed = 7654321,
                              n_cores = NULL, max_mem_size = NULL,
                              memory_save = FALSE, verbose = TRUE,
                              resample_df = NULL) {
   list(
-    value = value, backend = backend, predictors = predictors,
+    target = target, backend = backend, covariates = covariates,
     resample_vars = resample_vars, split_method = split_method,
-    fraction = fraction, model_config = model_config, n_samples = n_samples,
+    train_fraction = train_fraction, model_config = model_config, n_samples = n_samples,
     aggregate = aggregate, seed = seed,
     n_cores = n_cores, max_mem_size = max_mem_size,
     memory_save = memory_save, verbose = verbose,
@@ -73,12 +73,12 @@ nm_config_unc <- function(..., n_models = 10, confidence_level = 0.95,
 #' This function creates a structured list of configuration options, specifically
 #' for running a rolling window normalisation with `nm_rolling`.
 #'
-#' @param value The target variable name as a string.
+#' @param target The target variable name as a string.
 #' @param backend The modeling backend to use if a model needs to be trained: 'lightgbm' (default) or 'h2o'.
-#' @param predictors The names of the features used for training.
+#' @param covariates The names of the features used for training.
 #' @param resample_vars The names of variables to be resampled during normalisation.
 #' @param split_method Method for splitting data for model training.
-#' @param fraction Proportion of data for training.
+#' @param train_fraction Proportion of data for training.
 #' @param model_config A list of configuration parameters for model training.
 #' @param n_samples Number of times to sample the data per window.
 #' @param window_days The size of the rolling window in days.
@@ -92,17 +92,17 @@ nm_config_unc <- function(..., n_models = 10, confidence_level = 0.95,
 #'
 #' @return A named list of configuration options for `nm_rolling`.
 #' @export
-nm_config_rolling <- function(value, backend = "lightgbm", predictors = NULL,
+nm_config_rolling <- function(target, backend = "lightgbm", covariates = NULL,
                               resample_vars = NULL, split_method = "random",
-                              fraction = 0.75, model_config = NULL, n_samples = 300,
+                              train_fraction = 0.75, model_config = NULL, n_samples = 300,
                               window_days = 14, rolling_every = 7, seed = 7654321,
                               n_cores = NULL, max_mem_size = NULL,
                               memory_save = FALSE, verbose = TRUE,
                               resample_df = NULL) {
   list(
-    value = value, backend = backend, predictors = predictors,
+    target = target, backend = backend, covariates = covariates,
     resample_vars = resample_vars, split_method = split_method,
-    fraction = fraction, model_config = model_config, n_samples = n_samples,
+    train_fraction = train_fraction, model_config = model_config, n_samples = n_samples,
     window_days = window_days, rolling_every = rolling_every, seed = seed,
     n_cores = n_cores, max_mem_size = max_mem_size,
     memory_save = memory_save, verbose = verbose,
@@ -137,8 +137,8 @@ nm_config_rolling <- function(value, backend = "lightgbm", predictors = NULL,
 #' \dontrun{
 #' # --- Example 1: Run a single normalisation ---
 #' my_config_single <- nm_config_single(
-#'   value = "pollutant",
-#'   predictors = c("temp", "humidity"),
+#'   target = "pollutant",
+#'   covariates = c("temp", "humidity"),
 #'   resample_df = history_df,
 #'   n_samples = 50,
 #'   n_cores = 4,         # Explicitly set CPU cores
@@ -148,8 +148,8 @@ nm_config_rolling <- function(value, backend = "lightgbm", predictors = NULL,
 #'
 #' # --- Example 2: Run an uncertainty analysis ---
 #' my_config_unc <- nm_config_unc(
-#'   value = "pollutant",
-#'   predictors = c("temp", "humidity"),
+#'   target = "pollutant",
+#'   covariates = c("temp", "humidity"),
 #'   n_models = 5,
 #'   weighted_method = "rmse",
 #'   max_mem_size = "16G" # Allocate more RAM for 5 models

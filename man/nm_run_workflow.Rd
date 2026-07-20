@@ -24,8 +24,8 @@ You specify the workflow \code{mode} and provide a corresponding \code{config} o
 \dontrun{
 # --- Example 1: Run a single normalisation ---
 my_config_single <- nm_config_single(
-  value = "pollutant",
-  predictors = c("temp", "humidity"),
+  target = "pollutant",
+  covariates = c("temp", "humidity"),
   resample_df = history_df,
   n_samples = 50,
   n_cores = 4,         # Explicitly set CPU cores
@@ -35,8 +35,8 @@ single_results <- nm_run_workflow(my_data, mode = "single", config = my_config_s
 
 # --- Example 2: Run an uncertainty analysis ---
 my_config_unc <- nm_config_unc(
-  value = "pollutant",
-  predictors = c("temp", "humidity"),
+  target = "pollutant",
+  covariates = c("temp", "humidity"),
   n_models = 5,
   weighted_method = "rmse",
   max_mem_size = "16G" # Allocate more RAM for 5 models

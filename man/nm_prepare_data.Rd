@@ -6,11 +6,11 @@
 \usage{
 nm_prepare_data(
   df,
-  value,
+  target,
   covariates,
-  na_rm = TRUE,
+  dropna = TRUE,
   split_method = "random",
-  fraction = 0.75,
+  train_fraction = 0.75,
   seed = 7654321,
   verbose = FALSE
 )
@@ -18,17 +18,23 @@ nm_prepare_data(
 \arguments{
 \item{df}{The raw input data frame.}
 
-\item{value}{A string indicating the target variable name (e.g., pollutant concentration).}
+\item{target}{A string indicating the target variable name (e.g., pollutant concentration).}
 
 \item{covariates}{A character vector of external predictor columns (e.g., meteorological variables).
 \strong{Note:} Do NOT include time variables (e.g., "weekday", "day_julian") here, as they are
 automatically generated and added by this function.}
 
-\item{na_rm}{If TRUE, rows with NA values are removed. If FALSE, they are imputed.}
+\item{dropna}{If TRUE, rows with NA values are removed. If FALSE, they are imputed.}
 
-\item{split_method}{A string for the data splitting strategy (e.g., "random").}
+\item{split_method}{A string for the data splitting strategy (e.g., "random").
+See \code{\link{nm_split_into_sets}} for the exact mechanics -- in
+particular, \code{"month_ts"}/\code{"season_ts"} hold out a contiguous
+block at a randomised (seeded) position within every period, rather
+than always the trailing slice; read that function's note for why
+that matters and its remaining caveats before choosing them over
+\code{"random"}.}
 
-\item{fraction}{A numeric value for the training fraction of the split (default 0.75).}
+\item{train_fraction}{A numeric value for the training fraction of the split (default 0.75).}
 
 \item{seed}{An integer for the random seed to ensure reproducibility.}
 
@@ -46,7 +52,7 @@ automatic generation of time-based features, and data splitting.
 covariates <- c("ws", "wd", "temp", "RH", "blh", "ssrd")
 df_prep <- nm_prepare_data(
   my1[1:200, c("date", "NO2", covariates)],
-  value = "NO2", covariates = covariates, verbose = FALSE
+  target = "NO2", covariates = covariates, verbose = FALSE
 )
 head(df_prep)
 

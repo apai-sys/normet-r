@@ -27,7 +27,7 @@ def rolling_mean_series(
     *,
     bridge,
     df_prep: pd.DataFrame,
-    predictors: list[str],
+    covariates: list[str],
     resample_vars: list[str] | None,
     backend: str,
     window_days: int,
@@ -45,7 +45,7 @@ def rolling_mean_series(
 
     step = max(1, window_days // 4)
     res = bridge.rolling(
-        predictors=predictors,
+        covariates=covariates,
         resample_vars=resample_vars,
         backend=backend,
         window_days=window_days,
@@ -70,7 +70,7 @@ def compute_multiscale(
     *,
     bridge,
     df_prep: pd.DataFrame,
-    predictors: list[str],
+    covariates: list[str],
     resample_vars: list[str] | None,
     backend: str,
     y_inf: pd.Series,
@@ -87,7 +87,7 @@ def compute_multiscale(
         series, n_windows, reason = rolling_mean_series(
             bridge=bridge,
             df_prep=df_prep,
-            predictors=predictors,
+            covariates=covariates,
             resample_vars=resample_vars,
             backend=backend,
             window_days=days,

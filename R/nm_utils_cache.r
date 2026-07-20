@@ -67,6 +67,50 @@ nm_config_hash <- function(...) {
   digest::digest(blob, algo = "sha1", serialize = FALSE)
 }
 
+#' Compute a Content Hash for a Model Object
+#'
+#' Compute a SHA-1 hash of an arbitrary (typically trained-model) object, for
+#' use as a cache key.
+#'
+#' Unlike \code{\link{nm_config_hash}}, which stringifies via
+#' \code{utils::str()} (lossy/truncated for large objects), this hashes a
+#' full content representation. Mirrors normet-py's \code{model_hash}
+#' (\code{joblib.hash}). Intended for cache keys that must invalidate when
+#' the model itself changes -- e.g. re-running \code{\link{nm_normalise}}
+#' with a re-fit model on otherwise identical data and config should not
+#' silently reuse a stale cached result.
+#'
+#' \strong{Known pitfall (fixed here):} a raw \code{digest::digest(model)}
+#' on an \code{lgb.Booster} is \emph{not} stable across calls on the exact
+#' same object -- lightgbm's R6 wrapper lazily mutates internal state
+#' (e.g. an internal predictor handle) the first time \code{predict()} runs
+#' on it, so hashing before vs. after a prediction call yields two different
+#' digests for what is semantically the same trained model. Confirmed via
+#' direct test: \code{digest(model)} differs before/after a
+#' \code{nm_predict_lgb()} call, while \code{digest(model$save_model_to_string())}
+#' (a serialization of only the persisted tree structure, not the lazy
+#' runtime cache) stays identical. Left unfixed, this silently defeats
+#' \code{\link{nm_normalise}}/\code{\link{nm_decompose}} caching: every call
+#' after the first `predict()` on a given model object hashes differently
+#' and always misses.
+#'
+#' @param model Any object, typically a trained model. \code{lgb.Booster}
+#'   and \code{H2OModel} objects are hashed via a stable model-specific
+#'   representation (see Details); anything else falls back to
+#'   \code{digest::digest(model)}.
+#'
+#' @return A character string (hex digest).
+#' @export
+nm_model_hash <- function(model) {
+  if (inherits(model, "lgb.Booster") && is.function(model$save_model_to_string)) {
+    return(digest::digest(model$save_model_to_string(), algo = "sha1"))
+  }
+  if (inherits(model, "H2OModel")) {
+    return(digest::digest(model@model_id, algo = "sha1"))
+  }
+  digest::digest(model, algo = "sha1")
+}
+
 #' Load a Cached Result
 #'
 #' @param cache_dir Character. Cache directory path.

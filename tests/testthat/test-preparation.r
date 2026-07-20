@@ -30,11 +30,11 @@ test_that("nm_prepare_data generates correct time features and cleans columns", 
 
   res <- nm_prepare_data(
     df = df,
-    value = "val",
+    target = "val",
     covariates = "covar",
-    na_rm = TRUE,
+    dropna = TRUE,
     split_method = "random",
-    fraction = 0.75,
+    train_fraction = 0.75,
     seed = 123,
     verbose = FALSE
   )
@@ -65,30 +65,69 @@ test_that("nm_split_into_sets splits correctly with different methods and fracti
   )
 
   # 1. Random split
-  res_rand <- normet:::nm_split_into_sets(data.table::copy(dt), split_method = "random", fraction = 0.8, seed = 123)
+  res_rand <- normet:::nm_split_into_sets(data.table::copy(dt), split_method = "random", train_fraction = 0.8, seed = 123)
   expect_equal(mean(res_rand$set == "training"), 0.8, tolerance = 0.05)
 
   # 2. Time-series split (strict order)
-  res_ts <- normet:::nm_split_into_sets(data.table::copy(dt), split_method = "ts", fraction = 0.75, seed = 123)
+  res_ts <- normet:::nm_split_into_sets(data.table::copy(dt), split_method = "ts", train_fraction = 0.75, seed = 123)
   train_idx <- which(res_ts$set == "training")
   test_idx <- which(res_ts$set == "testing")
   expect_true(max(train_idx) < min(test_idx))
   expect_equal(length(train_idx) / nrow(res_ts), 0.75, tolerance = 0.01)
 
-  # 3. Season split
-  res_seas <- normet:::nm_split_into_sets(data.table::copy(dt), split_method = "season", fraction = 0.7, seed = 123)
-  # Verify each season is represented in training roughly at 70% fraction
-  res_seas[, season := c("DJF", "DJF", "MAM", "MAM", "MAM", "JJA", "JJA", "JJA", "SON", "SON", "SON", "DJF")[as.integer(format(date, "%m"))]]
-  seas_summary <- res_seas[, .(frac = sum(set == "training") / .N), by = season]
-  for (f in seas_summary$frac) {
-    expect_equal(f, 0.7, tolerance = 0.1)
+  # Helper: within one date-ordered group, "testing" positions must form a
+  # single contiguous run (a block held out at *some* position, not
+  # scattered/interleaved) -- this is the invariant that still holds after
+  # randomising the block's position; it no longer sits fixed at the end.
+  expect_contiguous_test_block <- function(is_test) {
+    if (!any(is_test)) return(invisible(TRUE))
+    runs <- rle(is_test)
+    expect_equal(sum(runs$values), 1)
   }
 
-  # 4. Month split
-  res_month <- normet:::nm_split_into_sets(data.table::copy(dt), split_method = "month", fraction = 0.6, seed = 123)
-  res_month[, month := as.integer(format(date, "%m"))]
-  month_summary <- res_month[, .(frac = sum(set == "training") / .N), by = month]
-  for (f in month_summary$frac) {
+  # 3. month_ts split: chronological within each (year, month); no leakage
+  # within a block, every calendar month across every year contributes
+  # training rows, and the held-out block is contiguous but at a
+  # randomised (seeded) position rather than always the trailing slice.
+  res_mts <- normet:::nm_split_into_sets(data.table::copy(dt), split_method = "month_ts", train_fraction = 0.6, seed = 123)
+  res_mts[, ym := format(date, "%Y-%m")]
+  data.table::setorder(res_mts, ym, date)
+  mts_summary <- res_mts[, .(frac = sum(set == "training") / .N), by = ym]
+  for (f in mts_summary$frac) {
     expect_equal(f, 0.6, tolerance = 0.1)
   }
+  for (grp in split(res_mts$set == "testing", res_mts$ym)) {
+    expect_contiguous_test_block(grp)
+  }
+
+  # 4. season_ts split: chronological within each (meteorological year, season);
+  # December rolls into the following year's DJF block. Same contiguous-
+  # block-at-a-randomised-position invariant as month_ts.
+  res_sts <- normet:::nm_split_into_sets(data.table::copy(dt), split_method = "season_ts", train_fraction = 0.7, seed = 123)
+  season_map <- c("DJF", "DJF", "MAM", "MAM", "MAM", "JJA", "JJA", "JJA", "SON", "SON", "SON", "DJF")
+  mon <- as.integer(format(res_sts$date, "%m"))
+  res_sts[, season := season_map[mon]]
+  res_sts[, season_year := as.integer(format(date, "%Y"))]
+  res_sts[mon == 12L, season_year := season_year + 1L]
+  data.table::setorder(res_sts, season_year, season, date)
+  sts_summary <- res_sts[, .(frac = sum(set == "training") / .N),
+                          by = .(season_year, season)]
+  for (f in sts_summary$frac) {
+    expect_equal(f, 0.7, tolerance = 0.1)
+  }
+  for (grp in split(res_sts$set == "testing", paste(res_sts$season_year, res_sts$season))) {
+    expect_contiguous_test_block(grp)
+  }
+
+  # 5. Randomised block position: with several different seeds, the
+  # held-out block's position within a fixed month should not always land
+  # in the same place (the old bug: always the trailing slice).
+  starts <- sapply(1:6, function(s) {
+    r <- normet:::nm_split_into_sets(data.table::copy(dt), split_method = "month_ts", train_fraction = 0.6, seed = s)
+    r[, ym := format(date, "%Y-%m")]
+    data.table::setorder(r, ym, date)
+    jan <- r[ym == "2026-01"]
+    min(which(jan$set == "testing"))
+  })
+  expect_true(length(unique(starts)) > 1)
 })
