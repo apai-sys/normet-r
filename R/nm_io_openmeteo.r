@@ -9,6 +9,35 @@
 
 .NM_OPENMETEO_ARCHIVE <- "https://archive-api.open-meteo.com/v1/archive"
 
+# GET a JSON endpoint with retry/backoff. This module used to borrow
+# nm_io_defra.r's .aurn_get_json for this (an undeclared cross-file
+# dependency R CMD check's "possible problems" NOTE caught once
+# nm_io_defra.r was deleted -- not a check that ran clean before, just one
+# whose failure mode was silent until the borrowed function's home file
+# went away). Every other adapter in this package (nm_io_openaq.r,
+# nm_io_ukaq.r's aurn_live) already has its own private copy rather than
+# a shared one, so this follows that convention instead of introducing a
+# new shared utility file for a single caller.
+.om_get_json <- function(url, params = list(), retries = 3L) {
+  nm_require("httr2", hint = "install.packages('httr2')")
+  last_err <- NULL
+  for (attempt in seq_len(retries)) {
+    result <- tryCatch({
+      req <- httr2::request(url)
+      if (length(params) > 0) req <- do.call(httr2::req_url_query, c(list(req), params))
+      resp <- httr2::req_perform(req)
+      httr2::resp_body_json(resp, simplifyVector = FALSE)
+    }, error = function(e) {
+      last_err <<- e
+      if (attempt < retries) Sys.sleep(attempt)
+      NULL
+    })
+    if (!is.null(result)) return(result)
+  }
+  stop("Open-Meteo API request failed after ", retries, " attempts: ",
+       if (!is.null(last_err)) conditionMessage(last_err) else "unknown error", call. = FALSE)
+}
+
 # Open-Meteo hourly fields fetched by default -> normet/ERA5 column mapping.
 # `boundary_layer_height` was historically excluded on the assumption that
 # the archive API did not backfill it (all-NaN). Verified 2026-07-19
@@ -123,7 +152,7 @@ nm_fetch_openmeteo_timeseries <- function(sites,
   frames <- list()
   for (s in site_list) {
     log$info("Open-Meteo: fetching %s (%.4f, %.4f) %s -> %s", s$name, s$lat, s$lon, start, end)
-    payload <- .aurn_get_json(
+    payload <- .om_get_json(
       .NM_OPENMETEO_ARCHIVE,
       params = list(
         latitude = s$lat,

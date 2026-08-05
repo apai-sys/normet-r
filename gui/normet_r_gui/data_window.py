@@ -1,15 +1,30 @@
 """Data Studio — fetch UK air-quality (+ optional CDS meteorology) via R.
 
 Mirror of normet-py's Data Studio; station discovery and downloads go
-through the normet R package (``nm_list_aurn_stations`` /
-``nm_fetch_aurn_measurements`` / ``nm_fetch_era5_timeseries``).
+through the normet R package (``nm_list_ukaq_stations`` /
+``nm_fetch_ukaq_measurements`` / ``nm_fetch_era5_timeseries``).
 
-1. **Find stations** — tick pollutants, query the UK-AIR (AURN/DEFRA) API,
-   browse/search the station table and pick one.
+1. **Find stations** — pick a network, tick pollutants, list the sites that
+   measure them, browse/search the station table and pick one.
 2. **Fetch & merge** — download the hourly measurements for every ticked
    pollutant at that site, optionally add ERA5 meteorology from the
    Copernicus CDS (needs ``~/.cdsapirc``), and outer-join everything on the
    hourly timestamp into the wide table the modelling steps expect.
+
+Data source
+-----------
+Reads the openair-format ``.RData`` archives through ``nm_io_ukaq``,
+covering all six UK networks (AURN, AQE, SAQN, WAQN, NI, LMAM) — around
+1500 stations, whole calendar years, back to whenever each station opened.
+
+``nm_io_ukaq`` also exposes ``source = "aurn_live"``, DEFRA's UK-AIR SOS
+REST API (AURN-only, ~210 stations, a rolling recent window rather than
+full history) -- not wired into this window's network picker, only used
+programmatically for now. It used to be a separate module (``nm_io_defra``)
+briefly deprecated on the theory that its backend had gone permanently
+offline; that theory turned out to be wrong (checked again 2026-08-05, it
+answers normally), so the two were merged as complementary sources behind
+one interface instead.
 """
 
 from __future__ import annotations
@@ -48,62 +63,34 @@ from .workers import TaskRunner
 
 log = logging.getLogger(__name__)
 
-POLLUTANTS = ["PM2.5", "PM10", "NO2", "NOX", "NO", "O3", "SO2", "CO"]
+# Column names as they appear in BOTH the archives and the metadata
+# ``variable`` column -- the two agree exactly, so no name mapping is
+# needed. NOx is "NOXasNO2" here, not "NOX": that is the archive's own name
+# for it and what the merged table's column will be called.
+POLLUTANTS = ["PM2.5", "PM10", "NO2", "NOXasNO2", "NO", "O3", "SO2", "CO"]
 DEFAULT_POLLUTANTS = {"PM2.5", "NO2", "O3"}
+
+# Label -> nm_io_ukaq source key. AURN first so it stays the default.
+NETWORKS: dict[str, str] = {
+    "AURN — UK national network": "aurn",
+    "AQE — Air Quality England": "aqe",
+    "SAQN — Scotland": "saqn",
+    "WAQN — Wales": "waqn",
+    "NI — Northern Ireland": "ni",
+    "LMAM — DEFRA locally managed": "local",
+}
 
 MET_OPEN_METEO = "Open-Meteo (ERA5, no key needed)"
 MET_CDS = "Copernicus CDS (needs ~/.cdsapirc)"
 MET_NONE = "None (air quality only)"
 
-
-def _site_name(station_label: str) -> str:
-    """'Manchester Piccadilly-Nitrogen dioxide (air)' → 'Manchester Piccadilly'."""
-    return str(station_label).rsplit("-", 1)[0].strip()
-
-
-def _aggregate_stations(raw: pd.DataFrame, pollutants: list[str]) -> pd.DataFrame:
-    """One row per site from the bridge's per-(station, pollutant) rows."""
-    if raw.empty:
-        return pd.DataFrame(columns=["site", "code", "pollutants", "n", "lat", "lon", "ids"])
-    raw = raw.copy()
-    raw["site"] = raw["label"].map(_site_name)
-    sites: dict[str, dict] = {}
-    for _, row in raw.iterrows():
-        rec = sites.setdefault(
-            row["site"],
-            {
-                "site": row["site"],
-                "code": row.get("code"),
-                "lat": row.get("lat"),
-                "lon": row.get("lon"),
-                "ids": {},
-            },
-        )
-        rec["ids"].setdefault(str(row.get("pollutant")), row.get("id"))
-        if pd.isna(rec.get("code")) and pd.notna(row.get("code")):
-            rec["code"] = row.get("code")
-    rows = [
-        {
-            "site": r["site"],
-            # Official AURN site code (MY1, MAN3, …) from DEFRA metadata.
-            "code": r["code"] if pd.notna(r.get("code")) else "",
-            "pollutants": ", ".join(p for p in pollutants if p in r["ids"]),
-            "n": len(r["ids"]),
-            "lat": r["lat"],
-            "lon": r["lon"],
-            "ids": r["ids"],
-        }
-        for r in sites.values()
-    ]
-    return (
-        pd.DataFrame(rows)
-        .sort_values(["n", "site"], ascending=[False, True])
-        .reset_index(drop=True)
-    )
+# The per-station aggregation that used to happen here now happens in
+# bridge.R's find_stations task, so both GUIs consume the same shape and
+# the station table is whatever R returned.
 
 
 class DataWindow(QMainWindow):
-    """'Get UK data' window: AURN measurements + optional CDS met, merged in R."""
+    """'Get UK data' window: UK network measurements + optional CDS met, merged in R."""
 
     def __init__(self, parent: QWidget | None = None, bridge_factory=None) -> None:
         super().__init__(parent)
@@ -144,7 +131,8 @@ class DataWindow(QMainWindow):
         self.statusBar().addPermanentWidget(self.cancel_btn)
         self.statusBar().addPermanentWidget(self.progress)
         self.statusBar().showMessage(
-            "Tick pollutants, click 🔍 Find stations, pick a site, then ▶ Fetch & merge."
+            "Pick a network, tick pollutants, click 🔍 Find stations, "
+            "pick a site, then ▶ Fetch & merge."
         )
         self._sync_enabled()
 
@@ -153,8 +141,19 @@ class DataWindow(QMainWindow):
         panel = QWidget()
         v = QVBoxLayout(panel)
 
-        aq_box = QGroupBox("Air quality (UK AURN)")
+        aq_box = QGroupBox("Air quality (UK networks)")
         av = QVBoxLayout(aq_box)
+        av.addWidget(QLabel("Network"))
+        self.net_combo = NoWheelComboBox()
+        self.net_combo.addItems(list(NETWORKS))
+        self.net_combo.setToolTip(
+            "Which UK network to search.\n"
+            "AURN is the national network (~210 sites); the others are the\n"
+            "local-authority networks, which together hold most of the\n"
+            "roadside, rural and suburban background sites."
+        )
+        self.net_combo.currentIndexChanged.connect(self._network_changed)
+        av.addWidget(self.net_combo)
         av.addWidget(QLabel("Pollutants"))
         self.pol_list = QListWidget()
         self.pol_list.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
@@ -170,7 +169,7 @@ class DataWindow(QMainWindow):
         av.addWidget(self.pol_list)
         self.find_btn = run_button(
             "🔍  Find stations",
-            "Query the UK-AIR API for all AURN sites measuring the ticked\npollutants and list them on the right.",
+            "List every site in the chosen network measuring the ticked\npollutants, on the right.",
         )
         self.find_btn.clicked.connect(self._run_find_stations)
         av.addWidget(self.find_btn)
@@ -182,7 +181,7 @@ class DataWindow(QMainWindow):
         rf = QFormLayout(rng_box)
         rf.setLabelAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         today = QDate.currentDate()
-        self.date_from = QDateEdit(today.addDays(-190))
+        self.date_from = QDateEdit(QDate(today.year() - 3, 1, 1))
         self.date_to = QDateEdit(today.addDays(-3))
         for de in (self.date_from, self.date_to):
             de.setCalendarPopup(True)
@@ -190,7 +189,11 @@ class DataWindow(QMainWindow):
         rf.addRow("From", self.date_from)
         rf.addRow("To", self.date_to)
         rf.addRow(
-            hint_label("The UK-AIR API only serves a recent rolling window of data.")
+            hint_label(
+                "The archives run from each station's opening date (see the\n"
+                "from/to columns); selecting a station snaps the range to it.\n"
+                "Whole years are downloaded, then trimmed to this range."
+            )
         )
         v.addWidget(rng_box)
 
@@ -323,6 +326,20 @@ class DataWindow(QMainWindow):
         log.error("%s", tb)
 
     # ---------------------------------------------------------------- actions
+    def _current_source(self) -> str:
+        return NETWORKS[self.net_combo.currentText()]
+
+    def _network_changed(self) -> None:
+        """A station list belongs to one network; drop it when that changes."""
+        self.stations = None
+        self.station_table.clearContents()
+        self.station_table.setRowCount(0)
+        self.station_hint.setText("No station chosen yet")
+        self.statusBar().showMessage(
+            f"Network set to {self.net_combo.currentText()} — click 🔍 Find stations."
+        )
+        self._sync_enabled()
+
     def _run_find_stations(self) -> None:
         pollutants = self._checked_pollutants()
         if not pollutants:
@@ -335,10 +352,11 @@ class DataWindow(QMainWindow):
             self._stations_done,
             self._show_error,
             pollutants,
+            self._current_source(),
         )
 
-    def _stations_done(self, raw: pd.DataFrame) -> None:
-        df = _aggregate_stations(raw, self._pending_pollutants)
+    def _stations_done(self, df: pd.DataFrame) -> None:
+        # bridge.R already returns one row per station in the shared shape.
         self.stations = df
         self._fill_station_table(df)
         self.tabs.setCurrentIndex(0)
@@ -347,7 +365,7 @@ class DataWindow(QMainWindow):
         )
 
     def _fill_station_table(self, df: pd.DataFrame) -> None:
-        cols = ["site", "code", "pollutants", "lat", "lon"]
+        cols = ["site", "code", "site_type", "pollutants", "from", "to", "lat", "lon"]
         self.station_table.clear()
         self.station_table.setRowCount(len(df))
         self.station_table.setColumnCount(len(cols))
@@ -370,8 +388,11 @@ class DataWindow(QMainWindow):
         df = self.stations
         if text:
             df = df[
-                df["site"].str.lower().str.contains(text, na=False)
-                | df["code"].str.lower().str.contains(text, na=False)
+                df["site"].astype(str).str.lower().str.contains(text, na=False)
+                | df["code"].astype(str).str.lower().str.contains(text, na=False)
+                # Site type is searchable too: "rural" or "traffic" is often
+                # what you actually want to filter on across ~1500 stations.
+                | df["site_type"].astype(str).str.lower().str.contains(text, na=False)
             ]
         self._fill_station_table(df)
 
@@ -389,10 +410,26 @@ class DataWindow(QMainWindow):
     def _station_selected(self) -> None:
         st = self._selected_station()
         if st:
+            cov = f"{st.get('from', '')} → {st.get('to', '')}" if st.get("to") else "unknown"
+            code = f" ({st['code']})" if st.get("code") else ""
+            stype = f"\ntype: {st['site_type']}" if st.get("site_type") else ""
             self.station_hint.setText(
-                f"Selected: {st['site']}\nmeasures: {st['pollutants']}"
+                f"Selected: {st['site']}{code}{stype}\n"
+                f"measures: {st['pollutants']}\ndata held: {cov}"
             )
             self.station_hint.setStyleSheet("")
+            # Snap the pickers to the period the archive covers. Unlike the
+            # old SOS path there is no rolling window to fight, so the whole
+            # record is offered rather than the last ~6 months -- but capped
+            # at 5 years so a first click does not queue a 25-year download.
+            if st.get("from") and st.get("to"):
+                lo = QDate.fromString(str(st["from"]), "yyyy-MM-dd")
+                hi = QDate.fromString(str(st["to"]), "yyyy-MM-dd")
+                if lo.isValid() and hi.isValid():
+                    # Open-Meteo's archive lags a few days behind real time.
+                    hi = min(hi, QDate.currentDate().addDays(-5))
+                    self.date_from.setDate(max(lo, hi.addYears(-5)))
+                    self.date_to.setDate(hi)
         self._sync_enabled()
 
     def _run_fetch(self) -> None:
@@ -402,7 +439,8 @@ class DataWindow(QMainWindow):
                 self, "No station", "Find stations and select one in the table first."
             )
             return
-        pollutants = [p for p in self._checked_pollutants() if p in st["ids"]]
+        reported = {p.strip() for p in str(st.get("pollutants", "")).split(",") if p.strip()}
+        pollutants = [p for p in self._checked_pollutants() if p in reported]
         if not pollutants:
             QMessageBox.information(
                 self, "No pollutants at this site", "The selected site measures none of the ticks."
@@ -416,16 +454,14 @@ class DataWindow(QMainWindow):
         met = {MET_OPEN_METEO: "openmeteo", MET_CDS: "cds"}.get(
             self.met_combo.currentText(), "none"
         )
-        # All ticked pollutants share the same site; fetch by the first
-        # pollutant's station id (the R fetcher accepts one station id).
-        station_id = str(st["ids"][pollutants[0]])
         self.runner.submit(
             f"fetch {st['site']}",
             self.bridge.fetch_merge,
             self._fetch_done,
             self._show_error,
             pollutants=pollutants,
-            station_id=station_id,
+            code=str(st["code"]),
+            source=self._current_source(),
             site_name=st["site"],
             lat=float(st["lat"]),
             lon=float(st["lon"]),

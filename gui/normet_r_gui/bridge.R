@@ -457,51 +457,54 @@ if (task == "check") {
   write_result(result)
 
 } else if (task == "find_stations") {
+  # One row per STATION (not per station-pollutant): the aggregation that
+  # used to live in the Python front-end's _aggregate_stations() is done
+  # here, so both GUIs consume the same shape.
+  #
+  # This replaces a hand-rolled AURN_metadata.RData download and .rds cache
+  # that lived in this block. nm_list_ukaq_stations does the same job for
+  # all six networks and caches per session, so the duplicate is gone.
   pollutants <- p_list("pollutants")
-  frames <- lapply(pollutants, function(pol) {
-    st <- nm_list_aurn_stations(pollutant = pol)
-    if (nrow(st) == 0) return(NULL)
-    st$pollutant <- pol
-    st
-  })
-  frames <- Filter(Negate(is.null), frames)
-  if (length(frames) == 0) {
+  source <- p_chr("source", "aurn")
+
+  meta <- nm_list_ukaq_stations(source, all_variables = TRUE)
+  meta <- meta[as.character(meta$variable) %in% pollutants, , drop = FALSE]
+  if (nrow(meta) == 0) {
     write_result(data.frame())
   } else {
-    out <- do.call(rbind, frames)
-    # Attach official AURN site codes (MY1, MAN3, ...) from DEFRA's metadata
-    # (the same file openair's importMeta uses).  Match by site name, fall
-    # back to nearest coordinates; leave NA when neither matches.
-    out$code <- NA_character_
-    meta <- tryCatch({
-      cache <- file.path(session, "aurn_metadata.rds")
-      if (file.exists(cache)) {
-        readRDS(cache)
-      } else {
-        con <- url("https://uk-air.defra.gov.uk/openair/R_data/AURN_metadata.RData")
-        load(con); close(con)
-        m <- unique(AURN_metadata[, c("site_id", "site_name", "latitude", "longitude")])
-        saveRDS(m, cache)
-        m
-      }
-    }, error = function(e) { message("AURN metadata unavailable: ", conditionMessage(e)); NULL })
-    if (!is.null(meta)) {
-      site_names <- sub("-[^-]*$", "", out$label)  # strip '-Pollutant (air)' suffix
-      idx <- match(tolower(trimws(site_names)), tolower(trimws(meta$site_name)))
-      out$code <- meta$site_id[idx]
-      unmatched <- which(is.na(out$code) & !is.na(out$lat) & !is.na(out$lon))
-      for (i in unmatched) {
-        d2 <- (meta$latitude - out$lat[i])^2 + (meta$longitude - out$lon[i])^2
-        j <- which.min(d2)
-        if (length(j) == 1 && d2[j] < 0.02^2) out$code[i] <- meta$site_id[j]
-      }
-    }
+    # end_date is blank for a station still operating, so an open series
+    # means "to today" rather than an empty cell (which would read as
+    # "no data").
+    starts <- as.Date(meta$start_date)
+    ends   <- as.Date(meta$end_date)
+    today  <- Sys.Date()
+    parts <- split(seq_len(nrow(meta)), meta$code)
+    out <- do.call(rbind, lapply(parts, function(ix) {
+      have <- pollutants[pollutants %in% as.character(meta$variable[ix])]
+      t1 <- if (any(is.na(ends[ix]))) today else max(ends[ix], na.rm = TRUE)
+      t0 <- if (all(is.na(starts[ix]))) NA else min(starts[ix], na.rm = TRUE)
+      data.frame(
+        site       = as.character(meta$site[ix][1]),
+        code       = as.character(meta$code[ix][1]),
+        site_type  = as.character(meta$site_type[ix][1]),
+        pollutants = paste(have, collapse = ", "),
+        n          = length(have),
+        from       = if (is.na(t0)) "" else format(t0, "%Y-%m-%d"),
+        to         = format(t1, "%Y-%m-%d"),
+        lat        = as.numeric(meta$latitude[ix][1]),
+        lon        = as.numeric(meta$longitude[ix][1]),
+        stringsAsFactors = FALSE
+      )
+    }))
+    out <- out[order(-out$n, out$site), ]
+    rownames(out) <- NULL
     write_result(out)
   }
 
 } else if (task == "fetch_merge") {
   pollutants <- p_list("pollutants")
-  station_id <- p_chr("station_id")
+  code <- p_chr("code")
+  source <- p_chr("source", "aurn")
   site_name <- p_chr("site_name", "site")
   lat <- p_num("lat")
   lon <- p_num("lon")
@@ -509,23 +512,28 @@ if (task == "check") {
   date_to <- p_chr("date_to")
   met <- p_chr("met_source", "none")
 
-  frames <- list()
-  for (pol in pollutants) {
-    aq <- tryCatch(
-      nm_fetch_aurn_measurements(
-        station = station_id, pollutant = pol,
-        date_from = date_from, date_to = date_to
-      ),
-      error = function(e) { message(sprintf("%s: %s", pol, conditionMessage(e))); NULL }
-    )
-    if (is.null(aq) || nrow(aq) == 0) next
-    aq <- aq[aq$value > -50, ]  # UK-AIR missing-value sentinels
-    agg <- stats::aggregate(value ~ date, data = aq, FUN = mean)
-    names(agg)[2] <- pol
-    frames[[pol]] <- agg
+  # The archives are one file per station-year, so whole years are fetched
+  # and then trimmed to the requested range.
+  t0 <- as.POSIXct(paste(date_from, "00:00:00"), tz = "UTC")
+  t1 <- as.POSIXct(paste(date_to, "23:59:59"), tz = "UTC")
+  years <- seq(as.integer(format(t0, "%Y")), as.integer(format(t1, "%Y")))
+
+  aq <- nm_fetch_ukaq_measurements(
+    code, years, source = source, pollutant = pollutants, on_missing = "warn"
+  )
+  if (nrow(aq) == 0) {
+    stop("No data returned for ", site_name, " (", code, ") in ",
+         years[1], "-", years[length(years)], ".")
   }
-  if (length(frames) == 0) stop("No air-quality data came back for this site/date range.")
-  merged <- Reduce(function(a, b) merge(a, b, by = "date", all = TRUE), frames)
+  aq <- aq[aq$date >= t0 & aq$date <= t1, , drop = FALSE]
+  pol_cols <- intersect(pollutants, names(aq))
+  if (length(pol_cols) == 0 || nrow(aq) == 0) {
+    stop("No air-quality data came back for this site/date range.")
+  }
+  # Already wide (one column per species); collapse any duplicate hours a
+  # station-year overlap could produce.
+  merged <- stats::aggregate(aq[, pol_cols, drop = FALSE],
+                             by = list(date = aq$date), FUN = mean, na.rm = TRUE)
 
   if (met %in% c("openmeteo", "cds")) {
     sites <- data.frame(site = site_name, lat = lat, lon = lon)
