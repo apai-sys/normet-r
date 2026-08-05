@@ -43,6 +43,16 @@
 * **GDAS1 met download**: `nm_fetch_gdas1()` / `nm_gdas1_filenames()` pull the
   weekly GDAS1 (1°) ARL files from NOAA ARL's archive (streamed + cached) so
   `nm_run_back_trajectories()` can run when no local met is available.
+* **UK air quality**: `nm_list_ukaq_stations()` / `nm_fetch_ukaq_measurements()`
+  replace `nm_list_aurn_stations()` / `nm_fetch_aurn_measurements()` (removed,
+  along with `nm_aurn_pollutant_codes`). Covers all six UK networks (AURN, AQE,
+  SAQN, WAQN, NI, LMAM — around 1500 stations) from the openair `.RData`
+  archives via `source = "aurn"`/`"aqe"`/`"saqn"`/`"waqn"`/`"ni"`/`"local"`, or
+  DEFRA's live SOS API (AURN only, near-real-time rolling window) via
+  `source = "aurn_live"` — both behind the same interface and returning the
+  same schema (`aurn_live` rows leave `site_type`/`start_date`/`end_date` as
+  `NA`, which the SOS API does not carry). Mirrors `normet-py`'s
+  `normet.io.ukaq` argument for argument.
 
 # normet 0.0.1
 

@@ -309,16 +309,21 @@ class RBridge:
         return self._read()
 
     # ----------------------------------------------------------- Data Studio
-    def find_stations(self, pollutants: list[str]) -> pd.DataFrame:
-        """One row per (station, pollutant) with id/label/lat/lon."""
-        self._run("find_stations", pollutants=pollutants)
+    def find_stations(self, pollutants: list[str], source: str = "aurn") -> pd.DataFrame:
+        """One row per station: site/code/site_type/pollutants/from/to/lat/lon.
+
+        The per-station aggregation happens in bridge.R so both GUIs consume
+        the same shape.
+        """
+        self._run("find_stations", pollutants=pollutants, source=source)
         return self._read(dates=False)
 
     def fetch_merge(
         self,
         *,
         pollutants: list[str],
-        station_id: str,
+        code: str,
+        source: str,
         site_name: str,
         lat: float,
         lon: float,
@@ -329,7 +334,8 @@ class RBridge:
         self._run(
             "fetch_merge",
             pollutants=pollutants,
-            station_id=station_id,
+            code=code,
+            source=source,
             site_name=site_name.replace("=", " ").replace(",", " "),
             lat=lat,
             lon=lon,

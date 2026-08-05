@@ -559,9 +559,9 @@ class MainWindow(QMainWindow):
         self.scm_btn.clicked.connect(self.open_scm_studio)
         self.data_btn = QPushButton("🌐  Get UK data")
         self.data_btn.setToolTip(
-            "Fetch UK AURN air quality (and optionally ERA5 meteorology via the\n"
-            "Copernicus CDS) through the normet R package and merge them into a\n"
-            "model-ready table."
+            "Fetch UK air quality (AURN, AQE, SAQN, WAQN, NI, LMAM) and\n"
+            "optionally ERA5 meteorology via the Copernicus CDS, through the\n"
+            "normet R package, merged into a model-ready table."
         )
         self.data_btn.clicked.connect(self.open_data_studio)
         self.transport_btn = QPushButton("🧭  Transport Studio")

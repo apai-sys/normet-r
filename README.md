@@ -15,7 +15,7 @@
 - **Time-series decomposition** — isolate emission vs. meteorological contributions
 - **Synthetic Control Methods** — classic SCM, ML-SCM, Abadie, DiD, MC-NNM, Bayesian
 - **Causal significance tests** — conformal inference, RMSPE ratio, placebo-in-space/time
-- **Data acquisition** — built-in adapters for DEFRA/AURN, EEA Discomap, OpenAQ v3, ERA5, HYSPLIT back-trajectories
+- **Data acquisition** — built-in adapters for UK air quality (AURN, AQE, SAQN, WAQN, NI, LMAM), EEA Discomap, OpenAQ v3, ERA5, HYSPLIT back-trajectories
 - **Multi-site pipelines** — parallel normalisation and decomposition across station networks
 - **On-disk caching** — SHA-1 content hashing to skip redundant computation
 
@@ -63,20 +63,18 @@ head(results$out)   # date | observed | normalised
 
 ## Data Acquisition
 
-### UK AURN (DEFRA)
+### UK air quality (AURN, AQE, SAQN, WAQN, NI, LMAM)
 
 ```r
-# Browse available stations
-stations <- nm_list_aurn_stations(pollutant = "no2")
+# Browse available stations (six networks, whole-year archives)
+stations <- nm_list_ukaq_stations("aurn", pollutant = "NO2")
 head(stations)
 
 # Download hourly measurements
-df_aurn <- nm_fetch_aurn_measurements(
-  station   = "MY1",
-  pollutant = "no2",
-  date_from = "2022-01-01",
-  date_to   = "2022-12-31"
-)
+df_aurn <- nm_fetch_ukaq_measurements("MY1", 2022, source = "aurn", pollutant = "NO2")
+
+# Or the near-real-time rolling window instead of the archive
+df_live <- nm_fetch_ukaq_measurements("MY1", 2026, source = "aurn_live", pollutant = "NO2")
 ```
 
 ### EEA Discomap
@@ -449,12 +447,12 @@ panel differences rolling-deweathered series at increasing window widths
 against Step 4's full-record baseline, isolating the meteorological residual
 specific to each timescale.
 
-**Data Studio** (🌐 toolbar button) — browse/search every UK AURN station by
-the pollutants it measures or its official site code (e.g. "MY1" for London
-Marylebone Road, resolved from DEFRA's station metadata), pick a date range,
-and fetch hourly measurements together with meteorology from Open-Meteo (no
-key) or the Copernicus CDS. The merged table can be saved as CSV or sent
-straight into Step 1.
+**Data Studio** (🌐 toolbar button) — pick a UK network (AURN, AQE, SAQN,
+WAQN, NI, LMAM), browse/search its stations by the pollutants they measure
+or official site code (e.g. "MY1" for London Marylebone Road), pick a date
+range, and fetch hourly measurements together with meteorology from
+Open-Meteo (no key) or the Copernicus CDS. The merged table can be saved as
+CSV or sent straight into Step 1.
 
 **SCM Studio** (🧪 toolbar button) — the counterfactual workflow on panel
 data: map date/unit/outcome columns, pick the treated unit, cutoff and donor
