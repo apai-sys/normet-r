@@ -149,12 +149,14 @@
 
   # Physical cores are the right denominator for the compute-bound work here;
   # detectCores() returns NA on platforms where it cannot tell, hence the
-  # logical fallback.
+  # logical fallback. Length is tested first in both guards simply so it reads
+  # in the order it is meant: R's zero-length `&&`/`||` happen to fall the right
+  # way here, so the ordering is clarity, not a fix.
   detected <- parallel::detectCores(logical = FALSE)
-  if (is.na(detected) || length(detected) == 0L) {
+  if (length(detected) == 0L || is.na(detected)) {
     detected <- parallel::detectCores(logical = TRUE)
   }
-  if (!is.na(detected) && length(detected) >= 1L) limits <- c(limits, detected)
+  if (length(detected) >= 1L && !is.na(detected)) limits <- c(limits, detected)
 
   if (length(limits) == 0L) return(1L)
   max(1L, min(limits))
