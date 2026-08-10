@@ -93,13 +93,38 @@ nm_normalise <- function(df, model, verbose = TRUE, cache_dir = NULL, ...) {
     dots <- list(...)
     resample_vars <- dots$resample_vars
     resample_pool <- if (!is.null(dots$resample_df)) dots$resample_df else df
-    key_cols <- intersect(unique(c(resample_vars, "value", "date")), colnames(df))
-    resample_key_cols <- intersect(
+    # sort(): nm_dataframe_hash() serialises the selected columns via as.list(),
+    # which carries column order, so an unsorted selection makes the same set of
+    # columns hash differently. Canonicalising here is what actually lets a
+    # reordered call hit the cache -- sorting the argument list alone (below) is
+    # not enough.
+    key_cols <- sort(intersect(unique(c(resample_vars, "value", "date")), colnames(df)))
+    resample_key_cols <- sort(intersect(
       if (!is.null(resample_vars)) resample_vars else colnames(resample_pool),
       colnames(resample_pool)
-    )
+    ))
+    # Canonicalise the key inputs so that logically identical calls hash alike
+    # (kept in step with normet-py's analysis/normalise.py):
+    #   * drop `n_cores` -- it changes only how the work is scheduled, never the
+    #     result, so it must not force a recompute;
+    #   * sort `resample_vars`/`covariates` -- the result depends on which
+    #     variables are involved, not on the order they are listed in. Callers
+    #     that reach the same set by a different route (nm_decom_met's shrinking
+    #     sublist of a feature-importance order) otherwise miss every time.
+    #     Only these two are sorted: order-bearing arguments such as
+    #     `variable_order` must stay order-sensitive or distinct decompositions
+    #     would collide;
+    #   * sort by argument name -- `list(...)` preserves call order, so the same
+    #     call written with its arguments in a different order hashed differently.
+    key_dots <- dots[setdiff(names(dots), c("resample_df", "n_cores"))]
+    for (.v in intersect(c("resample_vars", "covariates"), names(key_dots))) {
+      if (is.character(key_dots[[.v]])) key_dots[[.v]] <- sort(key_dots[[.v]])
+    }
+    if (length(key_dots) && !is.null(names(key_dots)) && all(nzchar(names(key_dots)))) {
+      key_dots <- key_dots[order(names(key_dots))]
+    }
     cache_key <- nm_config_hash(
-      dots[setdiff(names(dots), "resample_df")],
+      key_dots,
       nm_dataframe_hash(df, cols = key_cols, include_index = FALSE),
       nm_dataframe_hash(resample_pool, cols = resample_key_cols, include_index = FALSE),
       nm_model_hash(model)
