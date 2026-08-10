@@ -73,9 +73,12 @@ nm_do_all <- function(df = NULL, target = "value", backend = "lightgbm", covaria
   # --- 0. Cache check ---
   cache_key <- NULL
   if (!is.null(cache_dir)) {
+    # `covariates`/`resample_vars` sorted for the same reason as in
+    # nm_normalise(): the result depends on which variables are involved, not
+    # on the order they are listed in. (nm_train_model() already sorts.)
     cache_key <- nm_config_hash(
       nm_dataframe_hash(df, include_index = FALSE),
-      target, backend, covariates, resample_vars, n_samples,
+      target, backend, sort(covariates), sort(resample_vars), n_samples,
       aggregate, seed, split_method, train_fraction, model_config
     )
     cached <- nm_cache_load(cache_dir, cache_key)
