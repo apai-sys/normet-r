@@ -1,6 +1,6 @@
 Package: normet
 Type: Package
-Title: Normalisation, Decomposition, and Counterfactual Modelling for Air Quality Time-series
+Title: Normalisation, Decomposition, and Counterfactual Modelling for Air Quality Time-Series
 Version: 1.0.0
 Authors@R: person("Congbo", "Song", email = "congbo.song@manchester.ac.uk", role = c("aut", "cre"),
                    comment = c(ORCID = "https://orcid.org/0000-0001-7948-4834"))
