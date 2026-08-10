@@ -51,8 +51,8 @@ If NULL, defaults to all model features excluding time components.}
 \item{file_format}{Character. "parquet", "csv", or "rds". Default "parquet".}
 
 \item{n_cores}{Integer or NULL. If provided, overrides the conservative
-default of 2 R-side resampling workers (still capped at
-\code{detectCores() - 1}). Ignored if \code{cl} is supplied.}
+default of 2 R-side resampling workers, which exists to leave the rest
+of the machine to H2O. Ignored if \code{cl} is supplied.}
 
 \item{cl}{Optional existing parallel cluster object.}
 }

@@ -192,8 +192,8 @@ nm_normalise <- function(df, model, verbose = TRUE, cache_dir = NULL, ...) {
 #' @param output_dir Character (Optional). Directory for disk offloading.
 #' @param file_format Character. "parquet", "csv", or "rds". Default "parquet".
 #' @param n_cores Integer or NULL. If provided, overrides the conservative
-#'        default of 2 R-side resampling workers (still capped at
-#'        \code{detectCores() - 1}). Ignored if \code{cl} is supplied.
+#'        default of 2 R-side resampling workers, which exists to leave the rest
+#'        of the machine to H2O. Ignored if \code{cl} is supplied.
 #' @param cl Optional existing parallel cluster object.
 #'
 #' @return A data frame (if aggregated or small raw) or file paths (if disk offloading).
@@ -297,17 +297,11 @@ nm_normalise_h2o <- function(df, model, resample_vars = NULL,
   if (manage_cluster_locally) {
     # STRATEGY: R Resampling is memory-bound but fast. H2O prediction is CPU-bound.
     # To avoid thrashing, we severely limit R side concurrency.
-    # We use at most 2 cores for R, leaving the rest (N-2) for H2O.
-    avail_cores <- parallel::detectCores(logical = FALSE)
-    if (is.na(avail_cores)) avail_cores <- parallel::detectCores(logical = TRUE)
-
-    # Cap R workers at 2 by default. This is sufficient to feed H2O without
-    # stealing its resources. An explicit `n_cores` overrides this cap.
-    r_cores <- if (!is.null(n_cores)) {
-      max(1, min(as.integer(n_cores), avail_cores - 1))
-    } else {
-      max(1, min(2, avail_cores - 1))
-    }
+    # Cap R workers at 2 by default, which is enough to feed H2O without
+    # stealing its resources -- that is what `limit` expresses, and like the
+    # cap it replaces it applies only to the auto-detected default: an explicit
+    # `n_cores` still overrides it.
+    r_cores <- .nm_resolve_cores(n_cores, limit = 2L)
 
     if (verbose) {
       log$info("Parallel Resampling: Using %d R-worker(s)%s.", r_cores,
@@ -476,7 +470,10 @@ nm_normalise_h2o <- function(df, model, resample_vars = NULL,
 #' @param memory_save If TRUE, processes in smaller batches. Default TRUE.
 #' @param verbose Logical. Default TRUE.
 #' @param n_cores Integer or NULL. Number of parallel workers for resampling.
-#'   If NULL, uses \code{min(detectCores(logical = FALSE) - 1, 4)}.
+#'   If NULL, uses at most 4, and at most one fewer than the cores this process
+#'   is actually allowed to use (which respects a batch scheduler's allocation
+#'   or a container's CPU quota, not just the machine's size). Never exceeds the
+#'   number of resamples in a batch either way.
 #' @param return_quantiles Numeric vector of probabilities in `[0,1]` (e.g.
 #'   \code{c(0.025, 0.5, 0.975)}), or NULL (default). When supplied, the
 #'   output gains one column per quantile (named \code{qXXX}, e.g.
@@ -556,16 +553,11 @@ nm_normalise_lgb <- function(df, model, resample_vars = NULL,
   seed_chunks <- split(random_seeds, ceiling(seq_along(random_seeds) / chunk_size))
 
   # --- 5. Resampling parallelism ---
-  if (!is.null(n_cores)) {
-    r_cores <- max(1L, as.integer(n_cores))
-  } else {
-    avail <- parallel::detectCores(logical = FALSE)
-    if (is.na(avail)) avail <- parallel::detectCores(logical = TRUE)
-    r_cores <- max(1L, min(avail - 1L, 4L))
-  }
-  if (Sys.getenv("_R_CHECK_LIMIT_CORES_", "") != "") {
-    r_cores <- min(r_cores, 2L)
-  }
+  # The batch loop below is serial; the foreach() inside it distributes one
+  # *seed* per worker, so the largest batch -- not the number of batches -- is
+  # the cap. With memory_save off there is a single batch of n_samples seeds;
+  # with it on, chunk_size of them.
+  r_cores <- .nm_resolve_cores(n_cores, n_tasks = max(lengths(seed_chunks)), limit = 4L)
 
   cl <- parallel::makeCluster(r_cores)
   .nm_propagate_libpaths(cl)

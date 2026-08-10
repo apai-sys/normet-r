@@ -190,7 +190,10 @@ nm_scm <- function(df, date_col = "date", unit_col = "code", outcome_col = "poll
     )
   }
 
-  n_cores_eff <- if (is.null(n_cores)) 1 else max(1, as.integer(n_cores))
+  # Serial by default here (unlike the other entry points), so NULL stays 1; an
+  # explicit n_cores still goes through the resolver to pick up the task cap and
+  # the connection-table backstop. One timepoint per worker.
+  n_cores_eff <- if (is.null(n_cores)) 1L else .nm_resolve_cores(n_cores, n_tasks = n_times)
   use_parallel <- n_cores_eff > 1 && n_times > 1 &&
     requireNamespace("foreach", quietly = TRUE) && requireNamespace("doSNOW", quietly = TRUE)
 
@@ -830,24 +833,8 @@ nm_scm_all <- function(df,
 
   cleanup_every <- if ("cleanup_every" %in% names(dots)) dots$cleanup_every else 10
 
-  # Default cores if not specified
-  if (is.null(n_cores)) {
-    is_r_check <- Sys.getenv("_R_CHECK_LIMIT_CORES_", "") != ""
-    if (is_r_check) {
-      n_cores <- 2
-    } else {
-      detected <- parallel::detectCores(logical = FALSE) - 1
-      if (is.na(detected) || length(detected) == 0) {
-        detected <- parallel::detectCores(logical = TRUE) - 1
-      }
-      n_cores <- max(1, detected)
-    }
-  }
-  # Always cap at 2 if we are under R CMD check
-  if (Sys.getenv("_R_CHECK_LIMIT_CORES_", "") != "") {
-    n_cores <- min(n_cores, 2)
-  }
-  n_cores <- max(1, n_cores)
+  # One unit per worker, so the unit count is the cap.
+  n_cores <- .nm_resolve_cores(n_cores, n_tasks = length(units))
 
   # --- 1. Execution Branch ---
 

@@ -154,23 +154,9 @@ nm_placebo_in_space <- function(df, date_col, unit_col, outcome_col,
 
   placebo_results_list <- list()
 
-  # Resolve worker count for the classic SCM backend (mirrors nm_placebo_in_time / nm_scm_all)
-  n_cores_eff <- n_cores
-  if (is.null(n_cores_eff)) {
-    if (Sys.getenv("_R_CHECK_LIMIT_CORES_", "") != "") {
-      n_cores_eff <- 2
-    } else {
-      detected <- parallel::detectCores(logical = FALSE) - 1
-      if (is.na(detected) || length(detected) == 0) {
-        detected <- parallel::detectCores(logical = TRUE) - 1
-      }
-      n_cores_eff <- max(1, detected)
-    }
-  }
-  if (Sys.getenv("_R_CHECK_LIMIT_CORES_", "") != "") {
-    n_cores_eff <- min(n_cores_eff, 2)
-  }
-  n_cores_eff <- max(1, n_cores_eff)
+  # Resolve worker count for the classic SCM backend (mirrors nm_placebo_in_time / nm_scm_all).
+  # One donor per worker, so the donor count is the cap.
+  n_cores_eff <- .nm_resolve_cores(n_cores, n_tasks = length(valid_donors))
 
   use_parallel <- scm_backend == "scm" && n_cores_eff > 1 && length(valid_donors) > 1 &&
     requireNamespace("foreach", quietly = TRUE) && requireNamespace("doSNOW", quietly = TRUE)

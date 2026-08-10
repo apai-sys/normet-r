@@ -14,7 +14,10 @@ nm_multisite_apply(df, site_col, func, n_cores = NULL, site_kwarg = NULL, ...)
 \item{func}{Function. Per-site function. Must return a data.frame.
 Signature: \code{function(df, ...)}.}
 
-\item{n_cores}{Integer. Parallel workers. If NULL, uses \code{detectCores() - 1}.}
+\item{n_cores}{Integer. Parallel workers. If NULL, uses one fewer than the
+cores this process is actually allowed to use (which respects a batch
+scheduler's allocation or a container's CPU quota, not just the
+machine's size). Never exceeds the number of sites either way.}
 
 \item{site_kwarg}{Character. If set, the site value is passed to \code{func}
 under this keyword argument.}
