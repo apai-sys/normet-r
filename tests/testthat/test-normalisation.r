@@ -5,6 +5,11 @@ test_that("nm_normalise cache key ignores resample_vars order", {
   # and the column order handed to nm_dataframe_hash() -- so callers reaching
   # the same set by different routes (nm_decom_met's shrinking sublist of a
   # feature-importance order) recomputed every single time.
+  #
+  # Mocking nm_predict_lgb() below is not enough to run without the backend:
+  # nm_normalise_lgb() calls nm_require("lightgbm") before it ever predicts.
+  skip_if_not_installed("lightgbm")
+
   dates <- seq(as.POSIXct("2026-05-19 00:00:00", tz = "UTC"), by = "hour", length.out = 48)
   set.seed(1)
   df <- data.frame(
