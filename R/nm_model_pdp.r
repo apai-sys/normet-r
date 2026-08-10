@@ -172,23 +172,10 @@ nm_pdp_generic <- function(df, model, var_list = NULL, training_only = TRUE, n_c
     X_df[, feature_names, drop = FALSE]
   }
 
-  # Setup parallel cluster
-  if (is.null(n_cores)) {
-    is_r_check <- Sys.getenv("_R_CHECK_LIMIT_CORES_", "") != ""
-    if (is_r_check) {
-      n_cores <- 2
-    } else {
-      detected <- parallel::detectCores() - 1
-      if (is.na(detected) || length(detected) == 0) {
-        detected <- 2
-      }
-      n_cores <- max(1, detected)
-    }
-  }
-  if (Sys.getenv("_R_CHECK_LIMIT_CORES_", "") != "") {
-    n_cores <- min(n_cores, 2)
-  }
-  n_cores <- max(1, n_cores)
+  # Setup parallel cluster. The foreach() below distributes one variable per
+  # worker, so `vars_for_pdp` is the cap that matters: a PDP over a single
+  # variable must not start one worker per core.
+  n_cores <- .nm_resolve_cores(n_cores, n_tasks = length(vars_for_pdp))
   cl <- parallel::makeCluster(n_cores)
   .nm_propagate_libpaths(cl)
   doSNOW::registerDoSNOW(cl)
