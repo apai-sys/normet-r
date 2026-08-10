@@ -133,8 +133,13 @@
   # own environment variables are the only signal. Values are per-task where the
   # scheduler distinguishes; SLURM_CPUS_ON_NODE is the whole-node fallback for
   # allocations made without --cpus-per-task.
+  #
+  # OMP_NUM_THREADS deliberately does not belong here: it sets threads *per
+  # process*, not the size of the allocation, and is routinely set to 1 to stop
+  # BLAS oversubscribing underneath exactly this kind of worker pool. Reading it
+  # as a core count would serialise everything for the users being most careful.
   for (var in c("SLURM_CPUS_PER_TASK", "SLURM_CPUS_ON_NODE", "NSLOTS",
-                "PBS_NUM_PPN", "NCPUS", "LSB_DJOB_NUMPROC", "OMP_NUM_THREADS")) {
+                "PBS_NUM_PPN", "NCPUS", "LSB_DJOB_NUMPROC")) {
     val <- suppressWarnings(as.integer(Sys.getenv(var, "")))
     if (!is.na(val) && val >= 1L) limits <- c(limits, val)
   }
