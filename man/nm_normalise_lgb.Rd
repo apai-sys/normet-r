@@ -43,7 +43,10 @@ If FALSE, returns all iterations (one row per sample).}
 \item{verbose}{Logical. Default TRUE.}
 
 \item{n_cores}{Integer or NULL. Number of parallel workers for resampling.
-If NULL, uses \code{min(detectCores(logical = FALSE) - 1, 4)}.}
+If NULL, uses at most 4, and at most one fewer than the cores this process
+is actually allowed to use (which respects a batch scheduler's allocation
+or a container's CPU quota, not just the machine's size). Never exceeds the
+number of resamples in a batch either way.}
 
 \item{return_quantiles}{Numeric vector of probabilities in \verb{[0,1]} (e.g.
 \code{c(0.025, 0.5, 0.975)}), or NULL (default). When supplied, the

@@ -14,7 +14,10 @@ NULL
 #' @param site_col Character. Site/station identifier column.
 #' @param func Function. Per-site function. Must return a data.frame.
 #'        Signature: \code{function(df, ...)}.
-#' @param n_cores Integer. Parallel workers. If NULL, uses \code{detectCores() - 1}.
+#' @param n_cores Integer. Parallel workers. If NULL, uses one fewer than the
+#'        cores this process is actually allowed to use (which respects a batch
+#'        scheduler's allocation or a container's CPU quota, not just the
+#'        machine's size). Never exceeds the number of sites either way.
 #' @param site_kwarg Character. If set, the site value is passed to \code{func}
 #'        under this keyword argument.
 #' @param ... Additional arguments passed to \code{func}.
@@ -27,19 +30,10 @@ nm_multisite_apply <- function(df, site_col, func, n_cores = NULL,
   sites <- unique(df[[site_col]])
   if (length(sites) == 0) return(data.frame())
 
-  if (is.null(n_cores)) {
-    if (Sys.getenv("_R_CHECK_LIMIT_CORES_", "") != "") {
-      n_cores <- 2
-    } else {
-      n_cores <- max(1, parallel::detectCores(logical = FALSE) - 1)
-      if (is.na(n_cores)) n_cores <- 2
-    }
-  }
-  if (Sys.getenv("_R_CHECK_LIMIT_CORES_", "") != "") {
-    n_cores <- min(n_cores, 2)
-  }
+  # One site per worker, so the site count is the cap.
+  n_cores <- .nm_resolve_cores(n_cores, n_tasks = length(sites))
 
-  cl <- parallel::makeCluster(min(n_cores, length(sites)))
+  cl <- parallel::makeCluster(n_cores)
   .nm_propagate_libpaths(cl)
   on.exit(parallel::stopCluster(cl), add = TRUE)
   doSNOW::registerDoSNOW(cl)

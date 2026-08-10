@@ -230,18 +230,15 @@ nm_do_all_unc <- function(df = NULL, target = "value", backend = "lightgbm", cov
   if (backend == "lightgbm") {
     # Fork-parallel for lightgbm: each worker is fully independent.
     # Falls back to serial on Windows (mc.cores is ignored there).
-    sys_cores <- parallel::detectCores(logical = FALSE)
-    if (is.na(sys_cores)) sys_cores <- parallel::detectCores(logical = TRUE)
-    mc_cores <- max(1L, min(n_models, sys_cores - 1L))
+    mc_cores <- .nm_resolve_cores(n_tasks = n_models)
     if (verbose) log$info("lightgbm ensemble: running %d models in parallel (%d cores).", n_models, mc_cores)
 
     raw_results <- parallel::mclapply(seeds, .run_one, mc.cores = mc_cores)
 
   } else {
-    # H2O must be sequential: single shared cluster
-    sys_cores <- parallel::detectCores(logical = FALSE)
-    if (is.na(sys_cores)) sys_cores <- parallel::detectCores(logical = TRUE)
-    n_r_workers <- max(1, min(2, sys_cores - 1))
+    # H2O must be sequential: single shared cluster. R-side resampling stays out
+    # of H2O's way, hence the ceiling of 2.
+    n_r_workers <- .nm_resolve_cores(limit = 2L)
     if (verbose) log$info("H2O ensemble: sequential, R resampling restricted to %d core(s).", n_r_workers)
 
     cl <- parallel::makeCluster(n_r_workers)

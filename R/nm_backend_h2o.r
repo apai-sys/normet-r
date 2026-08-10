@@ -38,23 +38,18 @@ nm_init_h2o <- function(n_cores = NULL, max_mem_size = NULL,
   } else {
     user_specified_cores <- FALSE
 
-    # Detect PHYSICAL cores (Performance > Hyper-threading)
-    # H2O performs better with physical cores for dense matrix math.
-    sys_cores <- parallel::detectCores(logical = FALSE)
-
-    # Fallback: If physical detection fails (returns NA/0), use logical
-    if (is.na(sys_cores) || length(sys_cores) == 0) {
-      sys_cores <- parallel::detectCores(logical = TRUE)
-      core_type <- "Logical"
-    } else {
-      core_type <- "Physical"
-    }
+    # Cores this process may actually use, which is not the same as the number
+    # the machine has: sizing the JVM off detectCores() hands H2O 166 threads
+    # inside a 4-core batch allocation. .nm_available_cores() prefers physical
+    # cores (H2O does better with them for dense matrix math) and falls back to
+    # logical where physical detection fails.
+    sys_cores <- .nm_available_cores()
 
     # Reserve 2 cores for R/OS to prevent system freeze
     # Ensure at least 1 core is allocated to H2O
     nthreads <- max(1, sys_cores - 2)
 
-    if (verbose) log$info("Auto-configured H2O cores: %d (System: %d %s Cores)", nthreads, sys_cores, core_type)
+    if (verbose) log$info("Auto-configured H2O cores: %d (Available: %d)", nthreads, sys_cores)
   }
 
   # --- Logic 2: Determine Memory (Smart Auto-Allocation) ---

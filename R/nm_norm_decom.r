@@ -321,18 +321,9 @@ nm_decom_emi <- function(df = NULL, model = NULL, target = "value",
 
   # --- 5. Decomposition Loop ---
   # Resolve effective resampling parallelism (mirrors Python's `_effective_cores`).
-  if (!is.null(n_cores)) {
-    n_cores_eff <- max(1, n_cores)
-  } else {
-    detected <- parallel::detectCores(logical = FALSE) - 1
-    if (is.na(detected) || length(detected) == 0) {
-      detected <- parallel::detectCores(logical = TRUE) - 1
-    }
-    n_cores_eff <- max(1, detected)
-  }
-  if (Sys.getenv("_R_CHECK_LIMIT_CORES_", "") != "") {
-    n_cores_eff <- min(n_cores_eff, 2)
-  }
+  # No n_tasks cap here: this is forwarded to nm_normalise() rather than used to
+  # size a cluster directly, and nm_normalise() caps it against its own batches.
+  n_cores_eff <- .nm_resolve_cores(n_cores)
 
   result <- data.frame(date = df_work$date, observed = observed_series)
 
@@ -581,18 +572,9 @@ nm_decom_met <- function(df = NULL, model = NULL, target = "value",
   if (length(contrib_candidates) == 0) log$warn("No weather variables found to decompose.")
 
   # Resolve effective resampling parallelism (mirrors Python's `_effective_cores`).
-  if (!is.null(n_cores)) {
-    n_cores_eff <- max(1, n_cores)
-  } else {
-    detected <- parallel::detectCores(logical = FALSE) - 1
-    if (is.na(detected) || length(detected) == 0) {
-      detected <- parallel::detectCores(logical = TRUE) - 1
-    }
-    n_cores_eff <- max(1, detected)
-  }
-  if (Sys.getenv("_R_CHECK_LIMIT_CORES_", "") != "") {
-    n_cores_eff <- min(n_cores_eff, 2)
-  }
+  # Forwarded to nm_normalise() rather than used to size a cluster here, so the
+  # batch-count cap is applied there.
+  n_cores_eff <- .nm_resolve_cores(n_cores)
 
   result <- data.frame(date = df_work$date, observed = observed_series)
 
