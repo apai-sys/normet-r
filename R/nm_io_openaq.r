@@ -11,6 +11,27 @@ NULL
 
 .NM_OPENAQ_BASE <- "https://api.openaq.org/v3"
 
+# OpenAQ v3 identifies pollutants by numeric `parameters_id`, not by slug.
+# Verified against the normet-py sibling adapter's mocked test fixtures
+# (parameter id 2 == "pm25"); other common ids per the OpenAQ v3 /parameters
+# reference.
+.NM_OPENAQ_PARAMETER_IDS <- c(
+  pm25 = 2L, pm10 = 1L, o3 = 10L, co = 8L, no2 = 7L, so2 = 9L
+)
+
+.openaq_resolve_parameter_id <- function(parameter) {
+  if (is.numeric(parameter)) return(as.integer(parameter))
+  id <- .NM_OPENAQ_PARAMETER_IDS[tolower(parameter)]
+  if (!is.na(id)) return(unname(id))
+  suppressWarnings(as_int <- as.integer(parameter))
+  if (!is.na(as_int)) return(as_int)
+  stop(
+    "Unknown OpenAQ parameter '", parameter, "'; pass a known slug (",
+    paste(names(.NM_OPENAQ_PARAMETER_IDS), collapse = ", "),
+    ") or a numeric parameters_id."
+  )
+}
+
 .openaq_resolve_key <- function(api_key) {
   key <- if (!is.null(api_key)) api_key else Sys.getenv("OPENAQ_API_KEY")
   if (nchar(key) == 0) {
@@ -49,6 +70,27 @@ NULL
 
 .safe_val <- function(x, default = NULL) if (is.null(x)) default else x
 
+# OpenAQ v3 has no /locations/{id}/measurements endpoint (404 in practice);
+# measurements are only served per-sensor via /sensors/{sensors_id}/measurements.
+# Resolve the sensor id (and site lat/lon, as a fallback for missing
+# per-measurement coordinates) from a single /locations/{id} lookup.
+.openaq_resolve_sensor <- function(loc, parameter_id, headers) {
+  data <- .openaq_get(paste0(.NM_OPENAQ_BASE, "/locations/", loc), list(), headers)
+  results <- .safe_val(data$results, list())
+  if (length(results) == 0) return(list(sensor_id = NA_integer_, lat = NA_real_, lon = NA_real_))
+  r <- results[[1]]
+  coords <- .safe_val(r$coordinates, list())
+  sensors <- .safe_val(r$sensors, list())
+  sensor_id <- NA_integer_
+  for (s in sensors) {
+    if (identical(.safe_val(.safe_val(s$parameter, list())$id, NA_integer_), parameter_id)) {
+      sensor_id <- s$id
+      break
+    }
+  }
+  list(sensor_id = sensor_id, lat = .safe_val(coords$latitude, NA_real_), lon = .safe_val(coords$longitude, NA_real_))
+}
+
 #' List OpenAQ Monitoring Locations
 #'
 #' Returns monitoring locations matching the given filters.
@@ -63,7 +105,10 @@ NULL
 #'
 #' @return \code{data.frame} with columns \code{id}, \code{name}, \code{city},
 #'   \code{country}, \code{lat}, \code{lon}, \code{parameters},
-#'   \code{sensors}, \code{last_updated}. \code{sensors} is a list-column;
+#'   \code{sensors}, \code{provider}, \code{owner}, \code{last_updated}.
+#'   \code{provider} and \code{owner} are the reporting network/organisation
+#'   names (e.g. \code{"AirGradient"}, \code{"AURN"}), as supplied by OpenAQ.
+#'   \code{sensors} is a list-column;
 #'   each element is a \code{data.frame} with columns \code{id}, \code{name},
 #'   \code{parameter_id}, \code{parameter_name}, \code{parameter_units} for
 #'   the sensors at that location.
@@ -79,7 +124,7 @@ nm_openaq_locations <- function(country   = NULL,
   params  <- list(limit = as.integer(limit))
   if (!is.null(country))   params[["iso"]]           <- country
   if (!is.null(city))      params[["city"]]           <- city
-  if (!is.null(parameter)) params[["parameters_id"]] <- parameter
+  if (!is.null(parameter)) params[["parameters_id"]] <- .openaq_resolve_parameter_id(parameter)
   if (!is.null(bbox))      params[["bbox"]]           <- paste(sprintf("%.4f", bbox), collapse = ",")
 
   data <- .openaq_get(paste0(.NM_OPENAQ_BASE, "/locations"), params, headers)
@@ -119,6 +164,8 @@ nm_openaq_locations <- function(country   = NULL,
       lon          = .safe_val(coords$longitude, NA_real_),
       parameters   = I(list(params_names[!is.na(params_names)])),
       sensors      = I(list(sensors_df)),
+      provider     = .safe_val(.safe_val(r$provider, list())$name, NA_character_),
+      owner        = .safe_val(.safe_val(r$owner, list())$name, NA_character_),
       last_updated = .safe_val(.safe_val(r$datetimeLast, list())$utc, NA_character_),
       stringsAsFactors = FALSE
     )
@@ -151,9 +198,10 @@ nm_fetch_openaq_measurements <- function(location_id,
                                          page_limit = 1000L,
                                          api_key    = NULL) {
   log     <- nm_get_logger("io.openaq")
-  key     <- .openaq_resolve_key(api_key)
-  headers <- list("X-API-Key" = key)
-  locs    <- as.integer(unlist(location_id))
+  key         <- .openaq_resolve_key(api_key)
+  headers     <- list("X-API-Key" = key)
+  locs        <- as.integer(unlist(location_id))
+  parameter_id <- .openaq_resolve_parameter_id(parameter)
 
   df_from <- format(as.POSIXct(date_from, tz = "UTC"), "%Y-%m-%dT%H:%M:%SZ")
   df_to   <- format(as.POSIXct(date_to,   tz = "UTC"), "%Y-%m-%dT%H:%M:%SZ")
@@ -161,17 +209,23 @@ nm_fetch_openaq_measurements <- function(location_id,
   all_rows <- list()
 
   for (loc in locs) {
+    resolved <- .openaq_resolve_sensor(loc, parameter_id, headers)
+    if (is.na(resolved$sensor_id)) {
+      log$debug("OpenAQ location %s has no sensor for parameter id %s; skipping.", loc, parameter_id)
+      next
+    }
+    sensor_id <- resolved$sensor_id
+
     page <- 1L
     repeat {
       params <- list(
         datetime_from  = df_from,
         datetime_to    = df_to,
-        parameters_id  = parameter,
         limit          = as.integer(page_limit),
         page           = page
       )
       data  <- .openaq_get(
-        paste0(.NM_OPENAQ_BASE, "/locations/", loc, "/measurements"),
+        paste0(.NM_OPENAQ_BASE, "/sensors/", sensor_id, "/measurements"),
         params, headers
       )
       chunk <- .safe_val(data$results, list())
@@ -188,8 +242,8 @@ nm_fetch_openaq_measurements <- function(location_id,
           parameter = .safe_val(param_info$name, parameter),
           value     = .safe_val(r$value, NA_real_),
           unit      = .safe_val(param_info$units, NA_character_),
-          lat       = .safe_val(coords$latitude,  NA_real_),
-          lon       = .safe_val(coords$longitude, NA_real_)
+          lat       = .safe_val(coords$latitude,  resolved$lat),
+          lon       = .safe_val(coords$longitude, resolved$lon)
         )
       }
 

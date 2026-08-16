@@ -30,7 +30,10 @@ Geographic bounding box.}
 \value{
 \code{data.frame} with columns \code{id}, \code{name}, \code{city},
 \code{country}, \code{lat}, \code{lon}, \code{parameters},
-\code{sensors}, \code{last_updated}. \code{sensors} is a list-column;
+\code{sensors}, \code{provider}, \code{owner}, \code{last_updated}.
+\code{provider} and \code{owner} are the reporting network/organisation
+names (e.g. \code{"AirGradient"}, \code{"AURN"}), as supplied by OpenAQ.
+\code{sensors} is a list-column;
 each element is a \code{data.frame} with columns \code{id}, \code{name},
 \code{parameter_id}, \code{parameter_name}, \code{parameter_units} for
 the sensors at that location.
