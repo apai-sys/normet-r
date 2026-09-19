@@ -50,6 +50,15 @@
   for such rows; it is opt-in, so existing tables only gain two columns.
   `nm_run_back_trajectories()` warns about truncated runs either way. Mirrors
   `normet-py`.
+* **`nm_run_back_trajectories()` met-file window is padded by one GDAS1 record**:
+  each run is handed only the weekly files whose dates overlap
+  `[receptor - hours_back, receptor]`, but a receptor time between one file's
+  last record and the next file's first needs *both* to interpolate. Probed
+  against `hyts_std` with two adjacent daily ARL files, a start time in that gap
+  (23:30, 23:59) failed with only the earlier file and ran with both, so the
+  strict overlap test broke hourly receptors in the last hours of every weekly
+  file (00/06/12/18 UTC releases were unaffected). The window is now widened by
+  3 h on each side. Mirrors `normet-py`.
 * **GDAS1 met download**: `nm_fetch_gdas1()` / `nm_gdas1_filenames()` pull the
   weekly GDAS1 (1°) ARL files from NOAA ARL's archive (streamed + cached) so
   `nm_run_back_trajectories()` can run when no local met is available.
