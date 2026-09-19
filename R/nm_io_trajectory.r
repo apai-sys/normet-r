@@ -328,13 +328,24 @@ nm_build_trajectory_features <- function(tdumps, source_regions = NULL,
   )
 }
 
-# Keep only met files whose date range overlaps [window_start, window_end].
+# GDAS1 is 3-hourly. A receptor time between a weekly file's last record and the
+# next file's first one needs *both* to interpolate: probed against hyts_std with
+# two adjacent daily ARL files, a start time in that gap (23:30, 23:59) failed
+# with only the earlier file and ran with both. A strict "does the file's span
+# overlap the window" test drops the next file there, so the window is widened by
+# one record interval (hours) on each side.
+.MET_RECORD_PAD_H <- 3
+
+# Keep only met files whose date range overlaps [window_start, window_end],
+# widened by `pad_h` hours on each side (see .MET_RECORD_PAD_H).
 # Files with unrecognised names are always kept (conservative).
-.filter_met_files <- function(paths, window_start, window_end) {
+.filter_met_files <- function(paths, window_start, window_end, pad_h = .MET_RECORD_PAD_H) {
+  lo <- window_start - pad_h * 3600
+  hi <- window_end + pad_h * 3600
   keep <- vapply(paths, function(p) {
     r <- .parse_arl_date_range(p)
     if (is.null(r)) return(TRUE)
-    r$end >= window_start && r$start <= window_end
+    r$end >= lo && r$start <= hi
   }, logical(1), USE.NAMES = FALSE)
   paths[keep]
 }
