@@ -165,14 +165,23 @@ nm_load_source_regions <- function(path) {
 #'   for exact point-in-polygon residence time. For each, the fraction of
 #'   trajectory time spent inside is returned as `<prefix>resid_<name>`.
 #' @param prefix Character. Prefix for every feature name. Default `"traj_"`.
+#' @param min_hours Optional numeric. Minimum backward reach (hours) a
+#'   trajectory must have to be trusted. A trajectory whose span is shorter --
+#'   HYSPLIT stopped early because the met files ran out, or it left the model
+#'   domain -- has every feature except the two quality columns set to `NA`,
+#'   rather than passing off a truncated path as a short-range one. `NULL`
+#'   (default) keeps every trajectory, leaving detection to `<prefix>age_max_h`.
 #'
-#' @return A named list of transport descriptors: straight-line reach, path
+#' @return A named list of transport descriptors: quality columns
+#'   `<prefix>n_endpoints` and `<prefix>age_max_h` (hours the trajectory
+#'   actually reached back), straight-line reach, path
 #'   length, mean transport speed, inflow bearing, mean/min height,
 #'   per-region residence fractions, and — only if the `tdump` run wrote
 #'   them — along-path rainfall sum, mean boundary-layer height, mean
 #'   relative humidity, mean pressure, and mean air temperature.
 #' @export
-nm_trajectory_features <- function(traj, source_regions = NULL, prefix = "traj_") {
+nm_trajectory_features <- function(traj, source_regions = NULL, prefix = "traj_",
+                                   min_hours = NULL) {
   if (is.null(traj) || nrow(traj) == 0) {
     return(list())
   }
@@ -191,6 +200,8 @@ nm_trajectory_features <- function(traj, source_regions = NULL, prefix = "traj_"
   span_h <- abs(t$age_h[n] - t$age_h[1])
 
   f <- list()
+  f[[paste0(prefix, "n_endpoints")]] <- as.numeric(n)
+  f[[paste0(prefix, "age_max_h")]] <- span_h
   f[[paste0(prefix, "dist_km")]] <- .haversine_km(lat0, lon0, latn, lonn)
   f[[paste0(prefix, "pathlen_km")]] <- path_len
   f[[paste0(prefix, "speed_kmh")]] <- if (span_h > 0) path_len / span_h else NA_real_
@@ -210,6 +221,10 @@ nm_trajectory_features <- function(traj, source_regions = NULL, prefix = "traj_"
   if ("rh" %in% colnames(t)) f[[paste0(prefix, "rh_mean")]] <- mean(t$rh)
   if ("pressure" %in% colnames(t)) f[[paste0(prefix, "pressure_mean")]] <- mean(t$pressure)
   if ("temp" %in% colnames(t)) f[[paste0(prefix, "temp_mean")]] <- mean(t$temp)
+  if (!is.null(min_hours) && span_h < min_hours - 1e-6) {
+    quality <- paste0(prefix, c("n_endpoints", "age_max_h"))
+    f[setdiff(names(f), quality)] <- NA_real_
+  }
   f
 }
 
@@ -221,7 +236,9 @@ nm_trajectory_features <- function(traj, source_regions = NULL, prefix = "traj_"
 #' @param tdumps Character. A glob pattern (e.g. `"traj/tdump_*"`) or a vector
 #'   of `tdump` file paths. One back-trajectory run per receptor time is the
 #'   typical layout; files holding several trajectories are split per `traj`.
-#' @param source_regions,prefix Forwarded to \code{\link{nm_trajectory_features}}.
+#' @param source_regions,prefix,min_hours Forwarded to
+#'   \code{\link{nm_trajectory_features}}. With `min_hours` set, the number of
+#'   trajectories nulled for being truncated is logged.
 #' @param date_col Character. Name of the receptor-timestamp column in the
 #'   output, so it joins straight onto a date-keyed panel. Default `"date"`.
 #'
@@ -230,7 +247,8 @@ nm_trajectory_features <- function(traj, source_regions = NULL, prefix = "traj_"
 #'   receptor timestamp (last wins).
 #' @export
 nm_build_trajectory_features <- function(tdumps, source_regions = NULL,
-                                         prefix = "traj_", date_col = "date") {
+                                         prefix = "traj_", date_col = "date",
+                                         min_hours = NULL) {
   paths <- if (is.character(tdumps) && length(tdumps) == 1) {
     Sys.glob(tdumps)
   } else {
@@ -255,7 +273,9 @@ nm_build_trajectory_features <- function(tdumps, source_regions = NULL,
     for (tid in unique(tdf$traj)) {
       g <- tdf[tdf$traj == tid, ]
       receptor <- g$datetime[which.min(abs(g$age_h))]
-      feats <- nm_trajectory_features(g, source_regions = source_regions, prefix = prefix)
+      feats <- nm_trajectory_features(g,
+        source_regions = source_regions, prefix = prefix, min_hours = min_hours
+      )
       rows[[length(rows) + 1L]] <- c(stats::setNames(list(receptor), date_col), feats)
     }
   }
@@ -269,6 +289,16 @@ nm_build_trajectory_features <- function(tdumps, source_regions = NULL,
   data.table::setDF(out)
   rownames(out) <- NULL
   log$info("Built trajectory features: %d receptors x %d columns", nrow(out), ncol(out) - 1L)
+  age_col <- paste0(prefix, "age_max_h")
+  if (!is.null(min_hours) && age_col %in% colnames(out)) {
+    n_short <- sum(out[[age_col]] < min_hours - 1e-6, na.rm = TRUE)
+    if (n_short > 0) {
+      log$warn(
+        "%d of %d trajectories reach back < %g h (truncated); their features are NA.",
+        n_short, nrow(out), min_hours
+      )
+    }
+  }
   out
 }
 
@@ -397,6 +427,9 @@ nm_build_trajectory_features <- function(tdumps, source_regions = NULL,
 #' @param source_regions,prefix Forwarded to
 #'   \code{\link{nm_build_trajectory_features}}.
 #' @param timeout Per-run timeout (seconds) for `hyts_std`. Default 600.
+#' @param min_hours Forwarded to \code{\link{nm_build_trajectory_features}}.
+#'   Pass `min_hours = hours_back` to null trajectories that HYSPLIT ended
+#'   early; either way, truncated runs are counted in a warning.
 #'
 #' @return The \code{\link{nm_build_trajectory_features}} table (one row per
 #'   receptor time).
@@ -413,7 +446,8 @@ nm_run_back_trajectories <- function(times, lat, lon, met_files, hysplit_exec,
                                      work_dir = NULL, top_of_model = 10000,
                                      vert_motion = 0, diagnostics = .ALL_DIAGNOSTICS,
                                      source_regions = NULL,
-                                     prefix = "traj_", timeout = 600) {
+                                     prefix = "traj_", timeout = 600,
+                                     min_hours = NULL) {
   log <- nm_get_logger("io.trajectory")
 
   exe <- normalizePath(path.expand(hysplit_exec), mustWork = FALSE)
@@ -487,5 +521,22 @@ nm_run_back_trajectories <- function(times, lat, lon, met_files, hysplit_exec,
          "the CONTROL settings, and the hyts_std path.")
   }
   log$info("Ran %d back-trajectories -> %s", length(tdumps), work)
-  nm_build_trajectory_features(tdumps, source_regions = source_regions, prefix = prefix)
+  feats <- nm_build_trajectory_features(
+    tdumps,
+    source_regions = source_regions, prefix = prefix, min_hours = min_hours
+  )
+  age_col <- paste0(prefix, "age_max_h")
+  if (is.null(min_hours) && age_col %in% colnames(feats)) {
+    n_short <- sum(feats[[age_col]] < abs(hours_back) - 1e-6, na.rm = TRUE)
+    if (n_short > 0) {
+      log$warn(
+        paste0(
+          "%d of %d trajectories stopped short of hours_back=%d (met coverage or ",
+          "domain edge); see %s, or pass min_hours to null them."
+        ),
+        n_short, nrow(feats), as.integer(abs(hours_back)), age_col
+      )
+    }
+  }
+  feats
 }
