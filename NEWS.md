@@ -40,6 +40,16 @@
   `hyts_std` end-to-end) — to turn `tdump` output into transport-aware
   predictors (inflow direction, distance/speed, residence time over source
   regions, along-path rainfall/BLH).
+* **Trajectory quality columns and `min_hours`**: `nm_trajectory_features()` /
+  `nm_build_trajectory_features()` / `nm_run_back_trajectories()` now emit
+  `traj_n_endpoints` and `traj_age_max_h`, and take `min_hours`. A trajectory
+  that HYSPLIT ended early (met files ran out, or it left the domain) used to
+  be indistinguishable from a legitimately short-range one: its `dist_km`
+  shrank and its residence fractions were taken over fewer points, with no
+  flag. `min_hours` sets every feature except the two quality columns to `NA`
+  for such rows; it is opt-in, so existing tables only gain two columns.
+  `nm_run_back_trajectories()` warns about truncated runs either way. Mirrors
+  `normet-py`.
 * **GDAS1 met download**: `nm_fetch_gdas1()` / `nm_gdas1_filenames()` pull the
   weekly GDAS1 (1°) ARL files from NOAA ARL's archive (streamed + cached) so
   `nm_run_back_trajectories()` can run when no local met is available.

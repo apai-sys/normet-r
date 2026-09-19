@@ -5,7 +5,12 @@
 \title{Collapse a single back-trajectory into a fixed-length named list of
 transport descriptors.}
 \usage{
-nm_trajectory_features(traj, source_regions = NULL, prefix = "traj_")
+nm_trajectory_features(
+  traj,
+  source_regions = NULL,
+  prefix = "traj_",
+  min_hours = NULL
+)
 }
 \arguments{
 \item{traj}{A single trajectory (e.g. one \code{traj} group from
@@ -19,9 +24,18 @@ for exact point-in-polygon residence time. For each, the fraction of
 trajectory time spent inside is returned as \verb{<prefix>resid_<name>}.}
 
 \item{prefix}{Character. Prefix for every feature name. Default \code{"traj_"}.}
+
+\item{min_hours}{Optional numeric. Minimum backward reach (hours) a
+trajectory must have to be trusted. A trajectory whose span is shorter --
+HYSPLIT stopped early because the met files ran out, or it left the model
+domain -- has every feature except the two quality columns set to \code{NA},
+rather than passing off a truncated path as a short-range one. \code{NULL}
+(default) keeps every trajectory, leaving detection to \verb{<prefix>age_max_h}.}
 }
 \value{
-A named list of transport descriptors: straight-line reach, path
+A named list of transport descriptors: quality columns
+\verb{<prefix>n_endpoints} and \verb{<prefix>age_max_h} (hours the trajectory
+actually reached back), straight-line reach, path
 length, mean transport speed, inflow bearing, mean/min height,
 per-region residence fractions, and — only if the \code{tdump} run wrote
 them — along-path rainfall sum, mean boundary-layer height, mean

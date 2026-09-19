@@ -54,6 +54,57 @@ test_that("nm_trajectory_features computes transport descriptors", {
   expect_equal(f$traj_resid_sw_box, 1 / 3)
 })
 
+test_that("nm_trajectory_features emits quality columns", {
+  tmp <- tempfile("traj_"); dir.create(tmp)
+  df <- nm_read_trajectory_tdump(write_tdump(tmp))
+  f <- nm_trajectory_features(df)
+
+  # The fixture reaches back exactly 2 h over 3 endpoints.
+  expect_equal(f$traj_n_endpoints, 3)
+  expect_equal(f$traj_age_max_h, 2)
+  # Default (min_hours = NULL) keeps a short trajectory's geometry intact.
+  expect_true(is.finite(f$traj_dist_km))
+})
+
+test_that("min_hours nulls a truncated trajectory but keeps the quality columns", {
+  tmp <- tempfile("traj_"); dir.create(tmp)
+  df <- nm_read_trajectory_tdump(write_tdump(tmp))
+  box <- list(sw_box = c(-3.0, 50.5, -1.5, 51.5))
+
+  # Reach (2 h) satisfies min_hours = 2 -> untouched.
+  ok <- nm_trajectory_features(df, source_regions = box, min_hours = 2)
+  expect_true(is.finite(ok$traj_dist_km))
+  expect_equal(ok$traj_resid_sw_box, 1 / 3)
+
+  # Asking for 72 h of a 2 h trajectory: every feature NA except the quality
+  # columns, which stay so the truncation is visible rather than silent.
+  short <- nm_trajectory_features(df, source_regions = box, min_hours = 72)
+  expect_equal(short$traj_n_endpoints, 3)
+  expect_equal(short$traj_age_max_h, 2)
+  nulled <- setdiff(names(short), c("traj_n_endpoints", "traj_age_max_h"))
+  expect_true(length(nulled) > 0)
+  expect_true(all(vapply(short[nulled], is.na, logical(1))))
+  # Same fields either way, so a table built from a mix stays rectangular.
+  expect_setequal(names(short), names(ok))
+})
+
+test_that("nm_build_trajectory_features warns on truncated trajectories", {
+  tmp <- tempfile("traj_"); dir.create(tmp)
+  write_tdump(tmp, "tdump_a")
+
+  skip_if_not_installed("lgr")
+  lg <- nm_get_logger("io.trajectory")
+  buf <- lgr::AppenderBuffer$new()
+  lg$add_appender(buf, name = "test_buf")
+  on.exit(lg$remove_appender("test_buf"), add = TRUE)
+
+  out <- nm_build_trajectory_features(file.path(tmp, "tdump_*"), min_hours = 72)
+
+  expect_true(all(is.na(out$traj_dist_km)))
+  expect_equal(out$traj_age_max_h[1], 2)
+  expect_true(any(grepl("truncated", buf$buffer_df$msg)))
+})
+
 test_that("nm_build_trajectory_features builds a receptor table", {
   tmp <- tempfile("traj_"); dir.create(tmp)
   write_tdump(tmp, "tdump_a")
