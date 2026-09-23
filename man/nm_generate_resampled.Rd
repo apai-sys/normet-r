@@ -4,9 +4,18 @@
 \alias{nm_generate_resampled}
 \title{Generate a Resampled Data Frame (data.table version)}
 \usage{
-nm_generate_resampled(df, resample_vars, replace, seed, resample_df)
+nm_generate_resampled(
+  df,
+  resample_vars,
+  replace,
+  seed,
+  resample_df,
+  resample_pools = NULL
+)
 }
 \description{
-Generate a Resampled Data Frame (data.table version)
+Variables that are columns of a \code{resample_pools} pool are drawn from that
+pool (whole rows, independently of \code{resample_df}); the rest from
+\code{resample_df}. See \code{\link{nm_normalise_lgb}}'s \code{resample_pools}.
 }
 \keyword{internal}

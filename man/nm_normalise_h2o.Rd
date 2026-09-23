@@ -19,7 +19,8 @@ nm_normalise_h2o(
   output_dir = NULL,
   file_format = "parquet",
   n_cores = NULL,
-  cl = NULL
+  cl = NULL,
+  resample_pools = NULL
 )
 }
 \arguments{
@@ -55,6 +56,10 @@ default of 2 R-side resampling workers, which exists to leave the rest
 of the machine to H2O. Ignored if \code{cl} is supplied.}
 
 \item{cl}{Optional existing parallel cluster object.}
+
+\item{resample_pools}{Named list of data frames, or NULL (default): extra
+pools some resampled variables are drawn from instead of
+\code{resample_df}; see \code{\link{nm_normalise_lgb}}.}
 }
 \value{
 A data frame (if aggregated or small raw) or file paths (if disk offloading).
