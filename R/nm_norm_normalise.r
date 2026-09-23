@@ -13,9 +13,33 @@
 
 #' Generate a Resampled Data Frame (data.table version)
 #'
+#' Variables that are columns of a `resample_pools` pool are drawn from that
+#' pool (whole rows, independently of `resample_df`); the rest from
+#' `resample_df`. See \code{\link{nm_normalise_lgb}}'s `resample_pools`.
+#'
 #' @keywords internal
-nm_generate_resampled <- function(df, resample_vars, replace, seed, resample_df) {
-  missing_cols <- setdiff(resample_vars, colnames(resample_df))
+nm_generate_resampled <- function(df, resample_vars, replace, seed, resample_df,
+                                  resample_pools = NULL) {
+  # Runs on parallel workers, which may not have the package namespace, so the
+  # pool logic stays inline rather than calling other package internals.
+  # Pools follow in name order as streams 1, 2, ...; stream k draws with
+  # set.seed(seed + k * 1000003), outside the 1..1e6 range the per-sample seeds
+  # come from. A pool's stream depends on its name only, not on which of its
+  # variables are resampled, so its draws stay paired across nm_decom_met's
+  # calls. Stream 0 (resample_df) keeps set.seed(seed): unchanged without pools.
+  pool_draws <- list()
+  claimed <- character(0)
+  pool_names <- sort(names(resample_pools))
+  for (k in seq_along(pool_names)) {
+    cols <- intersect(resample_vars, colnames(resample_pools[[pool_names[k]]]))
+    if (length(cols) == 0) next
+    pool_draws[[length(pool_draws) + 1L]] <- list(stream = k, cols = cols,
+                                                 pool = resample_pools[[pool_names[k]]])
+    claimed <- c(claimed, cols)
+  }
+  base_vars <- setdiff(resample_vars, claimed)
+
+  missing_cols <- setdiff(base_vars, colnames(resample_df))
   if (length(missing_cols) > 0) {
     stop("`resample_df` is missing required columns: ", paste(missing_cols, collapse = ", "))
   }
@@ -28,15 +52,57 @@ nm_generate_resampled <- function(df, resample_vars, replace, seed, resample_df)
   static_cols <- setdiff(colnames(df), resample_vars)
   out <- data.table::data.table(
     df[, static_cols, with = FALSE],
-    resample_df[sample_indices, resample_vars, with = FALSE],
+    resample_df[sample_indices, base_vars, with = FALSE],
     seed = seed
   )
+  for (d in pool_draws) {
+    set.seed(seed + d$stream * 1000003)
+    idx <- sample(nrow(d$pool), size = nrow(df), replace = replace)
+    for (col in d$cols) data.table::set(out, j = col, value = d$pool[[col]][idx])
+  }
 
   # Restore original column order (static cols first, then resample vars, seed appended)
   orig_order <- c(intersect(colnames(df), c(static_cols, resample_vars)), "seed")
   data.table::setcolorder(out, intersect(orig_order, colnames(out)))
 
   return(out)
+}
+
+
+# Validate `resample_pools` once, on the main process, before any worker runs.
+# `predictors` are the model's features: a pool none of whose columns is one
+# can never serve anything -- almost certainly a misspelt or wrongly subset
+# frame, which would otherwise be ignored in silence.
+.nm_check_resample_pools <- function(resample_pools, predictors) {
+  if (is.null(resample_pools)) return(invisible(NULL))
+  if (!is.list(resample_pools) || is.data.frame(resample_pools) || length(resample_pools) == 0 ||
+      is.null(names(resample_pools)) || any(!nzchar(names(resample_pools))) ||
+      anyDuplicated(names(resample_pools))) {
+    stop("`resample_pools` must be a named list of data frames, e.g. list(transport = clean[, traj_cols]).")
+  }
+  owner <- character(0)
+  for (name in names(resample_pools)) {
+    pool <- resample_pools[[name]]
+    if (!is.data.frame(pool)) {
+      stop(sprintf("resample pool '%s' must be a data frame, got %s.", name, class(pool)[1]))
+    }
+    cols <- intersect(colnames(pool), predictors)
+    if (length(cols) == 0) {
+      stop(sprintf(paste0(
+        "resample pool '%s' has no model feature among its columns (%s); a pool's ",
+        "columns name the variables drawn from it."),
+        name, paste(utils::head(colnames(pool), 6), collapse = ", ")))
+    }
+    if (nrow(pool) == 0) stop(sprintf("resample pool '%s' has no rows to draw from.", name))
+    twice <- intersect(cols, names(owner))
+    if (length(twice) > 0) {
+      stop(sprintf(paste0(
+        "variable '%s' is a column of two resample pools ('%s' and '%s'); each variable ",
+        "is drawn from exactly one pool."), twice[1], owner[[twice[1]]], name))
+    }
+    owner[cols] <- name
+  }
+  invisible(NULL)
 }
 
 
@@ -116,19 +182,29 @@ nm_normalise <- function(df, model, verbose = TRUE, cache_dir = NULL, ...) {
     #     would collide;
     #   * sort by argument name -- `list(...)` preserves call order, so the same
     #     call written with its arguments in a different order hashed differently.
-    key_dots <- dots[setdiff(names(dots), c("resample_df", "n_cores"))]
+    key_dots <- dots[setdiff(names(dots), c("resample_df", "resample_pools", "n_cores"))]
     for (.v in intersect(c("resample_vars", "covariates"), names(key_dots))) {
       if (is.character(key_dots[[.v]])) key_dots[[.v]] <- sort(key_dots[[.v]])
     }
     if (length(key_dots) && !is.null(names(key_dots)) && all(nzchar(names(key_dots)))) {
       key_dots <- key_dots[order(names(key_dots))]
     }
-    cache_key <- nm_config_hash(
-      key_dots,
-      nm_dataframe_hash(df, cols = key_cols, include_index = FALSE),
-      nm_dataframe_hash(resample_pool, cols = resample_key_cols, include_index = FALSE),
-      nm_model_hash(model)
-    )
+    # Extra pools join the key only when given, so keys of runs without them --
+    # and the caches already on disk -- are unchanged.
+    pools <- dots$resample_pools
+    pool_keys <- lapply(sort(names(pools)), function(nm) {
+      list(nm, nm_dataframe_hash(pools[[nm]], cols = sort(colnames(pools[[nm]])),
+                                 include_index = FALSE))
+    })
+    cache_key <- do.call(nm_config_hash, c(
+      list(
+        key_dots,
+        nm_dataframe_hash(df, cols = key_cols, include_index = FALSE),
+        nm_dataframe_hash(resample_pool, cols = resample_key_cols, include_index = FALSE),
+        nm_model_hash(model)
+      ),
+      if (length(pool_keys)) list(pool_keys)
+    ))
     cached <- nm_cache_load(cache_dir, cache_key)
     if (!is.null(cached)) {
       if (verbose) log$info("normalise() cache hit (%s).", cache_key)
@@ -195,6 +271,9 @@ nm_normalise <- function(df, model, verbose = TRUE, cache_dir = NULL, ...) {
 #'        default of 2 R-side resampling workers, which exists to leave the rest
 #'        of the machine to H2O. Ignored if \code{cl} is supplied.
 #' @param cl Optional existing parallel cluster object.
+#' @param resample_pools Named list of data frames, or NULL (default): extra
+#'   pools some resampled variables are drawn from instead of
+#'   \code{resample_df}; see \code{\link{nm_normalise_lgb}}.
 #'
 #' @return A data frame (if aggregated or small raw) or file paths (if disk offloading).
 #' @export
@@ -203,7 +282,7 @@ nm_normalise_h2o <- function(df, model, resample_vars = NULL,
                              replace = TRUE, aggregate = TRUE, seed = 7654321,
                              resample_df = NULL, memory_save = TRUE, verbose = TRUE,
                              output_dir = NULL, file_format = "parquet",
-                             n_cores = NULL, cl = NULL) {
+                             n_cores = NULL, cl = NULL, resample_pools = NULL) {
 
   log <- nm_get_logger("analysis.normalise.h2o")
   nm_require("h2o", hint = "install.packages('h2o')")
@@ -228,6 +307,7 @@ nm_normalise_h2o <- function(df, model, resample_vars = NULL,
   }
 
   if (verbose) log$info("Auto-detected %d features from the model.", length(predictors))
+  .nm_check_resample_pools(resample_pools, predictors)
 
   # --- 2. Validation & Format Setup ---
   file_format <- match.arg(file_format, c("parquet", "csv", "rds"))
@@ -369,7 +449,7 @@ nm_normalise_h2o <- function(df, model, resample_vars = NULL,
       s = current_seeds, .packages = c("data.table"),
       .export = "nm_generate_resampled"
     ) %dopar% {
-      nm_generate_resampled(df, resample_vars, replace, s, resample_df)
+      nm_generate_resampled(df, resample_vars, replace, s, resample_df, resample_pools)
     }
     df_batch <- data.table::rbindlist(resampled_batch_list)
 
@@ -491,6 +571,18 @@ nm_normalise_h2o <- function(df, model, resample_vars = NULL,
 #'   O(1) pipeline for the same reason (quantiles are not summarisable via a
 #'   running sum). Ignored (with a warning) if \code{aggregate=FALSE}, since
 #'   the full per-seed table is already returned in that case.
+#' @param resample_pools Named list of data frames, or NULL (default). Extra
+#'   pools some resampled variables are drawn from instead of
+#'   \code{resample_df}. A pool's columns name the variables it serves: every
+#'   variable in \code{resample_vars} that is a column of the pool is drawn
+#'   from it, whole rows at a time (keeping the pool's variables' joint
+#'   structure), independently of \code{resample_df} and of the other pools; a
+#'   variable may be a column of at most one pool, and the names are labels
+#'   only. Without pools every variable comes from one pool, so the result is
+#'   the expectation over the \emph{average} conditions in it -- with
+#'   trajectory features among the variables, over the average air mass.
+#'   \code{list(transport = clean_hours[, traj_cols])} sets a reference air
+#'   mass instead while the local weather is still drawn from the whole record.
 #'
 #' @return A data frame with normalised results. If \code{return_quantiles}
 #'   is set, includes one \code{qXXX} column per requested quantile.
@@ -500,7 +592,8 @@ nm_normalise_lgb <- function(df, model, resample_vars = NULL,
                              aggregate = TRUE, seed = 7654321,
                              resample_df = NULL, memory_save = TRUE,
                              verbose = TRUE, n_cores = NULL,
-                             return_quantiles = NULL) {
+                             return_quantiles = NULL,
+                             resample_pools = NULL) {
 
   if (!is.null(return_quantiles)) {
     if (any(return_quantiles < 0 | return_quantiles > 1)) {
@@ -526,6 +619,7 @@ nm_normalise_lgb <- function(df, model, resample_vars = NULL,
     predictors <- model$feature_names
   }
   if (is.null(predictors)) stop("Could not detect feature names from lightgbm model.")
+  .nm_check_resample_pools(resample_pools, predictors)
 
   # --- 2. Prepare data ---
   df <- nm_process_date(df)
@@ -590,7 +684,7 @@ nm_normalise_lgb <- function(df, model, resample_vars = NULL,
       s = current_seeds, .packages = c("data.table"),
       .export = "nm_generate_resampled"
     ) %dopar% {
-      nm_generate_resampled(df, resample_vars, replace, s, resample_df)
+      nm_generate_resampled(df, resample_vars, replace, s, resample_df, resample_pools)
     }
     df_batch <- data.table::rbindlist(resampled_batch_list)
 

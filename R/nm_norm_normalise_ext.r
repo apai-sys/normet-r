@@ -107,6 +107,7 @@ nm_normalise_ext <- function(df, model, verbose = TRUE,
   resample_vars <- dots[["resample_vars"]]
   replace <- dots[["replace"]] %||% TRUE
   resample_df <- dots[["resample_df"]] %||% df
+  resample_pools <- dots[["resample_pools"]]
 
   set.seed(seed)
   random_seeds <- sample(1:1000000, n_samples, replace = FALSE)
@@ -116,7 +117,7 @@ nm_normalise_ext <- function(df, model, verbose = TRUE,
   for (s in random_seeds) {
     resampled <- tryCatch(
       {
-        nm_generate_resampled(df, resample_vars, replace, s, resample_df)
+        nm_generate_resampled(df, resample_vars, replace, s, resample_df, resample_pools)
       },
       error = function(e) NULL)
     if (is.null(resampled)) next

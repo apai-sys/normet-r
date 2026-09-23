@@ -18,7 +18,8 @@ nm_run_back_trajectories(
   diagnostics = .ALL_DIAGNOSTICS,
   source_regions = NULL,
   prefix = "traj_",
-  timeout = 600
+  timeout = 600,
+  min_hours = NULL
 )
 }
 \arguments{
@@ -56,6 +57,10 @@ columns; pass fewer to skip the ones you don't need.}
 \code{\link{nm_build_trajectory_features}}.}
 
 \item{timeout}{Per-run timeout (seconds) for \code{hyts_std}. Default 600.}
+
+\item{min_hours}{Forwarded to \code{\link{nm_build_trajectory_features}}.
+Pass \code{min_hours = hours_back} to null trajectories that HYSPLIT ended
+early; either way, truncated runs are counted in a warning.}
 }
 \value{
 The \code{\link{nm_build_trajectory_features}} table (one row per
