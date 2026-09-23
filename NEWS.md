@@ -53,6 +53,41 @@
   same schema (`aurn_live` rows leave `site_type`/`start_date`/`end_date` as
   `NA`, which the SOS API does not carry). Mirrors `normet-py`'s
   `normet.io.ukaq` argument for argument.
+* **`nm_decom_met()`: feature groups and Shapley attribution.** `groups =`
+  attributes the meteorological features in named groups -- e.g.
+  `list(local = met_cols, transport = traj_cols)` -- with one result column per
+  group, and `attribution = "shapley"` averages each feature's or group's
+  marginal effect over every order it could be frozen in, instead of freezing
+  them one at a time (which makes the split depend on the order, and the
+  default order on fitted importance). Shapley values are exact (all `2^k`
+  coalitions, up to 10 features or groups -- four normalisations for two
+  groups) or, with `n_permutations =`, sampled in antithetic pairs; either way
+  the contributions add up exactly to the prediction minus `emi_total`. Groups
+  default to Shapley; without groups the default stays sequential and its
+  results are unchanged (checked `identical()` against the previous code).
+  Also on `nm_decompose()`. Mirrors `normet-py`.
+* **`resample_pools =` draws chosen variables from their own pool**
+  (`nm_normalise_lgb()` / `nm_normalise_h2o()`, and via `nm_normalise()`,
+  `nm_decom_met()`, `nm_decom_emi()`, `nm_decompose()`). A pool's columns name
+  the variables drawn from it -- whole rows at a time, independently of
+  `resample_df` and of the other pools. With a single pool every contribution
+  is measured against the *average* conditions in it, so a transport term is
+  an anomaly with a mean near zero; `list(transport = clean_hours[, traj_cols])`
+  measures transport against a reference air mass instead. Each pool draws
+  from its own seed stream, fixed by its name, so a variable's draws do not
+  move when others are frozen; without pools the draws are unchanged.
+  `nm_decom_met()` / `nm_decom_emi()` also take `conditional_on =`, applied to
+  the `resample_df` pool. Mirrors `normet-py`.
+* **Fixed: `nm_decom_met()` / `nm_decom_emi()` with `model = NULL` failed when a
+  covariate was missing** ("arguments imply differing number of rows"): the
+  observed series was taken before training, while `nm_build_model()` drops
+  rows with a missing covariate. It is now taken from the frame actually
+  decomposed.
+* **Fixed: a feature listed twice in `nm_decom_met()`'s `variable_order`**
+  failed deep inside the resampling with a data.table duplicate-column error;
+  it is now refused up front with a clear message. `met_noise` is documented as
+  what it is -- the model residual shifted by `met_base` -- rather than
+  "unexplained meteorological variance".
 
 # normet 0.0.1
 

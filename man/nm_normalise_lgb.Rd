@@ -16,7 +16,8 @@ nm_normalise_lgb(
   memory_save = TRUE,
   verbose = TRUE,
   n_cores = NULL,
-  return_quantiles = NULL
+  return_quantiles = NULL,
+  resample_pools = NULL
 )
 }
 \arguments{
@@ -65,6 +66,19 @@ lightgbm's \code{return_quantiles} likewise bypasses its \code{batch_size}
 O(1) pipeline for the same reason (quantiles are not summarisable via a
 running sum). Ignored (with a warning) if \code{aggregate=FALSE}, since
 the full per-seed table is already returned in that case.}
+
+\item{resample_pools}{Named list of data frames, or NULL (default). Extra
+pools some resampled variables are drawn from instead of
+\code{resample_df}. A pool's columns name the variables it serves: every
+variable in \code{resample_vars} that is a column of the pool is drawn
+from it, whole rows at a time (keeping the pool's variables' joint
+structure), independently of \code{resample_df} and of the other pools; a
+variable may be a column of at most one pool, and the names are labels
+only. Without pools every variable comes from one pool, so the result is
+the expectation over the \emph{average} conditions in it -- with
+trajectory features among the variables, over the average air mass.
+\code{list(transport = clean_hours[, traj_cols])} sets a reference air
+mass instead while the local weather is still drawn from the whole record.}
 }
 \value{
 A data frame with normalised results. If \code{return_quantiles}
