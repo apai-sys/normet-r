@@ -98,8 +98,9 @@
   is measured against the *average* conditions in it, so a transport term is
   an anomaly with a mean near zero; `list(transport = clean_hours[, traj_cols])`
   measures transport against a reference air mass instead. Each pool draws
-  from its own seed stream, fixed by its name, so a variable's draws do not
-  move when others are frozen; without pools the draws are unchanged.
+  from its own seed stream, derived from its name, so a variable's draws do
+  not move when others are frozen, nor when other pools are added or renamed;
+  without pools the draws are unchanged.
   `nm_decom_met()` / `nm_decom_emi()` also take `conditional_on =`, applied to
   the `resample_df` pool. Mirrors `normet-py`.
 * **Fixed: `nm_decom_met()` / `nm_decom_emi()` with `model = NULL` failed when a
