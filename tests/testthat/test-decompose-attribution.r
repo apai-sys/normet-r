@@ -170,6 +170,8 @@ test_that("inconsistent options are refused before any normalisation", {
     list(args = list(attribution = "shapley", variable_order = c("a", "b", "c")), msg = "no effect"),
     list(args = list(n_permutations = 4), msg = "only applies"),
     list(args = list(attribution = "shapley", n_permutations = 0), msg = "at least 1"),
+    list(args = list(attribution = "shapley", n_permutations = 2.5), msg = "whole number"),
+    list(args = list(attribution = "shapley", n_permutations = Inf), msg = "whole number"),
     list(args = list(attribution = "banzhaf"), msg = "'sequential' or 'shapley'"),
     list(args = list(variable_order = c("a", "b", "b", "c")), msg = "more than once"),
     list(args = list(variable_order = c("a", "b")), msg = "variable_order")
@@ -195,12 +197,18 @@ test_that("exact Shapley over too many features is refused", {
 })
 
 test_that("the emission decomposition refuses the meteorology-only options", {
-  use_game()
+  calls <- use_game()
   expect_error(
     nm_decompose(method = "emission", df = frame(), model = list(), verbose = FALSE,
                  groups = list(g = c("a", "b", "c"))),
     "nm_decom_met"
   )
+  expect_error(
+    nm_decompose(method = "emission", df = frame(), model = list(), verbose = FALSE,
+                 attribution = "sequential"),
+    "nm_decom_met"
+  )
+  expect_length(calls$args, 0)
 })
 
 # ---------------------------------------------------------- forwarded options
@@ -281,6 +289,16 @@ test_that("a pooled variable's draws do not move when others are fixed", {
   both <- nm_generate_resampled(df, c("a", "b"), TRUE, 11, df, list(clean = CLEAN))
   alone <- nm_generate_resampled(df, "b", TRUE, 11, df, list(clean = CLEAN))
   expect_identical(both$b, alone$b)
+})
+
+test_that("a pool's draws do not depend on the other pools", {
+  # Its seed comes from its name, so a pool that sorts before it changes nothing.
+  df <- data.table::as.data.table(pool_frame())
+  one <- nm_generate_resampled(df, c("a", "b"), TRUE, 11, df, list(clean = CLEAN))
+  two <- nm_generate_resampled(df, c("a", "b"), TRUE, 11, df,
+                               list(`a-pool` = data.frame(a = c(100, 200)), clean = CLEAN))
+  expect_identical(one$b, two$b)
+  expect_true(all(two$a %in% c(100, 200)))
 })
 
 test_that("a pool keeps its rows together", {

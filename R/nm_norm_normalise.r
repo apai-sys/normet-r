@@ -22,19 +22,20 @@ nm_generate_resampled <- function(df, resample_vars, replace, seed, resample_df,
                                   resample_pools = NULL) {
   # Runs on parallel workers, which may not have the package namespace, so the
   # pool logic stays inline rather than calling other package internals.
-  # Pools follow in name order as streams 1, 2, ...; stream k draws with
-  # set.seed(seed + k * 1000003), outside the 1..1e6 range the per-sample seeds
-  # come from. A pool's stream depends on its name only, not on which of its
-  # variables are resampled, so its draws stay paired across nm_decom_met's
-  # calls. Stream 0 (resample_df) keeps set.seed(seed): unchanged without pools.
+  # A pool draws with set.seed((seed + h * 1000003) %% 2147483647), h a hash of
+  # its name, so its draws depend neither on which of its variables are
+  # resampled -- they stay paired across nm_decom_met's calls -- nor on what
+  # other pools there are. h is never 0, which would be resample_df's stream;
+  # that keeps set.seed(seed), so draws without pools are unchanged.
   pool_draws <- list()
   claimed <- character(0)
-  pool_names <- sort(names(resample_pools))
-  for (k in seq_along(pool_names)) {
-    cols <- intersect(resample_vars, colnames(resample_pools[[pool_names[k]]]))
+  for (name in sort(names(resample_pools))) {
+    cols <- intersect(resample_vars, colnames(resample_pools[[name]]))
     if (length(cols) == 0) next
-    pool_draws[[length(pool_draws) + 1L]] <- list(stream = k, cols = cols,
-                                                 pool = resample_pools[[pool_names[k]]])
+    h <- 0
+    for (byte in as.integer(charToRaw(enc2utf8(name)))) h <- (h * 257 + byte) %% 2147483647
+    pool_draws[[length(pool_draws) + 1L]] <- list(stream = max(h, 1), cols = cols,
+                                                 pool = resample_pools[[name]])
     claimed <- c(claimed, cols)
   }
   base_vars <- setdiff(resample_vars, claimed)
@@ -56,7 +57,7 @@ nm_generate_resampled <- function(df, resample_vars, replace, seed, resample_df,
     seed = seed
   )
   for (d in pool_draws) {
-    set.seed(seed + d$stream * 1000003)
+    set.seed((seed + d$stream * 1000003) %% 2147483647)
     idx <- sample(nrow(d$pool), size = nrow(df), replace = replace)
     for (col in d$cols) data.table::set(out, j = col, value = d$pool[[col]][idx])
   }
