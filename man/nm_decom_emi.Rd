@@ -20,7 +20,9 @@ nm_decom_emi(
   resample_df = NULL,
   memory_save = FALSE,
   verbose = TRUE,
-  cache_dir = NULL
+  cache_dir = NULL,
+  resample_pools = NULL,
+  conditional_on = NULL
 )
 }
 \arguments{
@@ -66,6 +68,15 @@ If NULL, defaults to \code{df}.}
 model fit (when \code{model} is NULL, forwarded to
 \code{\link{nm_build_model}}) and of every per-component
 \code{\link{nm_normalise}} call. If NULL (default), disabled.}
+
+\item{resample_pools}{Named list of data frames, or NULL (default). Extra
+pools some variables are drawn from instead of \code{resample_df},
+forwarded to every \code{\link{nm_normalise}} call -- see
+\code{\link{nm_normalise_lgb}}.}
+
+\item{conditional_on}{Named list, or NULL (default). Filter on the
+\code{resample_df} pool (see \code{\link{nm_normalise_ext}}), applied once
+before the decomposition.}
 }
 \value{
 A data frame containing:

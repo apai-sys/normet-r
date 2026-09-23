@@ -8,7 +8,8 @@ nm_build_trajectory_features(
   tdumps,
   source_regions = NULL,
   prefix = "traj_",
-  date_col = "date"
+  date_col = "date",
+  min_hours = NULL
 )
 }
 \arguments{
@@ -16,7 +17,9 @@ nm_build_trajectory_features(
 of \code{tdump} file paths. One back-trajectory run per receptor time is the
 typical layout; files holding several trajectories are split per \code{traj}.}
 
-\item{source_regions, prefix}{Forwarded to \code{\link{nm_trajectory_features}}.}
+\item{source_regions, prefix, min_hours}{Forwarded to
+\code{\link{nm_trajectory_features}}. With \code{min_hours} set, the number of
+trajectories nulled for being truncated is logged.}
 
 \item{date_col}{Character. Name of the receptor-timestamp column in the
 output, so it joins straight onto a date-keyed panel. Default \code{"date"}.}
