@@ -21,7 +21,10 @@ nm_trajectory_features(
 bounding box \code{c(lon_min, lat_min, lon_max, lat_max)}, or an sf/sfc
 polygon geometry (e.g. from \code{\link{nm_load_source_regions}})
 for exact point-in-polygon residence time. For each, the fraction of
-trajectory time spent inside is returned as \verb{<prefix>resid_<name>}.}
+trajectory time spent inside is returned as \verb{<prefix>resid_<name>}. An
+endpoint inside several overlapping regions counts towards each, so the
+fractions are only shares of the trajectory when the regions do not
+overlap; \code{\link{nm_build_trajectory_features}} warns when they do.}
 
 \item{prefix}{Character. Prefix for every feature name. Default \code{"traj_"}.}
 

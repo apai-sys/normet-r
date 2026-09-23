@@ -59,6 +59,11 @@
   strict overlap test broke hourly receptors in the last hours of every weekly
   file (00/06/12/18 UTC releases were unaffected). The window is now widened by
   3 h on each side. Mirrors `normet-py`.
+* **`nm_build_trajectory_features()` warns when source regions overlap**: an
+  endpoint inside several regions counts towards each, so overlapping regions'
+  residence fractions add up to more than 1 and are not shares of the
+  trajectory. The warning names the overlapping pairs (boxes directly, sf
+  geometries via sf); regions that only touch do not count. Mirrors `normet-py`.
 * **GDAS1 met download**: `nm_fetch_gdas1()` / `nm_gdas1_filenames()` pull the
   weekly GDAS1 (1°) ARL files from NOAA ARL's archive (streamed + cached) so
   `nm_run_back_trajectories()` can run when no local met is available.

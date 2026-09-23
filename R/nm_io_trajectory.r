@@ -119,6 +119,41 @@ nm_read_trajectory_tdump <- function(path) {
   suppressMessages(lengths(sf::st_intersects(pts, geom)) > 0)
 }
 
+# Pairs of source regions that share area ("a & b"); regions that only touch do
+# not. Boxes are compared directly; sf geometries need sf.
+.overlapping_regions <- function(source_regions) {
+  n <- length(source_regions)
+  if (n < 2) return(character(0))
+  is_box <- function(r) is.numeric(r) && length(r) == 4
+  as_geom <- function(r) {
+    if (is_box(r)) {
+      return(sf::st_as_sfc(sf::st_bbox(
+        c(xmin = r[1], ymin = r[2], xmax = r[3], ymax = r[4]), crs = sf::st_crs(4326)
+      )))
+    }
+    g <- sf::st_geometry(r)
+    if (is.na(sf::st_crs(g))) sf::st_crs(g) <- 4326
+    g
+  }
+  nms <- names(source_regions)
+  pairs <- character(0)
+  for (i in seq_len(n - 1)) {
+    for (j in (i + 1):n) {
+      a <- source_regions[[i]]
+      b <- source_regions[[j]]
+      shared <- if (is_box(a) && is_box(b)) {
+        a[1] < b[3] && b[1] < a[3] && a[2] < b[4] && b[2] < a[4]
+      } else {
+        nm_require("sf", hint = "install.packages('sf')")
+        inter <- suppressMessages(sf::st_intersection(as_geom(a), as_geom(b)))
+        length(inter) > 0 && any(as.numeric(sf::st_area(inter)) > 0)
+      }
+      if (isTRUE(shared)) pairs <- c(pairs, paste(nms[i], "&", nms[j]))
+    }
+  }
+  pairs
+}
+
 #' Load named region polygons from a GeoJSON, Shapefile, or any vector
 #' format \pkg{sf} can read
 #'
@@ -163,7 +198,10 @@ nm_load_source_regions <- function(path) {
 #'   bounding box `c(lon_min, lat_min, lon_max, lat_max)`, or an sf/sfc
 #'   polygon geometry (e.g. from \code{\link{nm_load_source_regions}})
 #'   for exact point-in-polygon residence time. For each, the fraction of
-#'   trajectory time spent inside is returned as `<prefix>resid_<name>`.
+#'   trajectory time spent inside is returned as `<prefix>resid_<name>`. An
+#'   endpoint inside several overlapping regions counts towards each, so the
+#'   fractions are only shares of the trajectory when the regions do not
+#'   overlap; \code{\link{nm_build_trajectory_features}} warns when they do.
 #' @param prefix Character. Prefix for every feature name. Default `"traj_"`.
 #' @param min_hours Optional numeric. Minimum backward reach (hours) a
 #'   trajectory must have to be trusted. A trajectory whose span is shorter --
@@ -258,6 +296,14 @@ nm_build_trajectory_features <- function(tdumps, source_regions = NULL,
     stop("No tdump files matched: ", tdumps)
   }
   log <- nm_get_logger("io.trajectory")
+  overlaps <- if (!is.null(source_regions)) .overlapping_regions(source_regions) else character(0)
+  if (length(overlaps) > 0) {
+    log$warn(paste0(
+      "Source regions overlap (%s): an endpoint in a shared area counts towards each of ",
+      "them, so their residence fractions can add up to more than 1 and are not shares of ",
+      "the trajectory."
+    ), paste(overlaps, collapse = ", "))
+  }
 
   rows <- list()
   for (p in paths) {

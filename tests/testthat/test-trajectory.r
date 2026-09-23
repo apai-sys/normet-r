@@ -105,6 +105,45 @@ test_that("nm_build_trajectory_features warns on truncated trajectories", {
   expect_true(any(grepl("truncated", buf$buffer_df$msg)))
 })
 
+test_that("overlapping source regions are detected, touching ones are not", {
+  regions <- list(
+    west = c(-10, 50, 0, 55),
+    east = c(-2, 50, 5, 55),     # shares -2..0 with west
+    north = c(-10, 55, 0, 60),   # only touches west along lat 55
+    far = c(20, 30, 25, 35)
+  )
+  expect_equal(normet:::.overlapping_regions(regions), "west & east")
+  expect_equal(normet:::.overlapping_regions(list(only = c(0, 0, 1, 1))), character(0))
+})
+
+test_that("overlap check handles sf polygons", {
+  skip_if_not_installed("sf")
+  tri <- sf::st_sfc(sf::st_polygon(list(rbind(c(-5, 50), c(5, 50), c(0, 58), c(-5, 50)))),
+                    crs = 4326)
+  regions <- list(tri = tri, box = c(-1, 51, 1, 52), away = c(20, 30, 25, 35))
+  expect_equal(normet:::.overlapping_regions(regions), "tri & box")
+})
+
+test_that("nm_build_trajectory_features warns on overlapping regions", {
+  skip_if_not_installed("lgr")
+  tmp <- tempfile("traj_"); dir.create(tmp)
+  write_tdump(tmp, "tdump_a")
+  lg <- nm_get_logger("io.trajectory")
+  buf <- lgr::AppenderBuffer$new()
+  lg$add_appender(buf, name = "test_buf")
+  on.exit(lg$remove_appender("test_buf"), add = TRUE)
+
+  nm_build_trajectory_features(file.path(tmp, "tdump_*"),
+    source_regions = list(uk = c(-6, 50, 2, 56), sw = c(-3.0, 50.5, -1.5, 51.5)))
+  expect_true(any(grepl("overlap (uk & sw)", buf$buffer_df$msg, fixed = TRUE)))
+
+  n_before <- nrow(buf$buffer_df)
+  nm_build_trajectory_features(file.path(tmp, "tdump_*"),
+    source_regions = list(sw = c(-3.0, 50.5, -1.5, 51.5)))
+  later <- buf$buffer_df$msg[seq_len(nrow(buf$buffer_df)) > n_before]
+  expect_false(any(grepl("overlap", later)))
+})
+
 test_that("nm_build_trajectory_features builds a receptor table", {
   tmp <- tempfile("traj_"); dir.create(tmp)
   write_tdump(tmp, "tdump_a")
