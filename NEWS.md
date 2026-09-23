@@ -40,6 +40,30 @@
   `hyts_std` end-to-end) — to turn `tdump` output into transport-aware
   predictors (inflow direction, distance/speed, residence time over source
   regions, along-path rainfall/BLH).
+* **Trajectory quality columns and `min_hours`**: `nm_trajectory_features()` /
+  `nm_build_trajectory_features()` / `nm_run_back_trajectories()` now emit
+  `traj_n_endpoints` and `traj_age_max_h`, and take `min_hours`. A trajectory
+  that HYSPLIT ended early (met files ran out, or it left the domain) used to
+  be indistinguishable from a legitimately short-range one: its `dist_km`
+  shrank and its residence fractions were taken over fewer points, with no
+  flag. `min_hours` sets every feature except the two quality columns to `NA`
+  for such rows; it is opt-in, so existing tables only gain two columns.
+  `nm_run_back_trajectories()` warns about truncated runs either way. Mirrors
+  `normet-py`.
+* **`nm_run_back_trajectories()` met-file window is padded by one GDAS1 record**:
+  each run is handed only the weekly files whose dates overlap
+  `[receptor - hours_back, receptor]`, but a receptor time between one file's
+  last record and the next file's first needs *both* to interpolate. Probed
+  against `hyts_std` with two adjacent daily ARL files, a start time in that gap
+  (23:30, 23:59) failed with only the earlier file and ran with both, so the
+  strict overlap test broke hourly receptors in the last hours of every weekly
+  file (00/06/12/18 UTC releases were unaffected). The window is now widened by
+  3 h on each side. Mirrors `normet-py`.
+* **`nm_build_trajectory_features()` warns when source regions overlap**: an
+  endpoint inside several regions counts towards each, so overlapping regions'
+  residence fractions add up to more than 1 and are not shares of the
+  trajectory. The warning names the overlapping pairs (boxes directly, sf
+  geometries via sf); regions that only touch do not count. Mirrors `normet-py`.
 * **GDAS1 met download**: `nm_fetch_gdas1()` / `nm_gdas1_filenames()` pull the
   weekly GDAS1 (1°) ARL files from NOAA ARL's archive (streamed + cached) so
   `nm_run_back_trajectories()` can run when no local met is available.
@@ -53,6 +77,41 @@
   same schema (`aurn_live` rows leave `site_type`/`start_date`/`end_date` as
   `NA`, which the SOS API does not carry). Mirrors `normet-py`'s
   `normet.io.ukaq` argument for argument.
+* **`nm_decom_met()`: feature groups and Shapley attribution.** `groups =`
+  attributes the meteorological features in named groups -- e.g.
+  `list(local = met_cols, transport = traj_cols)` -- with one result column per
+  group, and `attribution = "shapley"` averages each feature's or group's
+  marginal effect over every order it could be frozen in, instead of freezing
+  them one at a time (which makes the split depend on the order, and the
+  default order on fitted importance). Shapley values are exact (all `2^k`
+  coalitions, up to 10 features or groups -- four normalisations for two
+  groups) or, with `n_permutations =`, sampled in antithetic pairs; either way
+  the contributions add up exactly to the prediction minus `emi_total`. Groups
+  default to Shapley; without groups the default stays sequential and its
+  results are unchanged (checked `identical()` against the previous code).
+  Also on `nm_decompose()`. Mirrors `normet-py`.
+* **`resample_pools =` draws chosen variables from their own pool**
+  (`nm_normalise_lgb()` / `nm_normalise_h2o()`, and via `nm_normalise()`,
+  `nm_decom_met()`, `nm_decom_emi()`, `nm_decompose()`). A pool's columns name
+  the variables drawn from it -- whole rows at a time, independently of
+  `resample_df` and of the other pools. With a single pool every contribution
+  is measured against the *average* conditions in it, so a transport term is
+  an anomaly with a mean near zero; `list(transport = clean_hours[, traj_cols])`
+  measures transport against a reference air mass instead. Each pool draws
+  from its own seed stream, fixed by its name, so a variable's draws do not
+  move when others are frozen; without pools the draws are unchanged.
+  `nm_decom_met()` / `nm_decom_emi()` also take `conditional_on =`, applied to
+  the `resample_df` pool. Mirrors `normet-py`.
+* **Fixed: `nm_decom_met()` / `nm_decom_emi()` with `model = NULL` failed when a
+  covariate was missing** ("arguments imply differing number of rows"): the
+  observed series was taken before training, while `nm_build_model()` drops
+  rows with a missing covariate. It is now taken from the frame actually
+  decomposed.
+* **Fixed: a feature listed twice in `nm_decom_met()`'s `variable_order`**
+  failed deep inside the resampling with a data.table duplicate-column error;
+  it is now refused up front with a clear message. `met_noise` is documented as
+  what it is -- the model residual shifted by `met_base` -- rather than
+  "unexplained meteorological variance".
 
 # normet 0.0.1
 

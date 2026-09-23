@@ -49,6 +49,11 @@
 #'        (ignored when `method = "emission"`, which always uses its own
 #'        hardcoded calendar order). See \code{\link{nm_decom_met}}'s
 #'        `variable_order` for details.
+#' @param groups,attribution,n_permutations Forwarded to
+#'        \code{\link{nm_decom_met}} (`method = "meteorology"` only; refused
+#'        for `method = "emission"`).
+#' @param resample_pools,conditional_on Forwarded to
+#'        \code{\link{nm_decom_met}} or \code{\link{nm_decom_emi}}.
 #'
 #' @return A data frame with the decomposed components.
 #'
@@ -91,7 +96,12 @@ nm_decompose <- function(method = "emission",
                          memory_save = FALSE,
                          verbose = TRUE,
                          cache_dir = NULL,
-                         variable_order = NULL) {
+                         variable_order = NULL,
+                         groups = NULL,
+                         attribution = NULL,
+                         n_permutations = NULL,
+                         resample_pools = NULL,
+                         conditional_on = NULL) {
   # --- 1. Validate Common Inputs ---
   if (is.null(df) || is.null(target)) stop("`df` and `target` must be provided.")
   if (is.null(model) && is.null(covariates)) stop("Either `model` or `covariates` must be provided.")
@@ -99,6 +109,11 @@ nm_decompose <- function(method = "emission",
 
   # --- 2. Dispatch Based on Method ---
   if (method == "emission") {
+    if (!is.null(groups) || !is.null(n_permutations) || identical(attribution, "shapley")) {
+      stop("`groups`, `n_permutations` and attribution = 'shapley' apply to the meteorological ",
+           "decomposition (nm_decom_met); nm_decom_emi freezes the time variables in its own ",
+           "calendar order.")
+    }
     return(nm_decom_emi(
       df = df,
       model = model,
@@ -115,7 +130,9 @@ nm_decompose <- function(method = "emission",
       resample_df = resample_df,
       memory_save = memory_save,
       verbose = verbose,
-      cache_dir = cache_dir
+      cache_dir = cache_dir,
+      resample_pools = resample_pools,
+      conditional_on = conditional_on
     ))
   }
 
@@ -138,7 +155,12 @@ nm_decompose <- function(method = "emission",
       memory_save = memory_save,
       verbose = verbose,
       cache_dir = cache_dir,
-      variable_order = variable_order
+      variable_order = variable_order,
+      groups = groups,
+      attribution = attribution,
+      n_permutations = n_permutations,
+      resample_pools = resample_pools,
+      conditional_on = conditional_on
     ))
   }
 
@@ -217,6 +239,13 @@ nm_decompose <- function(method = "emission",
 #'        model fit (when `model` is NULL, forwarded to
 #'        \code{\link{nm_build_model}}) and of every per-component
 #'        \code{\link{nm_normalise}} call. If NULL (default), disabled.
+#' @param resample_pools Named list of data frames, or NULL (default). Extra
+#'        pools some variables are drawn from instead of `resample_df`,
+#'        forwarded to every \code{\link{nm_normalise}} call -- see
+#'        \code{\link{nm_normalise_lgb}}.
+#' @param conditional_on Named list, or NULL (default). Filter on the
+#'        `resample_df` pool (see \code{\link{nm_normalise_ext}}), applied once
+#'        before the decomposition.
 #'
 #' @return A data frame containing:
 #' \itemize{
@@ -237,7 +266,9 @@ nm_decom_emi <- function(df = NULL, model = NULL, target = "value",
                          max_mem_size = NULL,
                          resample_df = NULL,
                          memory_save = FALSE, verbose = TRUE,
-                         cache_dir = NULL) {
+                         cache_dir = NULL,
+                         resample_pools = NULL,
+                         conditional_on = NULL) {
 
   log <- nm_get_logger("analysis.decompose.emissions")
 
@@ -260,7 +291,6 @@ nm_decom_emi <- function(df = NULL, model = NULL, target = "value",
     dplyr::arrange(date)
 
   # Standardize target column name locally
-  observed_series <- df_work[[target]]
   if (target != "value") {
     df_work$value <- df_work[[target]]
   }
@@ -270,6 +300,9 @@ nm_decom_emi <- function(df = NULL, model = NULL, target = "value",
     resample_df <- df_work
   } else {
     resample_df <- nm_process_date(resample_df)
+  }
+  if (!is.null(conditional_on)) {
+    resample_df <- nm_apply_conditional_filter(resample_df, conditional_on)
   }
 
   # --- 3. Train Model if Needed ---
@@ -291,6 +324,10 @@ nm_decom_emi <- function(df = NULL, model = NULL, target = "value",
     df_work <- build_results$df_prep
     model <- build_results$model
   }
+
+  # Observed values come from the frame actually decomposed: a model trained
+  # here drops rows with a missing covariate.
+  observed_series <- df_work$value
 
   # --- 4. Identify Model Features ---
   model_feats <- tryCatch(
@@ -360,6 +397,7 @@ nm_decom_emi <- function(df = NULL, model = NULL, target = "value",
       model = model,
       resample_vars = current_features_to_resample,
       resample_df = resample_df,
+      resample_pools = resample_pools,
       n_samples = n_samples,
       seed = seed,
       memory_save = memory_save,
@@ -410,31 +448,237 @@ nm_decom_emi <- function(df = NULL, model = NULL, target = "value",
 }
 
 
+# ---------------------------------------------------------------------------
+# Attribution engine for nm_decom_met: what to attribute to (single features
+# or named groups) and how (sequential or Shapley). Mirrors normet-py's
+# analysis/decomposition.py.
+# ---------------------------------------------------------------------------
+
+.NM_TIME_VARS <- c("date_unix", "day_julian", "weekday", "hour")
+# nm_decom_met's own result columns, which a group may not be named after.
+.NM_MET_RESULT_COLUMNS <- c("date", "observed", "emi_total", "met_total", "met_base", "met_noise")
+# Exact Shapley values need 2^k normalisations for k features or groups.
+.NM_SHAPLEY_EXACT_MAX <- 10L
+
+# Validate the attribution options that do not depend on the model's features,
+# so a bad call fails before a model is trained. Returns the resolved method.
+.nm_attribution_method <- function(groups, attribution, n_permutations, variable_order) {
+  method <- if (!is.null(attribution)) attribution else if (!is.null(groups)) "shapley" else "sequential"
+  if (!is.character(method) || length(method) != 1 || !method %in% c("sequential", "shapley")) {
+    stop(sprintf("`attribution` must be 'sequential' or 'shapley', got '%s'.",
+                 paste(attribution, collapse = ", ")))
+  }
+  if (!is.null(n_permutations)) {
+    if (method != "shapley") stop("`n_permutations` only applies to attribution = 'shapley'.")
+    if (!is.numeric(n_permutations) || length(n_permutations) != 1 || is.na(n_permutations) ||
+        n_permutations < 1) {
+      stop(sprintf("`n_permutations` must be at least 1, got %s.", format(n_permutations)))
+    }
+  }
+  if (!is.null(groups) && !is.null(variable_order)) {
+    stop("`variable_order` orders single features; with `groups` the groups are the units, ",
+         "taken in the order they are listed.")
+  }
+  if (is.null(groups) && !is.null(variable_order) && method == "shapley") {
+    stop("`variable_order` has no effect with attribution = 'shapley', which averages over every order.")
+  }
+  method
+}
+
+.nm_players_from_groups <- function(groups, features) {
+  if (!is.list(groups) || is.data.frame(groups) || length(groups) == 0 || is.null(names(groups)) ||
+      any(!nzchar(names(groups))) || anyDuplicated(names(groups))) {
+    stop("`groups` must be a non-empty named list of feature vectors, e.g. ",
+         "list(local = met_cols, transport = traj_cols).")
+  }
+  owner <- character(0)
+  players <- list()
+  for (name in names(groups)) {
+    if (name %in% .NM_MET_RESULT_COLUMNS) {
+      stop(sprintf("group name '%s' clashes with a result column; rename the group.", name))
+    }
+    feats <- as.character(groups[[name]])
+    if (length(feats) == 0) stop(sprintf("group '%s' is empty.", name))
+    for (f in feats) {
+      if (f %in% .NM_TIME_VARS) {
+        stop(sprintf(paste0("group '%s' lists the time variable '%s'; nm_decom_met holds the time ",
+                            "variables at their observed values and does not attribute them."), name, f))
+      }
+      if (!f %in% features) {
+        stop(sprintf(paste0("group '%s' lists '%s', which is not a meteorological (non-time) ",
+                            "feature of the model. Features: %s."), name, f, paste(features, collapse = ", ")))
+      }
+      if (f %in% names(owner)) {
+        where <- if (owner[[f]] == name) sprintf("twice in group '%s'", name) else
+          sprintf("in two groups ('%s' and '%s')", owner[[f]], name)
+        stop(sprintf("feature '%s' is listed %s.", f, where))
+      }
+      owner[f] <- name
+    }
+    players[[length(players) + 1L]] <- list(name = name, feats = feats)
+  }
+  unassigned <- setdiff(features, names(owner))
+  if (length(unassigned) > 0) {
+    stop(sprintf(paste0("every meteorological (non-time) model feature must be in exactly one group; ",
+                        "not in any: %s."), paste(unassigned, collapse = ", ")))
+  }
+  players
+}
+
+# Decide what nm_decom_met attributes to and how. `features` arrive in the
+# default sequential order (fitted importance). Returns list(players, method),
+# players in result-column order, each list(name, feats).
+.nm_attribution_plan <- function(features, groups, attribution, n_permutations, variable_order) {
+  method <- .nm_attribution_method(groups, attribution, n_permutations, variable_order)
+  if (!is.null(groups)) {
+    players <- .nm_players_from_groups(groups, features)
+  } else if (!is.null(variable_order)) {
+    if (!setequal(features, variable_order)) {
+      stop(sprintf(paste0("`variable_order` must be exactly the model's meteorological (non-time) ",
+                          "features, in any order. Missing: %s. Not in model: %s."),
+                   paste(setdiff(features, variable_order), collapse = ", "),
+                   paste(setdiff(variable_order, features), collapse = ", ")))
+    }
+    twice <- unique(variable_order[duplicated(variable_order)])
+    if (length(twice) > 0) {
+      stop(sprintf("`variable_order` lists %s more than once.", paste(twice, collapse = ", ")))
+    }
+    players <- lapply(variable_order, function(f) list(name = f, feats = f))
+  } else {
+    players <- lapply(features, function(f) list(name = f, feats = f))
+  }
+  k <- length(players)
+  if (method == "shapley" && is.null(n_permutations) && k > .NM_SHAPLEY_EXACT_MAX) {
+    stop(sprintf(paste0("exact Shapley values over %d features need 2^%d = %s normalisations. Pass ",
+                        "`groups` to attribute to fewer, larger units, or `n_permutations` for a ",
+                        "sampled estimate."), k, k, format(2^k, big.mark = ",")))
+  }
+  list(players = players, method = method)
+}
+
+# Split v(every player fixed) - v(none fixed) among `players`. value_of(resample)
+# returns the normalised series with the features in `resample` resampled and
+# every other feature at its observed values; a coalition is the set of players
+# held at observed values, and each is evaluated once. Returns list(emi_total,
+# contributions), the contributions adding up to v(all fixed) - emi_total for
+# every method.
+.nm_attribute <- function(players, value_of, method, n_permutations, seed, verbose) {
+  k <- length(players)
+  if (method == "shapley" && !is.null(n_permutations)) {
+    n_orders <- n_permutations + n_permutations %% 2
+    # Sampling that evaluates as many coalitions as the exact values need.
+    if (n_orders * max(k - 1, 1) + 2 >= 2^k) n_permutations <- NULL
+  }
+  planned <- if (method == "sequential") k + 1 else if (is.null(n_permutations)) 2^k else
+    (n_permutations + n_permutations %% 2) * (k - 1) + 2
+  pb <- if (verbose) progress::progress_bar$new(
+    format = "  Decomposing [:bar] :percent | Step :current/:total | ETA: :eta",
+    total = planned, clear = FALSE, width = 80
+  ) else NULL
+
+  values <- new.env(parent = emptyenv())
+  v <- function(fixed) {
+    key <- if (length(fixed)) paste(sort(fixed), collapse = ",") else "none"
+    if (!exists(key, envir = values, inherits = FALSE)) {
+      if (!is.null(pb)) pb$tick()
+      resample <- unlist(lapply(seq_len(k), function(i) if (!i %in% fixed) players[[i]]$feats),
+                         use.names = FALSE)
+      if (is.null(resample)) resample <- character(0)
+      assign(key, as.numeric(value_of(resample)), envir = values)
+    }
+    get(key, envir = values, inherits = FALSE)
+  }
+
+  emi_total <- v(integer(0))
+  totals <- rep(list(numeric(length(emi_total))), k)
+
+  if (method == "sequential") {
+    prev <- integer(0)
+    for (i in seq_len(k)) {
+      cur <- c(prev, i)
+      totals[[i]] <- v(cur) - v(prev)
+      prev <- cur
+    }
+  } else if (is.null(n_permutations)) {
+    # Exact: phi_i = sum over S not containing i of |S|!(k-|S|-1)!/k! * (v(S+i) - v(S)).
+    weight <- vapply(0:(k - 1), function(s) factorial(s) * factorial(k - s - 1) / factorial(k),
+                     numeric(1))
+    coalitions <- lapply(0:(2^k - 1), function(m) which(bitwAnd(m, 2^(0:(k - 1))) > 0))
+    coalitions <- coalitions[order(lengths(coalitions))]
+    for (s in coalitions) v(s)
+    for (s in coalitions) {
+      for (i in setdiff(seq_len(k), s)) {
+        totals[[i]] <- totals[[i]] + weight[length(s) + 1] * (v(c(s, i)) - v(s))
+      }
+    }
+  } else {
+    # Monte Carlo over orders, in antithetic pairs: an order and its reverse.
+    # All orders are drawn up front: every nm_normalise() call re-seeds R's
+    # global generator, which would otherwise hand back the same order each time.
+    n_pairs <- (n_permutations + 1) %/% 2
+    set.seed(seed)
+    perms <- lapply(seq_len(n_pairs), function(p) sample.int(k))
+    for (perm in perms) {
+      for (ord in list(perm, rev(perm))) {
+        prev <- integer(0)
+        for (i in ord) {
+          cur <- c(prev, i)
+          totals[[i]] <- totals[[i]] + (v(cur) - v(prev))
+          prev <- cur
+        }
+      }
+    }
+    totals <- lapply(totals, function(t) t / (2 * n_pairs))
+  }
+  names(totals) <- vapply(players, function(p) p$name, character(1))
+  list(emi_total = emi_total, contributions = totals)
+}
+
+
 #' Decompose Meteorological Influences (Weather Contributions)
 #'
 #' @description
-#' `nm_decom_met` quantifies the specific contribution of individual meteorological variables
-#' to the target variable (e.g., "How much did Wind Speed contribute vs Temperature?").
+#' `nm_decom_met` quantifies the contribution of individual meteorological variables,
+#' or of named groups of them, to the target variable (e.g., "How much did Wind Speed
+#' contribute vs Temperature?", or "local weather vs long-range transport?").
 #'
 #' @details
-#' The function uses a sequential "Freeze-and-Shuffle" approach:
-#' \enumerate{
-#'   \item **Step 1 (emi_total)**: Calculate the trend where **ALL** weather variables are shuffled (resampled). This removes all weather influence.
-#'   \item **Step 2 (First Weather Var)**: Freeze the first variable (use observed values) while keeping others shuffled. The difference from Step 1 is the contribution of this variable.
-#'   \item **Step 3 (Next Weather Var)**: Freeze the next variable (plus previous ones) and compare to the previous state.
-#'   \item **Residuals**: `met_noise` captures the variance not explained by the model's main effects.
+#' `emi_total` is the normalised series with **every** meteorological (non-time)
+#' feature shuffled (resampled); the time variables stay at their observed values
+#' throughout. The model's prediction minus `emi_total` -- the part the meteorology
+#' accounts for -- is split into one contribution per feature, or per group
+#' (`groups`), by re-running \code{\link{nm_normalise}} with some of them frozen at
+#' their observed values instead of shuffled:
+#' \itemize{
+#'   \item `attribution = "sequential"` freezes them one at a time and reports each
+#'     step's change. This is cumulative freezing, not leave-one-out: each
+#'     contribution is conditional on everything frozen before it, so the split
+#'     depends on the order -- `variable_order` if given, else fitted importance
+#'     (`importance_ascending`), which can reorder when the model is refitted; with
+#'     `groups`, the order they are listed in.
+#'   \item `attribution = "shapley"` averages each feature's (or group's) marginal
+#'     effect over every order it could be frozen in: the Shapley value of the game
+#'     whose value for a set `S` is the normalised series with `S` at observed
+#'     values. No order is privileged, so the split does not move when features are
+#'     listed differently or importance reshuffles.
 #' }
+#' Either way the contributions add up exactly to the prediction minus `emi_total`,
+#' and every \code{\link{nm_normalise}} call uses the same seed, so the differences
+#' between calls are paired (common random numbers).
 #'
-#' Note the asymmetry with \code{\link{nm_decom_emi}}: that function
-#' freezes time variables in a *hardcoded* calendar order (`date_unix`
-#' before `day_julian` before `weekday` before `hour`, chosen so each
-#' component has a specific temporal-frequency meaning -- see its
-#' details), whereas this function orders meteorological variables by
-#' *fitted importance* (`importance_ascending`), which can vary run to run
-#' with the underlying model. The two are not directly comparable in how
-#' "which component comes first" was decided. Pass `variable_order` to pin
-#' an explicit order instead, for results that stay comparable across
-#' model refits.
+#' Separating transport from local effects is what `groups` is for:
+#' `nm_decom_met(df, model, groups = list(local = met_cols, transport = traj_cols))`
+#' gives one `local` and one `transport` column (Shapley by default). Both are
+#' measured against `emi_total`, which averages over the air masses in the resample
+#' pool, so over the record they are anomalies with a mean near zero. To measure
+#' transport against a reference air mass instead, give the trajectory features a
+#' pool of their own -- `resample_pools = list(transport = clean_hours[, traj_cols])`
+#' makes `emi_total` the level under that air mass and the `transport` column the
+#' change from it to the air that actually arrived.
+#'
+#' Note the asymmetry with \code{\link{nm_decom_emi}}, which freezes the time
+#' variables in a hardcoded calendar order chosen so each component has a specific
+#' temporal-frequency meaning.
 #'
 #' @param df The input data frame. Must contain a 'date' column.
 #' @param model Pre-trained model. If NULL, a model will be trained.
@@ -469,17 +713,48 @@ nm_decom_emi <- function(df = NULL, model = NULL, target = "value",
 #'        vector (must be exactly the model's non-time-variable features,
 #'        in any permutation) to get a decomposition order that stays
 #'        fixed and comparable across runs regardless of the underlying
-#'        model's importance ranking. An incomplete/mismatched vector
-#'        raises an immediate, clear error.
+#'        model's importance ranking. An incomplete/mismatched vector, or one
+#'        listing a feature twice, raises an immediate, clear error.
+#' @param groups Named list of character vectors, or NULL (default). Attribute
+#'        the meteorological features in named groups rather than one by one,
+#'        e.g. `list(local = met_cols, transport = traj_cols)`; the result then
+#'        has one contribution column per group. Every non-time model feature
+#'        must be in exactly one group. A group is frozen and shuffled as a
+#'        unit, so its column is the effect of the group as a whole,
+#'        interactions among its members included.
+#' @param attribution `"sequential"` or `"shapley"`, or NULL (default: `"shapley"`
+#'        when `groups` is given, otherwise `"sequential"`, the historical
+#'        behaviour). See Details.
+#' @param n_permutations Integer or NULL (default). `attribution = "shapley"`
+#'        only. NULL computes the Shapley values exactly from all `2^k`
+#'        coalitions of the `k` features or groups (allowed up to `k = 10`;
+#'        four normalisations for two groups). An integer estimates them from
+#'        that many random orders, drawn in antithetic pairs (an order and its
+#'        reverse, so odd values round up); when that would evaluate as many
+#'        coalitions as the exact values need, the exact values are computed
+#'        instead.
+#' @param resample_pools Named list of data frames, or NULL (default). Extra
+#'        pools some variables are drawn from instead of `resample_df`,
+#'        forwarded to every \code{\link{nm_normalise}} call -- see
+#'        \code{\link{nm_normalise_lgb}}.
+#' @param conditional_on Named list, or NULL (default). Filter on the
+#'        `resample_df` pool (see \code{\link{nm_normalise_ext}}), applied once
+#'        before the decomposition.
 #'
 #' @return A data frame containing:
 #' \itemize{
-#'   \item `observed`: The original time series.
-#'   \item `emi_total`: The weather-normalised trend.
+#'   \item `date`, `observed`: timestamps and the original series. When the model
+#'     is trained here, only the rows it was trained on (as
+#'     \code{\link{nm_build_model}} keeps them).
+#'   \item `emi_total`: The weather-normalised series (every meteorological
+#'     feature shuffled).
+#'   \item One contribution column per weather variable (e.g., `ws`, `temp`,
+#'     `wd`), or per group, named after it.
 #'   \item `met_total`: The total meteorological component (`observed` - `emi_total`).
-#'   \item `met_base`: The average meteorological influence (constant).
-#'   \item `met_noise`: Unexplained meteorological variance.
-#'   \item Individual columns for each weather variable (e.g., `ws`, `temp`, `wd`).
+#'   \item `met_base`: Its mean (a constant).
+#'   \item `met_noise`: `met_total - met_base - sum of contributions`, which
+#'     equals the model residual (`observed - prediction`) shifted by the constant
+#'     `met_base` -- what the model does not explain, not a meteorological term.
 #' }
 #'
 #' @export
@@ -493,12 +768,19 @@ nm_decom_met <- function(df = NULL, model = NULL, target = "value",
                          resample_df = NULL,
                          memory_save = FALSE, verbose = TRUE,
                          cache_dir = NULL,
-                         variable_order = NULL) {
+                         variable_order = NULL,
+                         groups = NULL,
+                         attribution = NULL,
+                         n_permutations = NULL,
+                         resample_pools = NULL,
+                         conditional_on = NULL) {
 
   log <- nm_get_logger("analysis.decompose.met")
 
   # --- 1. Setup & H2O Init ---
   if (is.null(df) || is.null(target)) stop("`df` and `target` must be provided.")
+  # Options that do not depend on the model's features fail before any training.
+  .nm_attribution_method(groups, attribution, n_permutations, variable_order)
 
   if (backend == "h2o") {
     # Pass both cores and memory settings
@@ -514,7 +796,6 @@ nm_decom_met <- function(df = NULL, model = NULL, target = "value",
     dplyr::filter(!is.na(date) & !is.na(.data[[target]])) %>%
     dplyr::arrange(date)
 
-  observed_series <- df_work[[target]]
   if (target != "value") {
     df_work$value <- df_work[[target]]
   }
@@ -524,6 +805,9 @@ nm_decom_met <- function(df = NULL, model = NULL, target = "value",
     resample_df <- df_work
   } else {
     resample_df <- nm_process_date(resample_df)
+  }
+  if (!is.null(conditional_on)) {
+    resample_df <- nm_apply_conditional_filter(resample_df, conditional_on)
   }
 
   # --- 3. Train Model if Needed ---
@@ -538,6 +822,11 @@ nm_decom_met <- function(df = NULL, model = NULL, target = "value",
     model <- build_results$model
   }
 
+  # Observed values come from the frame actually decomposed: a model trained
+  # here drops rows with a missing covariate, and taking `observed` from before
+  # training left it longer than the dates it was paired with.
+  observed_series <- df_work$value
+
   # --- 4. Identify Features & Sort by Importance ---
   feat_sorted <- tryCatch(
     nm_extract_features(model, importance_ascending = importance_ascending),
@@ -551,23 +840,11 @@ nm_decom_met <- function(df = NULL, model = NULL, target = "value",
   feat_sorted <- intersect(feat_sorted, colnames(df_work))
   if (length(feat_sorted) == 0) stop("No valid model features found in `df`.")
 
-  # Isolate Weather Variables (Remove Time Components)
-  time_vars <- c("hour", "weekday", "day_julian", "date_unix")
-  contrib_candidates <- feat_sorted[!feat_sorted %in% time_vars]
-
-  if (!is.null(variable_order)) {
-    actual_set <- unique(contrib_candidates)
-    requested_set <- unique(variable_order)
-    if (!setequal(actual_set, requested_set)) {
-      missing <- setdiff(actual_set, requested_set)
-      extra <- setdiff(requested_set, actual_set)
-      stop(sprintf(
-        "`variable_order` must be exactly the model's meteorological (non-time) features, in any order. Missing: %s. Not in model: %s.",
-        paste(missing, collapse = ", "), paste(extra, collapse = ", ")
-      ))
-    }
-    contrib_candidates <- variable_order
-  }
+  # Isolate Weather Variables (Remove Time Components). Already in importance
+  # order, which is the default sequential order.
+  contrib_candidates <- feat_sorted[!feat_sorted %in% .NM_TIME_VARS]
+  plan <- .nm_attribution_plan(contrib_candidates, groups, attribution, n_permutations,
+                               variable_order)
 
   if (length(contrib_candidates) == 0) log$warn("No weather variables found to decompose.")
 
@@ -578,33 +855,18 @@ nm_decom_met <- function(df = NULL, model = NULL, target = "value",
 
   result <- data.frame(date = df_work$date, observed = observed_series)
 
-  # --- 5. Iterative Decomposition Loop ---
-  decomp_order <- c("emi_total", contrib_candidates)
-  current_resample_vars <- contrib_candidates
-  tmp_results <- list()
-
+  # --- 5. Attribution: one nm_normalise() run per coalition ---
   if (verbose) {
-    log$info("Decomposing %d meteorological variables...", length(contrib_candidates))
-    pb <- progress::progress_bar$new(
-      format = "  Decomposing [:bar] :percent | Step :current/:total | ETA: :eta",
-      total = length(decomp_order), clear = FALSE, width = 80
-    )
+    log$info("Decomposing %d meteorological %s (%s attribution)...", length(plan$players),
+             if (is.null(groups)) "variables" else "groups", plan$method)
   }
-
-  for (var_to_freeze in decomp_order) {
-    if (verbose) pb$tick()
-
-    # Freeze variable by REMOVING it from resampling list
-    if (var_to_freeze != "emi_total") {
-      current_resample_vars <- setdiff(current_resample_vars, var_to_freeze)
-    }
-
-    # Run Normalisation
-    df_norm <- nm_normalise(
+  value_of <- function(resample) {
+    nm_normalise(
       df = df_work,
       model = model,
-      resample_vars = current_resample_vars,
+      resample_vars = resample,
       resample_df = resample_df,
+      resample_pools = resample_pools,
       n_samples = n_samples,
       seed = seed,
       memory_save = memory_save,
@@ -612,26 +874,21 @@ nm_decom_met <- function(df = NULL, model = NULL, target = "value",
       aggregate = TRUE,
       n_cores = n_cores_eff,
       cache_dir = cache_dir
-    )
-
-    tmp_results[[var_to_freeze]] <- df_norm$normalised
+    )$normalised
   }
+  att <- .nm_attribute(plan$players, value_of, plan$method, n_permutations, seed, verbose)
 
   # --- 6. Recompose Meteorological Components ---
-  result$emi_total <- tmp_results[["emi_total"]]
-  prev_key <- "emi_total"
-
-  for (feat in contrib_candidates) {
-    result[[feat]] <- tmp_results[[feat]] - tmp_results[[prev_key]]
-    prev_key <- feat
-  }
+  result$emi_total <- att$emi_total
+  for (name in names(att$contributions)) result[[name]] <- att$contributions[[name]]
 
   # --- 7. Calculate Aggregates (Met Total, Base, Noise) ---
   result$met_total <- result$observed - result$emi_total
   result$met_base <- mean(result$met_total, na.rm = TRUE)
 
-  contrib_sum <- if (length(contrib_candidates) > 0) {
-    rowSums(result[, contrib_candidates, drop = FALSE], na.rm = TRUE)
+  contrib_names <- names(att$contributions)
+  contrib_sum <- if (length(contrib_names) > 0) {
+    rowSums(result[, contrib_names, drop = FALSE], na.rm = TRUE)
   } else {
     0.0
   }
