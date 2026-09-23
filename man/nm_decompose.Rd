@@ -23,7 +23,12 @@ nm_decompose(
   memory_save = FALSE,
   verbose = TRUE,
   cache_dir = NULL,
-  variable_order = NULL
+  variable_order = NULL,
+  groups = NULL,
+  attribution = NULL,
+  n_permutations = NULL,
+  resample_pools = NULL,
+  conditional_on = NULL
 )
 }
 \arguments{
@@ -79,6 +84,13 @@ feature decomposition order, forwarded to \code{\link{nm_decom_met}}
 (ignored when \code{method = "emission"}, which always uses its own
 hardcoded calendar order). See \code{\link{nm_decom_met}}'s
 \code{variable_order} for details.}
+
+\item{groups, attribution, n_permutations}{Forwarded to
+\code{\link{nm_decom_met}} (\code{method = "meteorology"} only; refused
+for \code{method = "emission"}).}
+
+\item{resample_pools, conditional_on}{Forwarded to
+\code{\link{nm_decom_met}} or \code{\link{nm_decom_emi}}.}
 }
 \value{
 A data frame with the decomposed components.

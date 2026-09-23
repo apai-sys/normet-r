@@ -22,7 +22,12 @@ nm_decom_met(
   memory_save = FALSE,
   verbose = TRUE,
   cache_dir = NULL,
-  variable_order = NULL
+  variable_order = NULL,
+  groups = NULL,
+  attribution = NULL,
+  n_permutations = NULL,
+  resample_pools = NULL,
+  conditional_on = NULL
 )
 }
 \arguments{
@@ -76,41 +81,96 @@ results aren't directly comparable run to run. Pass an explicit
 vector (must be exactly the model's non-time-variable features,
 in any permutation) to get a decomposition order that stays
 fixed and comparable across runs regardless of the underlying
-model's importance ranking. An incomplete/mismatched vector
-raises an immediate, clear error.}
+model's importance ranking. An incomplete/mismatched vector, or one
+listing a feature twice, raises an immediate, clear error.}
+
+\item{groups}{Named list of character vectors, or NULL (default). Attribute
+the meteorological features in named groups rather than one by one,
+e.g. \code{list(local = met_cols, transport = traj_cols)}; the result then
+has one contribution column per group. Every non-time model feature
+must be in exactly one group. A group is frozen and shuffled as a
+unit, so its column is the effect of the group as a whole,
+interactions among its members included.}
+
+\item{attribution}{\code{"sequential"} or \code{"shapley"}, or NULL (default: \code{"shapley"}
+when \code{groups} is given, otherwise \code{"sequential"}, the historical
+behaviour). See Details.}
+
+\item{n_permutations}{Integer or NULL (default). \code{attribution = "shapley"}
+only. NULL computes the Shapley values exactly from all \code{2^k}
+coalitions of the \code{k} features or groups (allowed up to \code{k = 10};
+four normalisations for two groups). An integer estimates them from
+that many random orders, drawn in antithetic pairs (an order and its
+reverse, so odd values round up); when that would evaluate as many
+coalitions as the exact values need, the exact values are computed
+instead.}
+
+\item{resample_pools}{Named list of data frames, or NULL (default). Extra
+pools some variables are drawn from instead of \code{resample_df},
+forwarded to every \code{\link{nm_normalise}} call -- see
+\code{\link{nm_normalise_lgb}}.}
+
+\item{conditional_on}{Named list, or NULL (default). Filter on the
+\code{resample_df} pool (see \code{\link{nm_normalise_ext}}), applied once
+before the decomposition.}
 }
 \value{
 A data frame containing:
 \itemize{
-\item \code{observed}: The original time series.
-\item \code{emi_total}: The weather-normalised trend.
+\item \code{date}, \code{observed}: timestamps and the original series. When the model
+is trained here, only the rows it was trained on (as
+\code{\link{nm_build_model}} keeps them).
+\item \code{emi_total}: The weather-normalised series (every meteorological
+feature shuffled).
+\item One contribution column per weather variable (e.g., \code{ws}, \code{temp},
+\code{wd}), or per group, named after it.
 \item \code{met_total}: The total meteorological component (\code{observed} - \code{emi_total}).
-\item \code{met_base}: The average meteorological influence (constant).
-\item \code{met_noise}: Unexplained meteorological variance.
-\item Individual columns for each weather variable (e.g., \code{ws}, \code{temp}, \code{wd}).
+\item \code{met_base}: Its mean (a constant).
+\item \code{met_noise}: \verb{met_total - met_base - sum of contributions}, which
+equals the model residual (\code{observed - prediction}) shifted by the constant
+\code{met_base} -- what the model does not explain, not a meteorological term.
 }
 }
 \description{
-\code{nm_decom_met} quantifies the specific contribution of individual meteorological variables
-to the target variable (e.g., "How much did Wind Speed contribute vs Temperature?").
+\code{nm_decom_met} quantifies the contribution of individual meteorological variables,
+or of named groups of them, to the target variable (e.g., "How much did Wind Speed
+contribute vs Temperature?", or "local weather vs long-range transport?").
 }
 \details{
-The function uses a sequential "Freeze-and-Shuffle" approach:
-\enumerate{
-\item \strong{Step 1 (emi_total)}: Calculate the trend where \strong{ALL} weather variables are shuffled (resampled). This removes all weather influence.
-\item \strong{Step 2 (First Weather Var)}: Freeze the first variable (use observed values) while keeping others shuffled. The difference from Step 1 is the contribution of this variable.
-\item \strong{Step 3 (Next Weather Var)}: Freeze the next variable (plus previous ones) and compare to the previous state.
-\item \strong{Residuals}: \code{met_noise} captures the variance not explained by the model's main effects.
+\code{emi_total} is the normalised series with \strong{every} meteorological (non-time)
+feature shuffled (resampled); the time variables stay at their observed values
+throughout. The model's prediction minus \code{emi_total} -- the part the meteorology
+accounts for -- is split into one contribution per feature, or per group
+(\code{groups}), by re-running \code{\link{nm_normalise}} with some of them frozen at
+their observed values instead of shuffled:
+\itemize{
+\item \code{attribution = "sequential"} freezes them one at a time and reports each
+step's change. This is cumulative freezing, not leave-one-out: each
+contribution is conditional on everything frozen before it, so the split
+depends on the order -- \code{variable_order} if given, else fitted importance
+(\code{importance_ascending}), which can reorder when the model is refitted; with
+\code{groups}, the order they are listed in.
+\item \code{attribution = "shapley"} averages each feature's (or group's) marginal
+effect over every order it could be frozen in: the Shapley value of the game
+whose value for a set \code{S} is the normalised series with \code{S} at observed
+values. No order is privileged, so the split does not move when features are
+listed differently or importance reshuffles.
 }
+Either way the contributions add up exactly to the prediction minus \code{emi_total},
+and every \code{\link{nm_normalise}} call uses the same seed, so the differences
+between calls are paired (common random numbers).
 
-Note the asymmetry with \code{\link{nm_decom_emi}}: that function
-freezes time variables in a \emph{hardcoded} calendar order (\code{date_unix}
-before \code{day_julian} before \code{weekday} before \code{hour}, chosen so each
-component has a specific temporal-frequency meaning -- see its
-details), whereas this function orders meteorological variables by
-\emph{fitted importance} (\code{importance_ascending}), which can vary run to run
-with the underlying model. The two are not directly comparable in how
-"which component comes first" was decided. Pass \code{variable_order} to pin
-an explicit order instead, for results that stay comparable across
-model refits.
+Separating transport from local effects is what \code{groups} is for:
+\code{nm_decom_met(df, model, groups = list(local = met_cols, transport = traj_cols))}
+gives one \code{local} and one \code{transport} column (Shapley by default). Both are
+measured against \code{emi_total}, which averages over the air masses in the resample
+pool, so over the record they are anomalies with a mean near zero. To measure
+transport against a reference air mass instead, give the trajectory features a
+pool of their own -- \code{resample_pools = list(transport = clean_hours[, traj_cols])}
+makes \code{emi_total} the level under that air mass and the \code{transport} column the
+change from it to the air that actually arrived.
+
+Note the asymmetry with \code{\link{nm_decom_emi}}, which freezes the time
+variables in a hardcoded calendar order chosen so each component has a specific
+temporal-frequency meaning.
 }
