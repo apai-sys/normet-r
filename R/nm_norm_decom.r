@@ -109,8 +109,8 @@ nm_decompose <- function(method = "emission",
 
   # --- 2. Dispatch Based on Method ---
   if (method == "emission") {
-    if (!is.null(groups) || !is.null(n_permutations) || identical(attribution, "shapley")) {
-      stop("`groups`, `n_permutations` and attribution = 'shapley' apply to the meteorological ",
+    if (!is.null(groups) || !is.null(n_permutations) || !is.null(attribution)) {
+      stop("`groups`, `n_permutations` and `attribution` apply to the meteorological ",
            "decomposition (nm_decom_met); nm_decom_emi freezes the time variables in its own ",
            "calendar order.")
     }
@@ -470,8 +470,11 @@ nm_decom_emi <- function(df = NULL, model = NULL, target = "value",
   }
   if (!is.null(n_permutations)) {
     if (method != "shapley") stop("`n_permutations` only applies to attribution = 'shapley'.")
-    if (!is.numeric(n_permutations) || length(n_permutations) != 1 || is.na(n_permutations) ||
-        n_permutations < 1) {
+    if (!is.numeric(n_permutations) || length(n_permutations) != 1 || !is.finite(n_permutations) ||
+        n_permutations != round(n_permutations)) {
+      stop(sprintf("`n_permutations` must be a whole number, got %s.", format(n_permutations)))
+    }
+    if (n_permutations < 1) {
       stop(sprintf("`n_permutations` must be at least 1, got %s.", format(n_permutations)))
     }
   }
