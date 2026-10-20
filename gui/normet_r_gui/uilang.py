@@ -74,7 +74,7 @@ from PySide6.QtWidgets import (
 def _settings():
     from PySide6.QtCore import QSettings
 
-    return QSettings("apai-sys", "normet-r-gui")  # where the window keeps its choices
+    return QSettings("apai-sys", "normet-r-gui")  # where View → Appearance keeps its choice
 
 
 def pref(key: str, default: Any = None) -> Any:
@@ -1085,7 +1085,7 @@ def figure_texts(fig, lang: str | None = None):
         if new != en and "$" in new:
             # Mathtext sets the whole text in its own face, which has no Chinese: the
             # formula is written out in sub- and superscripts instead (NO₂).
-            from ._formula import plain
+            from .nm.style import plain
 
             new = plain(new)
         if new != shown:
