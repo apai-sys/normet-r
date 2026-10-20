@@ -12,7 +12,7 @@ nm_plot_time_series(
   resample = NULL,
   title = NULL,
   ylabel = NULL,
-  color = "#2c7bb6",
+  color = nm_colours[["observed"]],
   ...
 )
 }
@@ -36,7 +36,8 @@ averaged to this frequency before plotting. Default \code{NULL}
 
 \item{ylabel}{Character. Y-axis label.}
 
-\item{color}{Character. Line color. Default "#2c7bb6".}
+\item{color}{Character. Line color. Default the style's observed blue
+(\code{nm_colours[["observed"]]}).}
 
 \item{...}{Additional arguments passed to ggplot2.}
 }
@@ -44,7 +45,8 @@ averaged to this frequency before plotting. Default \code{NULL}
 A ggplot2 object.
 }
 \description{
-Plot a time series with optional confidence/uncertainty bands.
+Plot a time series with optional confidence/uncertainty bands, broken where the
+record has a gap.
 }
 \examples{
 \donttest{

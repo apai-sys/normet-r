@@ -288,9 +288,249 @@ test_that("nm_run_back_trajectories passes only relevant met files", {
   expect_equal(control_mets(work, "tdump_2020010306"), "gdas1.jan20.w1")
 })
 
-test_that("nm_run_back_trajectories falls back to all met files when none overlap", {
-  work <- fake_run(utc("2021-06-01 00:00"), MET[1:2], hours_back = 24)
-  expect_equal(control_mets(work, "tdump_2021060100"), MET[1:2])
+log_buffer <- function(envir = parent.frame()) {
+  lg <- nm_get_logger("io.trajectory")
+  buf <- lgr::AppenderBuffer$new()
+  name <- paste0("test_buf_", sample.int(1e9, 1))
+  lg$add_appender(buf, name = name)
+  withr::defer(lg$remove_appender(name), envir = envir)
+  buf
+}
+
+test_that("nm_run_back_trajectories skips times no met file covers", {
+  skip_if_not_installed("lgr")
+  buf <- log_buffer()
+  # A receptor time whose window no file can touch is not run at all: handing
+  # hyts_std every file only made each such run fail, one by one.
+  times <- c(utc("2020-01-03 06:00"), utc("2021-06-01 00:00"))
+  work <- fake_run(times, MET[1:2], hours_back = 24)
+  expect_equal(control_mets(work, "tdump_2020010306"), "gdas1.jan20.w1")
+  expect_false(file.exists(file.path(work, "CONTROL_tdump_2021060100")))
+  expect_true(any(grepl("1 of 2 receptor times skipped", buf$buffer_df$msg)))
+
+  expect_error(fake_run(times[2], MET[1:2], hours_back = 24), "No met file covers")
+})
+
+test_that("nm_run_back_trajectories removes a stale tdump", {
+  skip_on_os("windows")
+  # A reused work_dir held a tdump of the same name from an earlier receptor;
+  # a run that then failed used to pass that file off as its own.
+  tmp <- tempfile("traj_"); dir.create(tmp)
+  work <- file.path(tmp, "work"); dir.create(work)
+  writeLines(TDUMP, file.path(work, "tdump_2020011612"))
+  exe <- file.path(tmp, "hyts_std")
+  writeLines(c("#!/bin/sh", "exit 1"), exe)
+  Sys.chmod(exe, "755")
+  mets <- file.path(tmp, MET)
+  for (m in mets) writeLines("", m)
+  expect_error(
+    suppressWarnings(nm_run_back_trajectories(utc("2020-01-16 12:00"), 51.5, -0.13,
+      met_files = mets, hysplit_exec = exe, work_dir = work)),
+    "No trajectories produced"
+  )
+  expect_false(file.exists(file.path(work, "tdump_2020011612")))
+})
+
+test_that("nm_run_back_trajectories runs on UTC and keeps minutes", {
+  times <- c(
+    as.POSIXct("2020-01-16 13:30", tz = "Europe/Paris"), # 12:30 UTC
+    utc("2020-01-16 12:30"),                             # the same instant: run once
+    utc("2020-01-03 06:00"),
+    NA
+  )
+  work <- fake_run(times, MET, hours_back = 24)
+  controls <- sort(basename(Sys.glob(file.path(work, "CONTROL_*"))))
+  expect_equal(controls, c("CONTROL_tdump_2020010306", "CONTROL_tdump_202001161230"))
+  lines <- readLines(file.path(work, "CONTROL_tdump_202001161230"))
+  expect_equal(lines[1], "20 01 16 12 30")
+  expect_equal(control_mets(work, "tdump_202001161230"), "gdas1.jan20.w3")
+
+  # Text with an offset is converted by it; text without one is UTC.
+  work <- fake_run(c("2020-01-16T13:30+01:00", "2020-01-03 06:00"), MET, hours_back = 24)
+  controls <- sort(basename(Sys.glob(file.path(work, "CONTROL_*"))))
+  expect_equal(controls, c("CONTROL_tdump_2020010306", "CONTROL_tdump_202001161230"))
+})
+
+test_that("nm_run_back_trajectories stops when asked", {
+  skip_if_not_installed("lgr")
+  buf <- log_buffer()
+  calls <- 0
+  stop_after_one <- function() {
+    calls <<- calls + 1
+    calls > 1
+  }
+  times <- c(utc("2020-01-16 12:00"), utc("2020-01-16 13:00"))
+  work <- fake_run(times, MET, stop = stop_after_one)
+  expect_length(Sys.glob(file.path(work, "CONTROL_*")), 1) # the second never started
+  expect_true(any(grepl("Stopped after 1 of 2", buf$buffer_df$msg)))
+  expect_error(fake_run(times, MET, stop = "yes"), "must be NULL or a function")
+})
+
+test_that(".missing_gdas1_files names the weeks a window needs", {
+  have <- c("/met/gdas1.jan20.w1", "/met/gdas1.jan20.w2")
+  f <- normet:::.missing_gdas1_files
+  expect_equal(f(have, utc("2020-01-05"), utc("2020-01-16")), "gdas1.jan20.w3")
+  expect_equal(f(have, utc("2020-01-02"), utc("2020-01-09")), character(0))
+  # 22:00 on 14 Jan interpolates towards w3's first record, as in .filter_met_files.
+  expect_equal(f(have, utc("2020-01-12"), utc("2020-01-14 22:00")), "gdas1.jan20.w3")
+  expect_null(f(c(have, "/met/custom.arl"), utc("2020-01-05"), utc("2020-02-01")))
+})
+
+test_that("CONTROL text carries minutes off the hour", {
+  txt <- normet:::.traj_control_text(
+    utc("2020-10-17 12:30"), 40.0, -90.0, 500.0, 24, "/d/m", "t", 10000.0, 0
+  )
+  expect_equal(txt[1], "20 10 17 12 30")
+})
+
+# A tdump holding one trajectory per (lat, lon, height) start, all arriving
+# 2020-10-01 00:00 and drifting south-west an hour at a time.
+tdump_text <- function(starts, n_endpoints = 3) {
+  head <- c("     1     1", "    GDAS    20    10     1     0     0",
+            sprintf("%6d BACKWARD OMEGA", length(starts)))
+  for (st in starts) {
+    head <- c(head, sprintf("    20    10     1     0 %8.3f %8.3f %7.1f", st[1], st[2], st[3]))
+  }
+  head <- c(head, "     1 PRESSURE")
+  rows <- character(0)
+  for (k in seq_along(starts)) {
+    st <- starts[[k]]
+    for (a in seq_len(n_endpoints) - 1) {
+      when <- utc("2020-10-01 00:00") - a * 3600
+      lt <- as.POSIXlt(when, tz = "UTC")
+      rows <- c(rows, sprintf(
+        "%6d     1 %s %5d %5d %5d     0     0 %7.1f %8.3f %8.3f %8.1f    990.0",
+        k, format(when, "%y", tz = "UTC"), lt$mon + 1, lt$mday, lt$hour, -a,
+        st[1] - 0.3 * a, st[2] - 0.6 * a, st[3] + 10 * a
+      ))
+    }
+  }
+  c(head, rows)
+}
+
+test_that("nm_build_trajectory_features gives each start height its own columns", {
+  tmp <- tempfile("traj_"); dir.create(tmp)
+  # One run started at three heights used to collapse to a single row: the
+  # last height's, the other two dropped as "duplicates" of the receptor time.
+  writeLines(tdump_text(list(c(51.5, -0.1, 100), c(51.5, -0.1, 500), c(51.5, -0.1, 1500))),
+             file.path(tmp, "tdump_x"))
+  out <- nm_build_trajectory_features(file.path(tmp, "tdump_*"))
+  expect_equal(nrow(out), 1)
+  expect_true(all(c("traj_dist_km_100m", "traj_dist_km_500m", "traj_dist_km_1500m") %in% names(out)))
+  expect_equal(out$traj_height_min_100m, 100)
+  expect_equal(out$traj_height_min_1500m, 1500)
+  expect_false("traj_dist_km" %in% names(out))
+  expect_false(any(startsWith(names(out), ".start")))
+
+  # One height: the columns keep their plain names.
+  writeLines(tdump_text(list(c(51.5, -0.1, 500))), file.path(tmp, "tdump_x"))
+  out <- nm_build_trajectory_features(file.path(tmp, "tdump_*"))
+  expect_true("traj_dist_km" %in% names(out))
+  expect_false(any(startsWith(names(out), ".start")))
+})
+
+test_that("nm_build_trajectory_features refuses trajectories from several places", {
+  tmp <- tempfile("traj_"); dir.create(tmp)
+  writeLines(tdump_text(list(c(51.5, -0.1, 500))), file.path(tmp, "tdump_a"))
+  writeLines(tdump_text(list(c(10, 20, 500))), file.path(tmp, "tdump_b"))
+  expect_error(nm_build_trajectory_features(file.path(tmp, "tdump_*")),
+               "2 different places ((51.5, -0.1), (10, 20))", fixed = TRUE)
+})
+
+hourly <- function(start, hours, ...) {
+  data.frame(date = seq(utc(start), by = "hour", length.out = hours), ..., stringsAsFactors = FALSE)
+}
+feats_at <- function(times, values, site = NULL) {
+  f <- data.frame(date = utc(times), traj_x = values)
+  if (!is.null(site)) f <- cbind(site = site, f, stringsAsFactors = FALSE)
+  f
+}
+
+test_that("nm_join_trajectory_features takes the latest trajectory to have arrived", {
+  # 6-hourly trajectories at 00, 06 and 18 (12's is missing), an hourly panel
+  # from 22:00 the day before to 23:00.
+  panel <- hourly("2020-01-01 22:00", 26)
+  feats <- feats_at(c("2020-01-02 00:00", "2020-01-02 06:00", "2020-01-02 18:00"), c(0, 6, 18))
+  out <- nm_join_trajectory_features(panel, feats)
+  got <- stats::setNames(out$traj_x, format(out$date, "%d %H"))
+  expect_true(is.na(got[["01 23"]]))            # before the first trajectory
+  expect_equal(unname(got[c("02 00", "02 04", "02 05")]), c(0, 0, 0)) # not 06:00's
+  expect_equal(unname(got[c("02 06", "02 11")]), c(6, 6))
+  expect_true(all(is.na(got[c("02 12", "02 17")]))) # its trajectory is missing
+  expect_equal(unname(got[c("02 18", "02 23")]), c(18, 18))
+  expect_equal(names(out), c("date", "traj_x"))
+  expect_equal(nrow(out), nrow(panel))
+
+  # The interval can be given; a single trajectory alone matches its own time.
+  expect_equal(sum(!is.na(nm_join_trajectory_features(panel, feats, tolerance = "2h")$traj_x)), 6)
+  expect_equal(sum(!is.na(nm_join_trajectory_features(panel, feats, tolerance = 2)$traj_x)), 6)
+  expect_equal(sum(!is.na(nm_join_trajectory_features(panel, feats[1, ])$traj_x)), 1)
+})
+
+test_that("nm_join_trajectory_features matches each site and keeps the others' rows", {
+  panel <- rbind(hourly("2020-01-01", 3, site = "MY1"), hourly("2020-01-01", 3, site = "KC1"))
+  t <- c("2020-01-01 00:00", "2020-01-01 01:00", "2020-01-01 02:00")
+  out <- nm_join_trajectory_features(panel, feats_at(t, c(1, 2, 3), site = "MY1"))
+  expect_equal(out$traj_x[out$site == "MY1"], c(1, 2, 3))
+  expect_true(all(is.na(out$traj_x[out$site == "KC1"])))
+
+  # The next site's batch fills its own rows and leaves MY1's; a batch sent
+  # again replaces its columns rather than adding new ones.
+  out <- nm_join_trajectory_features(out, feats_at(t, c(7, 8, 9), site = "KC1"))
+  out <- nm_join_trajectory_features(out, feats_at(t, c(4, 5, 6), site = "MY1"))
+  expect_equal(names(out), c("date", "site", "traj_x"))
+  expect_equal(out$traj_x, c(4, 5, 6, 7, 8, 9))
+})
+
+test_that("nm_join_trajectory_features names a site the panel does not have", {
+  skip_if_not_installed("lgr")
+  buf <- log_buffer()
+  panel <- hourly("2020-01-01", 3, site = "MY1")
+  out <- nm_join_trajectory_features(panel, feats_at("2020-01-01", 1, site = "London"))
+  expect_true(all(is.na(out$traj_x)))
+  expect_true(any(grepl("site(s) London", buf$buffer_df$msg, fixed = TRUE)))
+
+  # Untagged features onto several sites: every site takes them, and it is said.
+  two <- rbind(panel, hourly("2020-01-01", 3, site = "KC1"))
+  out <- nm_join_trajectory_features(two, feats_at("2020-01-01", 1))
+  expect_equal(sum(!is.na(out$traj_x)), 2)
+  expect_true(any(grepl("all 2 of the panel's sites", buf$buffer_df$msg)))
+})
+
+test_that("nm_join_trajectory_features without a site column in the panel", {
+  panel <- hourly("2020-01-01", 2)
+  out <- nm_join_trajectory_features(panel, feats_at("2020-01-01", 1, site = "MY1"))
+  expect_equal(out$traj_x[1], 1) # one site: the panel is that site
+  two <- rbind(feats_at("2020-01-01", 1, "A"), feats_at("2020-01-01", 2, "B"))
+  expect_error(nm_join_trajectory_features(panel, two),
+               "2 sites (A, B) but df has no 'site' column", fixed = TRUE)
+})
+
+test_that("nm_join_trajectory_features keeps rows without a time and compares as UTC", {
+  feats <- feats_at(c("2020-07-01 00:00", "2020-07-01 06:00"), c(0, 6))
+  panel <- data.frame(
+    # 07:00 in London in July is 06:00 UTC: it takes 06:00's trajectory.
+    date = c("2020-07-01 07:00+01:00", NA, "2020-07-01 05:00+00:00"),
+    pm25 = c(1, 2, 3), stringsAsFactors = FALSE
+  )
+  out <- nm_join_trajectory_features(panel, feats)
+  expect_equal(out$traj_x[c(1, 3)], c(6, 0))
+  expect_true(is.na(out$traj_x[2]))  # no time: kept, with nothing joined
+  expect_equal(out$date, panel$date) # the panel's own column is left as it was
+
+  # A POSIXct in another time zone is the same instant.
+  local <- data.frame(date = as.POSIXct("2020-07-01 07:00", tz = "Europe/London"))
+  expect_equal(nm_join_trajectory_features(local, feats)$traj_x, 6)
+})
+
+test_that("nm_join_trajectory_features refuses ambiguous features", {
+  panel <- hourly("2020-01-01", 2)
+  twice <- feats_at(c("2020-01-01", "2020-01-01"), c(1, 2))
+  expect_error(nm_join_trajectory_features(panel, twice), "keep one per time")
+  expect_error(nm_join_trajectory_features(panel, twice[1, ], tolerance = "0h"),
+               "tolerance must be positive")
+  expect_error(nm_join_trajectory_features(panel[, 0, drop = FALSE], twice[1, ]),
+               "no 'date' column")
 })
 
 test_that("nm_run_back_trajectories warns on truncated trajectories", {

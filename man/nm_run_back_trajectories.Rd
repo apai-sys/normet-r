@@ -19,18 +19,27 @@ nm_run_back_trajectories(
   source_regions = NULL,
   prefix = "traj_",
   timeout = 600,
-  min_hours = NULL
+  min_hours = NULL,
+  stop = NULL
 )
 }
 \arguments{
-\item{times}{Vector of receptor (arrival) timestamps (POSIXct or anything
-\code{as.POSIXct} accepts).}
+\item{times}{Vector of receptor (arrival) timestamps: POSIXct, or text that
+\code{\link{nm_parse_dates}} reads. HYSPLIT runs on UTC: a POSIXct is an
+instant whatever its time zone, and text without an offset is taken as UTC.
+A time off the hour runs at its minutes. Repeats are run once, and \code{NA} is
+skipped.}
 
 \item{lat, lon}{Numeric receptor location (degrees).}
 
 \item{met_files}{Character vector of ARL met file(s). They must collectively
 cover the whole backward window (\code{hours_back} before each receptor time),
-else the trajectory truncates where the data runs out.}
+else the trajectory truncates where the data runs out. Each run is handed
+only the files that can touch its window: GDAS1 weekly files
+(\verb{gdas1.<mmm><yy>.w<N>}) are selected by the dates in their name, widened by
+one 3-hourly record either side; any file with another name is always
+passed. A receptor time no file can touch is skipped, with a warning,
+rather than run.}
 
 \item{hysplit_exec}{Path to the \code{hyts_std} executable
 (e.g. \code{"~/hysplit-5.4.2/exec/hyts_std"}).}
@@ -40,7 +49,9 @@ else the trajectory truncates where the data runs out.}
 \item{hours_back}{Integer backward duration in hours (sign ignored). Default 72.}
 
 \item{work_dir}{Directory for \code{CONTROL}/\verb{tdump_*}. A temp dir is created if
-\code{NULL}; tdumps are left there for inspection/reuse.}
+\code{NULL}; tdumps are left there for inspection/reuse. A tdump an earlier call
+left under the same name is removed before its run, so a failed run cannot
+pass the old file off as its own.}
 
 \item{top_of_model, vert_motion}{HYSPLIT \code{CONTROL} settings (model top in m;
 \code{0} = use met vertical velocity).}
@@ -61,6 +72,11 @@ columns; pass fewer to skip the ones you don't need.}
 \item{min_hours}{Forwarded to \code{\link{nm_build_trajectory_features}}.
 Pass \code{min_hours = hours_back} to null trajectories that HYSPLIT ended
 early; either way, truncated runs are counted in a warning.}
+
+\item{stop}{Optional function of no arguments, called before each run: when it
+returns \code{TRUE} no further run starts (the one in progress, if any, has
+finished), and the features of the runs already done are returned (an empty
+data.frame if none was).}
 }
 \value{
 The \code{\link{nm_build_trajectory_features}} table (one row per

@@ -15,5 +15,5 @@ utils::globalVariables(c(
   "variable", "code", "season_temp", "ym_temp", "season_year_temp", "sy_key_temp",
   "synthetic", "synthetic_low", "synthetic_high",
   "effect_low", "effect_high", "contribution", "pdp_std", "theta_rad", "r",
-  "weight", "donor", "site", ".x"
+  "weight", "donor", "site", ".x", "theta", "bin", "series", "low", "high"
 ))

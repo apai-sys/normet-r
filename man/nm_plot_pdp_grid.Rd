@@ -4,7 +4,15 @@
 \alias{nm_plot_pdp_grid}
 \title{PDP Grid Plot}
 \usage{
-nm_plot_pdp_grid(pdp_df, cols = 3, sharey = FALSE, title = NULL, ...)
+nm_plot_pdp_grid(
+  pdp_df,
+  cols = 3,
+  sharey = FALSE,
+  title = NULL,
+  ylabel = "Partial dependence",
+  data = NULL,
+  ...
+)
 }
 \arguments{
 \item{pdp_df}{Data frame with columns \code{variable}, \code{value},
@@ -16,11 +24,19 @@ nm_plot_pdp_grid(pdp_df, cols = 3, sharey = FALSE, title = NULL, ...)
 
 \item{title}{Character. Optional title.}
 
+\item{ylabel}{Character. The prediction's label, once, beside the grid. Default
+"Partial dependence".}
+
+\item{data}{Optional data.frame: the training table, for each variable's deciles.}
+
 \item{...}{Additional arguments passed to ggplot2 facet.}
 }
 \value{
 A ggplot2 object.
 }
 \description{
-Faceted grid of partial-dependence curves.
+Faceted grid of partial-dependence curves. Where \code{data} (the table the model was
+trained on) is given, each panel marks the variable's deciles along its x axis: a
+curve where the data are few -- its ends -- is read with that in mind. A variable of
+a few whole values (an hour, a weekday) is drawn as steps with a point at each value.
 }

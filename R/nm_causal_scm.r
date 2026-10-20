@@ -35,6 +35,21 @@
 #'         (named \code{alpha} for parity with the Python \code{scm()} return).}
 #' }
 #'
+#' @section Reading the pre-period fit:
+#' The pre-period fit flatters the counterfactual, the more so the more donors
+#' there are for the pre-period dates. The ridge features are the units'
+#' pre-period outcomes, so at a pre-period date the treated unit is predicted
+#' from, among others, its own value at that date; with as many donors as dates
+#' the ridge model can return that value. On the bundled \code{scm} panel, a
+#' treated series of pure noise is fitted with a pre-period R-squared of -0.44
+#' from 5 donors, 0.30 from 20 and 0.47 from all 103. Refit with the treated
+#' pre-period shuffled to see what a design gives for nothing, and judge the
+#' effect with \code{\link{nm_placebo_in_space}} and against
+#' \code{\link{nm_scm_abadie}} or \code{\link{nm_scm_robust}}. The weights
+#' balance the ridge residuals only, so their concentration (\code{hhi} in
+#' \code{\link{nm_scm_diagnostics}}) does not describe which donors the
+#' synthetic unit is made of.
+#'
 #' @examples
 #' \donttest{
 #' res <- nm_scm(

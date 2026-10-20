@@ -18,6 +18,8 @@
 - **Data acquisition** — built-in adapters for UK air quality (AURN, AQE, SAQN, WAQN, NI, LMAM), EEA Discomap, OpenAQ v3, ERA5, HYSPLIT back-trajectories
 - **Multi-site pipelines** — parallel normalisation and decomposition across station networks
 - **On-disk caching** — SHA-1 content hashing to skip redundant computation
+- **Reading your own tables** — CSV/TSV (any separator, decimal commas, UTF-8/GB18030/Windows code pages, gzipped), Excel, Parquet, Feather, JSON; times in any common layout or format, put on the site's clock
+- **Journal-style figures** — every plot in one style (7–8.5 pt text, Okabe–Ito colours, formulas set as NO₂), diurnal/weekly/seasonal cycles, HTML reports in English or Chinese
 
 ---
 
@@ -62,6 +64,19 @@ head(results$out)   # date | observed | normalised
 ---
 
 ## Data Acquisition
+
+### Your own tables
+
+```r
+# Separator, decimal mark, encoding and the times' layout are read from the file:
+# a 'date'/'datetime'/'time' column, a date and a time column, or year/month/day/hour
+# columns; 31/01/2020, 01/31/2020, 2020-01-31T13:00+01:00, Unix seconds, Excel days.
+df <- nm_read_time_series("site.csv", zone = "Europe/London")  # on the site's clock
+attr(df, "normet_dates")                    # how the times were found and read
+
+nm_parse_dates(c("2020-03-29T00:30+00:00", "2020-03-29T02:30+01:00"))  # each by its offset
+nm_clock_to_utc(df$date, "Europe/London")   # what ERA5/HYSPLIT are asked for
+```
 
 ### UK air quality (AURN, AQE, SAQN, WAQN, NI, LMAM)
 
@@ -144,9 +159,13 @@ traj <- nm_build_trajectory_features(
   "traj/tdump_*",
   source_regions = list(industrial_NE = c(116.0, 39.0, 120.0, 42.0))
 )
-# traj has a `date` (receptor time) column + traj_* feature columns.
-# Join onto the panel and pass traj_* to nm_do_all (also in resample_vars to
-# deweather transport; omit from resample_vars to keep the transport signal).
+# traj has a `date` (receptor time) column + traj_* feature columns; several start
+# heights each get their own (traj_dist_km_500m, traj_dist_km_1500m, ...).
+# Join backward: each hour takes the latest trajectory to have arrived, within one
+# release interval (a nearest-time join would hand 04:00 the 06:00 trajectory).
+panel <- nm_join_trajectory_features(panel, traj)
+# Then pass traj_* to nm_do_all (also in resample_vars to deweather transport;
+# omit from resample_vars to keep the transport signal).
 ```
 
 Or drive HYSPLIT (`hyts_std`) directly for a set of receptor times, against
@@ -161,6 +180,26 @@ traj <- nm_run_back_trajectories(
   met_files = met_files, hysplit_exec = "/opt/hysplit/exec/hyts_std",
   hours_back = 72
 )
+```
+
+Receptor times are run on UTC (a POSIXct is an instant whatever its time zone),
+repeats once, and times no met file covers are skipped with a warning.
+
+---
+
+## Figures
+
+Every `nm_plot_*()` function draws in one journal style — `nm_theme_normet()`,
+colours with one meaning each (`nm_colours`: observed blue, normalised/synthetic red,
+context grey; `nm_palette` for categories), chemical formulas set as chemistry writes
+them (`nm_formula("SO42-")`), series broken at gaps rather than joined across them.
+
+```r
+nm_cycle_profiles(my1, c("NO2", "temp"))   # by hour of day, weekday and month, 95% CI
+ggplot2::ggplot(my1, ggplot2::aes(date, NO2)) + ggplot2::geom_line() + nm_theme_normet()
+
+options(normet.lang = "zh")                # figures' own texts in Chinese
+nm_generate_html(run, "report.html", lang = "zh")
 ```
 
 ---
