@@ -1,9 +1,10 @@
 """Transport Studio — HYSPLIT back-trajectory (transport-aware) features.
 
-Mirror of normet-py's Transport Studio; computations go through the normet
-R package via :class:`~normet_r_gui.rbridge.RBridge`
-(``nm_build_trajectory_features`` / ``nm_run_back_trajectories`` /
-``nm_fetch_gdas1`` / ``nm_load_source_regions``).
+Turns HYSPLIT ``tdump`` back-trajectory output into per-receptor transport
+descriptors (inflow direction, transport distance/speed, residence time over
+named source regions, along-path rainfall/boundary-layer height) that join
+straight onto a date-indexed panel as extra predictors — see
+:mod:`normet.io.trajectory`.
 
 Two sections, in the same design language as the Data/SCM Studios:
 
@@ -12,19 +13,20 @@ Two sections, in the same design language as the Data/SCM Studios:
    'site' column, so batches from several receptors (processed one at a
    time) can all be sent to the main window and matched up correctly.
 2. **Run HYSPLIT (advanced)** — orchestrate ``hyts_std`` itself for one or
-   more receptor sites, at a configurable time resolution, optionally
-   downloading GDAS1 meteorology first. Needs a local HYSPLIT install; most
-   users will only need section 1.
+   more receptor sites, at a configurable time resolution, with GDAS1
+   meteorology it downloads or ARL files already on disk. Needs a local
+   HYSPLIT install; most users will only need section 1.
 
 Source regions (shared by both sections) accept either a manual bounding
-box, or exact polygon boundaries loaded R-side from a GeoJSON/Shapefile
-(needs the R ``sf`` package) via ``nm_load_source_regions``.
+box, or exact polygon boundaries loaded from a GeoJSON/Shapefile
+(``normet[geo]``) — see :func:`normet.io.trajectory.load_source_regions`.
 """
 
 from __future__ import annotations
 
 import logging
 import os
+import threading
 from pathlib import Path
 
 import pandas as pd
@@ -54,20 +56,34 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ._widgets import CanvasTab, NoWheelSpinBox, hint_label, run_button
+from .nm import style as S
+from .nm.io.trajectory import _missing_gdas1_files, _naive_utc
+
+from ._widgets import CanvasTab, NoWheelSpinBox, hint_label, run_button, wrap_row
 from .workers import TaskRunner
 
 log = logging.getLogger(__name__)
+
+# A weekly GDAS1 file is ~570 MB: past this many, a download is asked about first.
+_ASK_ABOVE_FILES = 4
+_GDAS1_FILE_GB = 0.57
+
+
+def _n_features(result: pd.DataFrame) -> int:
+    """Feature columns in a result -- its 'site' tag is not one."""
+    return result.shape[1] - int("site" in result.columns)
 
 
 class SourceRegionTable(QTableWidget):
     """Editable ``{name: (lon_min, lat_min, lon_max, lat_max)}`` table."""
 
     _COLS = ["name", "lon_min", "lat_min", "lon_max", "lat_max"]
+    #: The columns as the table heads them: in words, translated as the window is.
+    _HEADS = ["Name", "Lon min", "Lat min", "Lon max", "Lat max"]
 
     def __init__(self) -> None:
         super().__init__(0, len(self._COLS))
-        self.setHorizontalHeaderLabels(self._COLS)
+        self.setHorizontalHeaderLabels(self._HEADS)
         self.setToolTip(
             "Named bounding boxes; for each, the fraction of trajectory time\n"
             "spent inside is added as a traj_resid_<name> feature (a\n"
@@ -87,37 +103,66 @@ class SourceRegionTable(QTableWidget):
             self.removeRow(idx)
 
     def regions(self) -> dict[str, tuple[float, float, float, float]]:
+        """The boxes by name. A row left as added (no name, zeros) is skipped; any
+        other row that is not a box raises ``ValueError`` naming it."""
         out: dict[str, tuple[float, float, float, float]] = {}
         for r in range(self.rowCount()):
-            name_item = self.item(r, 0)
-            name = (name_item.text().strip() if name_item else "")
+            name, *nums = _cells(self, r)
+            if not name and not any(_filled(v) for v in nums):
+                continue
+            where = f"Source region row {r + 1}" + (f" ({name})" if name else "")
             if not name:
-                continue
+                raise ValueError(f"{where}: give it a name.")
             try:
-                box = tuple(float(self.item(r, c).text()) for c in range(1, 5))
-            except (AttributeError, ValueError):
-                continue
-            out[name] = box  # type: ignore[assignment]
+                lon0, lat0, lon1, lat1 = (float(v) for v in nums)
+            except ValueError:
+                raise ValueError(
+                    f"{where}: lon_min, lat_min, lon_max and lat_max must be numbers."
+                ) from None
+            if not (lon0 < lon1 and lat0 < lat1):
+                raise ValueError(
+                    f"{where}: lon_min must be less than lon_max, and lat_min than lat_max."
+                )
+            if lat0 < -90 or lat1 > 90 or lon0 < -180 or lon1 > 180:
+                raise ValueError(f"{where}: latitudes run -90 to 90, longitudes -180 to 180.")
+            if name in out:
+                raise ValueError(f"{where}: another row is called {name!r} already.")
+            out[name] = (lon0, lat0, lon1, lat1)
         return out
+
+
+def _cells(table: QTableWidget, row: int) -> list[str]:
+    return [
+        (item.text().strip() if (item := table.item(row, c)) is not None else "")
+        for c in range(table.columnCount())
+    ]
+
+
+def _filled(value: str) -> bool:
+    """Whether a cell holds more than the 0 a new row starts with."""
+    try:
+        return float(value) != 0
+    except ValueError:
+        return bool(value)
 
 
 class RegionFileTable(QTableWidget):
     """Editable ``[(name, path), ...]`` list of loaded GeoJSON/Shapefile region files.
 
     ``name`` is user-editable (defaults to the file stem) and is only used
-    R-side when a file contains a single region — files with several named
+    when a file contains a single region — files with several named
     features keep their own per-feature names, prefixed with this one to
-    avoid collisions across multiple loaded files (see bridge.R's
-    ``p_all_regions``).
+    avoid collisions across multiple loaded files (see ``_merged_regions``).
     """
 
     _COLS = ["name", "path"]
+    _HEADS = ["Name", "File"]
 
     def __init__(self) -> None:
         super().__init__(0, len(self._COLS))
-        self.setHorizontalHeaderLabels(self._COLS)
+        self.setHorizontalHeaderLabels(self._HEADS)
         self.setToolTip(
-            "Loaded region files. 'name' is used directly for single-region\n"
+            "Loaded region files. 'Name' is used directly for single-region\n"
             "files (e.g. one administrative boundary); multi-region files\n"
             "keep their own per-feature names, prefixed with this one."
         )
@@ -152,14 +197,14 @@ class ReceptorTable(QTableWidget):
     """Editable list of ``(name, lat, lon)`` receptor sites for HYSPLIT runs."""
 
     _COLS = ["name", "lat", "lon"]
+    _HEADS = ["Name", "Lat", "Lon"]
 
     def __init__(self) -> None:
         super().__init__(0, len(self._COLS))
-        self.setHorizontalHeaderLabels(self._COLS)
+        self.setHorizontalHeaderLabels(self._HEADS)
         self.setToolTip(
             "One row per receptor site. hyts_std runs once per (site, time),\n"
-            "so results are tagged with a 'site' column when there is more\n"
-            "than one row."
+            "and each result is tagged with the row's name in a 'site' column."
         )
         self.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
 
@@ -174,17 +219,24 @@ class ReceptorTable(QTableWidget):
             self.removeRow(idx)
 
     def receptors(self) -> list[tuple[str, float, float]]:
+        """``(name, lat, lon)`` per site. A row left as added is skipped; any other
+        row that is not a place raises ``ValueError`` naming it."""
         out: list[tuple[str, float, float]] = []
         for r in range(self.rowCount()):
-            name_item = self.item(r, 0)
-            name = name_item.text().strip() if name_item else ""
+            name, *nums = _cells(self, r)
+            if not name and not any(_filled(v) for v in nums):
+                continue
+            where = f"Receptor row {r + 1}" + (f" ({name})" if name else "")
             if not name:
-                continue
+                raise ValueError(f"{where}: give it a name; it tags the site's results.")
             try:
-                lat = float(self.item(r, 1).text())
-                lon = float(self.item(r, 2).text())
-            except (AttributeError, ValueError):
-                continue
+                lat, lon = (float(v) for v in nums)
+            except ValueError:
+                raise ValueError(f"{where}: lat and lon must be numbers.") from None
+            if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+                raise ValueError(f"{where}: lat runs -90 to 90, lon -180 to 180.")
+            if any(name == n for n, _, _ in out):
+                raise ValueError(f"{where}: another row is called {name!r} already.")
             out.append((name, lat, lon))
         return out
 
@@ -192,18 +244,16 @@ class ReceptorTable(QTableWidget):
 class TrajectoryWindow(QMainWindow):
     """'Transport Studio': build (and optionally run) HYSPLIT trajectory features."""
 
-    def __init__(self, parent: QWidget | None = None, bridge_factory=None) -> None:
+    def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Normet — Transport Studio (HYSPLIT trajectories)")
         self.resize(1240, 820)
         self._main = parent
-
-        from .rbridge import RBridge
-
-        self.bridge = (bridge_factory or RBridge)()
         self.features: pd.DataFrame | None = None
         self._tdump_paths: list[str] = []
         self._gdas_paths: list[str] = []
+        #: Set to stop the HYSPLIT run in progress (Cancel, or closing the window).
+        self._hysplit_stop: threading.Event | None = None
 
         self.runner = TaskRunner(self)
         self.runner.started.connect(self._task_started)
@@ -269,11 +319,27 @@ class TrajectoryWindow(QMainWindow):
         tv.addWidget(
             hint_label(
                 "If these tdump files are all for one receptor site, name it\n"
-                "here — the result gets a 'site' column, so batches from\n"
-                "several sites (processed one at a time) can all be sent to\n"
-                "the main window and matched up correctly."
+                "as the main data's 'site' column does: each site's batch,\n"
+                "built and sent one at a time, then fills only its own rows."
             )
         )
+        self.build_min_check = QCheckBox("Null trajectories shorter than")
+        self.build_min_spin = NoWheelSpinBox()
+        self.build_min_spin.setRange(1, 480)
+        self.build_min_spin.setValue(72)
+        self.build_min_spin.setSuffix(" h")
+        self.build_min_spin.setEnabled(False)
+        self.build_min_check.toggled.connect(self.build_min_spin.setEnabled)
+        self.build_min_check.setToolTip(
+            "A trajectory that reaches back less than this -- the met data ran\n"
+            "out, or it left the domain -- gets NaN features instead of passing\n"
+            "for a short-range one (traj_age_max_h says how far each reached)."
+        )
+        min_row = QHBoxLayout()
+        min_row.addWidget(self.build_min_check)
+        min_row.addWidget(self.build_min_spin)
+        min_row.addStretch(1)
+        tv.addWidget(wrap_row(min_row))
         v.addWidget(tdump_box)
 
         # ---- Source regions (shared by build + run)
@@ -299,7 +365,7 @@ class TrajectoryWindow(QMainWindow):
             "Exact point-in-polygon residence time instead of a bounding\n"
             "box — use real administrative or airshed boundaries. Pick\n"
             "several at once, or click again to add more; rename a row by\n"
-            "double-clicking its 'name' cell."
+            "double-clicking its 'Name' cell."
         )
         b_load_region.clicked.connect(self._load_region_file)
         b_rdel_file = QPushButton("Remove row")
@@ -337,7 +403,7 @@ class TrajectoryWindow(QMainWindow):
         b_exec = QPushButton("Browse…")
         b_exec.clicked.connect(self._browse_hysplit_exec)
         exec_row.addWidget(b_exec)
-        rf.addRow("hyts_std", self._wrap_row(exec_row))
+        rf.addRow("hyts_std", wrap_row(exec_row))
 
         self.gdas_dir_edit = QLineEdit(os.path.expanduser("~/normet_gdas1"))
         gdas_row = QHBoxLayout()
@@ -345,7 +411,7 @@ class TrajectoryWindow(QMainWindow):
         b_gdas_dir = QPushButton("Browse…")
         b_gdas_dir.clicked.connect(self._browse_gdas_dir)
         gdas_row.addWidget(b_gdas_dir)
-        rf.addRow("GDAS1 cache dir", self._wrap_row(gdas_row))
+        rf.addRow("GDAS1 cache dir", wrap_row(gdas_row))
 
         today = QDate.currentDate()
         self.gdas_from = QDateEdit(today.addDays(-10))
@@ -357,11 +423,20 @@ class TrajectoryWindow(QMainWindow):
         gdas_date_row.addWidget(self.gdas_from)
         gdas_date_row.addWidget(QLabel("→"))
         gdas_date_row.addWidget(self.gdas_to)
-        rf.addRow("GDAS1 range", self._wrap_row(gdas_date_row))
+        rf.addRow("GDAS1 range", wrap_row(gdas_date_row))
         self.gdas_btn = QPushButton("⬇  Download GDAS1 for this range")
         self.gdas_btn.clicked.connect(self._run_download_gdas)
-        rf.addRow(self.gdas_btn)
-        self.gdas_hint = hint_label("No GDAS1 files downloaded yet.")
+        self.met_files_btn = QPushButton("Use existing met files…")
+        self.met_files_btn.setToolTip(
+            "ARL-format meteorology already on disk (GDAS1 weekly files, or\n"
+            "any other ARL archive) instead of downloading."
+        )
+        self.met_files_btn.clicked.connect(self._choose_met_files)
+        met_row = QHBoxLayout()
+        met_row.addWidget(self.gdas_btn)
+        met_row.addWidget(self.met_files_btn)
+        rf.addRow(wrap_row(met_row))
+        self.gdas_hint = hint_label("No met files yet: download GDAS1, or use existing ones.")
         rf.addRow(self.gdas_hint)
 
         rf.addRow(QLabel("Receptor sites"))
@@ -375,11 +450,11 @@ class TrajectoryWindow(QMainWindow):
         b_rdel2.clicked.connect(self.receptor_table.remove_selected)
         recv_btn_row.addWidget(b_radd2)
         recv_btn_row.addWidget(b_rdel2)
-        rf.addRow("", self._wrap_row(recv_btn_row))
+        rf.addRow("", wrap_row(recv_btn_row))
         rf.addRow(
             hint_label(
-                "One or more (name, lat, lon) rows. With more than one, the\n"
-                "combined result is tagged with a 'site' column."
+                "One or more (Name, Lat, Lon) rows. Each name tags its results\n"
+                "in a 'site' column: name them as the main data's 'site' does."
             )
         )
         self.height_spin = NoWheelSpinBox()
@@ -391,7 +466,16 @@ class TrajectoryWindow(QMainWindow):
         self.hours_back_spin.setRange(1, 240)
         self.hours_back_spin.setValue(72)
         self.hours_back_spin.setSuffix(" h")
+        self.hours_back_spin.valueChanged.connect(self._suggest_gdas_range)
         rf.addRow("Hours back", self.hours_back_spin)
+        self.run_min_check = QCheckBox("Null trajectories cut short")
+        self.run_min_check.setChecked(True)
+        self.run_min_check.setToolTip(
+            "A trajectory HYSPLIT ended before 'Hours back' -- the met data ran\n"
+            "out, or it left the domain -- gets NaN features instead of passing\n"
+            "for a short-range one (traj_age_max_h says how far each reached)."
+        )
+        rf.addRow("", self.run_min_check)
         self.time_res_spin = NoWheelSpinBox()
         self.time_res_spin.setRange(1, 720)
         self.time_res_spin.setValue(1)
@@ -422,7 +506,7 @@ class TrajectoryWindow(QMainWindow):
                 diag_row.addWidget(cb)
             diag_row.addStretch(1)
             diag_col.addLayout(diag_row)
-        rf.addRow("Record diagnostics", self._wrap_row(diag_col))
+        rf.addRow("Record diagnostics", wrap_row(diag_col))
         rf.addRow(
             hint_label(
                 "Along-trajectory meteorology hyts_std writes into tdump —\n"
@@ -445,7 +529,7 @@ class TrajectoryWindow(QMainWindow):
         v.addWidget(run_box)
 
         v.addStretch(1)
-        self._run_buttons = [self.build_btn, self.gdas_btn, self.run_btn]
+        self._run_buttons = [self.build_btn, self.gdas_btn, self.met_files_btn, self.run_btn]
 
         scroll = QScrollArea()
         scroll.setWidget(panel)
@@ -453,13 +537,6 @@ class TrajectoryWindow(QMainWindow):
         scroll.setFixedWidth(400)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         return scroll
-
-    @staticmethod
-    def _wrap_row(layout: QHBoxLayout | QVBoxLayout) -> QWidget:
-        w = QWidget()
-        layout.setContentsMargins(0, 0, 0, 0)
-        w.setLayout(layout)
-        return w
 
     def _build_action_bar(self) -> QWidget:
         bar = QWidget()
@@ -471,8 +548,8 @@ class TrajectoryWindow(QMainWindow):
         self.send_btn = QPushButton("⬆  Send to main window")
         self.send_btn.setToolTip(
             "Join the traj_* columns onto the main window's data: each row takes\n"
-            "the latest trajectory to have arrived, within one release interval,\n"
-            "ready to tick as predictors in Step 1."
+            "the latest trajectory to have arrived, within one release interval\n"
+            "(a row with none stays empty), ready to tick as predictors."
         )
         self.send_btn.clicked.connect(self._send_to_main)
         self.send_btn.setEnabled(False)
@@ -484,10 +561,9 @@ class TrajectoryWindow(QMainWindow):
     def _build_tabs(self) -> QTabWidget:
         self.tabs = QTabWidget()
         self.tab_features = CanvasTab(
-            "Build trajectory features (left) to preview the transport\n"
-            "descriptors here."
+            "Build trajectory features (left) to preview the transport\ndescriptors here."
         )
-        self.tabs.addTab(self.tab_features, "① Features")
+        self.tabs.addTab(self.tab_features, "Features")
         return self.tabs
 
     # ---------------------------------------------------------------- data
@@ -497,6 +573,25 @@ class TrajectoryWindow(QMainWindow):
         if len(df):
             span = f"{df['date'].min():%Y-%m-%d} → {df['date'].max():%Y-%m-%d}"
             self.times_source.setText(f"Receptor times: main window's date range ({span})")
+        self._suggest_gdas_range()
+
+    def _receptor_span(self) -> tuple[pd.Timestamp, pd.Timestamp] | None:
+        """First and last receptor time (UTC), from the main window's dates."""
+        df = getattr(self, "_main_df", None)
+        if df is None or "date" not in df.columns:
+            return None
+        dates = _naive_utc(df["date"]).dropna()
+        return (dates.min(), dates.max()) if len(dates) else None
+
+    def _suggest_gdas_range(self) -> None:
+        """Set the GDAS1 range to what the receptor times need: back from the first
+        one by 'Hours back', up to the last."""
+        span = self._receptor_span()
+        if span is None:
+            return
+        start = span[0] - pd.Timedelta(hours=self.hours_back_spin.value())
+        self.gdas_from.setDate(QDate(start.year, start.month, start.day))
+        self.gdas_to.setDate(QDate(span[1].year, span[1].month, span[1].day))
 
     def _add_tdump_files(self) -> None:
         paths, _ = QFileDialog.getOpenFileNames(self, "Add tdump files", "", "All files (*)")
@@ -537,13 +632,41 @@ class TrajectoryWindow(QMainWindow):
             "",
             "Region files (*.geojson *.json *.shp);;All files (*)",
         )
-        # Parsed R-side (nm_load_source_regions) when Build/Run actually runs
-        # — not previewed here, to avoid a synchronous Rscript subprocess
-        # call on the UI thread just to list region names.
         for path in paths:
-            self.region_file_table.add_row(Path(path).stem, path)
+            try:
+                from .nm import load_source_regions
+
+                names = list(load_source_regions(path))
+            except Exception as exc:
+                QMessageBox.critical(self, "Failed to load region file", f"{path}:\n{exc}")
+                continue
+            default_name = Path(path).stem if len(names) == 1 else names[0] if names else "region"
+            self.region_file_table.add_row(default_name, path)
+            self.statusBar().showMessage(
+                f"{os.path.basename(path)}: {len(names)} region(s) — {', '.join(names)}"
+            )
         self.raise_()
         self.activateWindow()
+
+    def _merged_regions(self) -> dict | None:
+        """Bbox rows from the table, plus any loaded GeoJSON/Shapefile polygons.
+
+        A single-region file uses its table row's (editable) name directly;
+        a multi-region file keeps its own per-feature names, prefixed with
+        the row's name so several loaded files can't collide.
+        """
+        regions: dict = dict(self.region_table.regions())
+        if self.region_file_table.rowCount():
+            from .nm import load_source_regions
+
+            for name, path in self.region_file_table.entries():
+                loaded = load_source_regions(path)
+                if len(loaded) == 1:
+                    regions[name] = next(iter(loaded.values()))
+                else:
+                    for feat_name, geom in loaded.items():
+                        regions[f"{name}_{feat_name}"] = geom
+        return regions or None
 
     # ----------------------------------------------------------------- sync
     def _sync_enabled(self) -> None:
@@ -558,21 +681,28 @@ class TrajectoryWindow(QMainWindow):
 
     def _task_started(self, name: str) -> None:
         self.progress.setRange(0, 0)
-        self.statusBar().showMessage(f"Running in R: {name}…")
+        self.statusBar().showMessage(f"Running: {name}…")
         for b in self._run_buttons:
             b.setEnabled(False)
         self.cancel_btn.setEnabled(True)
 
     def _task_finished(self) -> None:
+        self._hysplit_stop = None
         self.progress.setRange(0, 1)
         self._sync_enabled()
 
     def _abandon(self) -> None:
-        if self.runner.busy:
-            self.runner.abandon()
-            self.statusBar().showMessage(
-                "Task abandoned — it finishes in the background and its result is discarded."
-            )
+        if not self.runner.busy:
+            return
+        stop = self._hysplit_stop
+        if stop is not None:
+            stop.set()  # kills the hyts_std run in progress; no further run starts
+        self.runner.abandon()
+        self.statusBar().showMessage(
+            "Cancelled — the HYSPLIT run in progress was stopped."
+            if stop is not None
+            else "Task abandoned — it finishes in the background and its result is discarded."
+        )
 
     def _show_error(self, tb: str) -> None:
         QMessageBox.critical(self, "Task failed", tb.splitlines()[-1] if tb else "Unknown error")
@@ -583,17 +713,36 @@ class TrajectoryWindow(QMainWindow):
         if not self._tdump_paths:
             QMessageBox.information(self, "No tdump files", "Add at least one tdump file.")
             return
+        from .nm import build_trajectory_features
+
+        ok, regions = self._regions_or_warn()
+        if not ok:
+            return
+        self._pending_site = self.build_site_edit.text().strip()
         self.runner.submit(
-            "nm_build_trajectory_features",
-            self.bridge.build_trajectory_features,
-            self._show_features,
+            "build trajectory features",
+            build_trajectory_features,
+            self._on_build_result,
             self._show_error,
             list(self._tdump_paths),
-            source_regions=self.region_table.regions() or None,
-            region_files=self.region_file_table.entries() or None,
-            site=self.build_site_edit.text().strip() or None,
+            source_regions=regions,
             prefix=self.prefix_edit.text() or "traj_",
+            min_hours=self.build_min_spin.value() if self.build_min_check.isChecked() else None,
         )
+
+    def _regions_or_warn(self) -> tuple[bool, dict | None]:
+        """``(True, regions)``, or ``(False, None)`` once the user is told what is wrong."""
+        try:
+            return True, self._merged_regions()
+        except Exception as exc:  # a bad row, or a region file that will not load
+            QMessageBox.warning(self, "Source regions", str(exc))
+            return False, None
+
+    def _on_build_result(self, result: pd.DataFrame) -> None:
+        if result is not None and not result.empty and self._pending_site:
+            result = result.copy()
+            result.insert(0, "site", self._pending_site)
+        self._show_features(result)
 
     def _show_features(self, result: pd.DataFrame | None) -> None:
         if result is None or result.empty:
@@ -609,38 +758,56 @@ class TrajectoryWindow(QMainWindow):
         self._sync_enabled()
         n_sites = result["site"].nunique() if "site" in result.columns else 1
         site_note = f" across {n_sites} site(s)" if n_sites > 1 else ""
+        n_feats = _n_features(result)
         self.statusBar().showMessage(
-            f"Built {result.shape[1]} transport features for {len(result):,} receptor times{site_note}."
+            f"Built {n_feats} transport features for {len(result):,} receptor times{site_note}."
         )
-        log.info("Built trajectory features: %d rows x %d cols", len(result), result.shape[1])
+        log.info("Built trajectory features: %d rows x %d features", len(result), n_feats)
 
     def _draw_features(self, result: pd.DataFrame) -> None:
         import matplotlib.pyplot as plt
 
-        plot_cols = [c for c in result.columns if c.endswith(("dist_km", "speed_kmh", "inflow_deg"))]
+        plot_cols = [
+            c for c in result.columns if c.endswith(("dist_km", "speed_kmh", "inflow_deg"))
+        ]
         n = max(1, len(plot_cols))
-        fig, axes = plt.subplots(n, 1, figsize=(9, 2.0 * n), sharex=True, squeeze=False)
+        fig, axes = plt.subplots(n, 1, figsize=(8, 1.5 * n + 0.4), sharex=True, squeeze=False)
         has_sites = "site" in result.columns and result["site"].nunique() > 1
         groups = list(result.groupby("site")) if has_sites else [(None, result)]
-        cmap = plt.get_cmap("tab10")
+        # Few receptor times: each one marked, the line only joining them.
+        marker = "o" if len(result) <= 200 else None
+        shown = []
         for ax, col in zip(axes.ravel(), plot_cols or [None], strict=False):
             if col is None:
                 ax.axis("off")
                 continue
             for i, (site, sub) in enumerate(groups):
                 ax.plot(
-                    sub.index, sub[col], lw=0.8, color=cmap(i % 10), label=site if has_sites else None
+                    sub.index,
+                    sub[col],
+                    lw=0.8,
+                    marker=marker,
+                    ms=2.5,
+                    color=S.PALETTE[i % len(S.PALETTE)],
+                    label=site if has_sites else None,
                 )
-            ax.set_title(col, fontsize=9, loc="left")
-            ax.grid(alpha=0.2)
+            ax.set_title(col)
+            if col.endswith("inflow_deg"):  # a bearing: read against the compass
+                ax.set_ylim(0, 360)
+                ax.set_yticks([0, 90, 180, 270, 360], ["N", "E", "S", "W", "N"])
+            S.grid(ax)
             if has_sites and col == (plot_cols or [None])[0]:
-                ax.legend(fontsize=7, ncols=min(4, len(groups)))
-        fig.tight_layout()
+                S.legend(ax, loc="upper right", ncols=min(4, len(groups)))
+            shown.append(ax)
+        if shown and isinstance(result.index, pd.DatetimeIndex):
+            S.format_time_axis(shown[-1])
+        S.outer_ticks(shown)
         site_note = f" ({result['site'].nunique()} sites)" if has_sites else ""
         self.tab_features.show_result(
             fig,
             verdict=(
-                "ok", f"{result.shape[1]} transport features × {len(result):,} rows{site_note}."
+                "ok",
+                f"{_n_features(result)} transport features × {len(result):,} rows{site_note}.",
             ),
             lines=[f"Columns: {', '.join(result.columns)}"],
         )
@@ -660,10 +827,13 @@ class TrajectoryWindow(QMainWindow):
     def _send_to_main(self) -> None:
         if self.features is None or self._main is None:
             return
-        self._main.merge_trajectory_features(self.features)
+        n = self._main.merge_trajectory_features(self.features)
+        if not n:
+            self.statusBar().showMessage("Nothing joined — the main window says why.")
+            return
         self._main.raise_()
         self._main.activateWindow()
-        self.statusBar().showMessage("Sent to the main window — features joined onto its data.")
+        self.statusBar().showMessage(f"Joined onto {n:,} row(s) of the main window's data.")
 
     # ------------------------------------------------------------------ HYSPLIT
     def _run_download_gdas(self) -> None:
@@ -671,66 +841,123 @@ class TrajectoryWindow(QMainWindow):
         if not cache_dir:
             QMessageBox.information(self, "No cache directory", "Pick a GDAS1 cache directory.")
             return
+        from .nm import fetch_gdas1, gdas1_filenames
+
+        date_from = self.gdas_from.date().toString("yyyy-MM-dd")
+        date_to = self.gdas_to.date().toString("yyyy-MM-dd")
+        names = gdas1_filenames(date_from, date_to)
+        todo = [n for n in names if not (Path(cache_dir).expanduser() / n).exists()]
+        if len(todo) > _ASK_ABOVE_FILES:
+            ans = QMessageBox.question(
+                self,
+                "Download GDAS1",
+                f"{len(todo)} weekly GDAS1 file(s) to download, about "
+                f"{_GDAS1_FILE_GB * len(todo):.0f} GB ({len(names) - len(todo)} already in "
+                "the cache). Go ahead?",
+            )
+            if ans != QMessageBox.StandardButton.Yes:
+                return
         self.runner.submit(
             "download GDAS1",
-            self.bridge.fetch_gdas1,
+            fetch_gdas1,
             self._gdas_done,
             self._show_error,
-            self.gdas_from.date().toString("yyyy-MM-dd"),
-            self.gdas_to.date().toString("yyyy-MM-dd"),
+            date_from,
+            date_to,
             cache_dir,
+            on_missing="warn",
         )
 
     def _gdas_done(self, paths: list[str]) -> None:
-        self._gdas_paths = paths
-        self.gdas_hint.setText(f"{len(paths)} GDAS1 file(s) ready: {', '.join(os.path.basename(p) for p in paths)}")
+        self._set_met_files(paths, "GDAS1 file(s) ready")
         self.statusBar().showMessage(f"Downloaded/cached {len(paths)} GDAS1 file(s).")
+
+    def _choose_met_files(self) -> None:
+        paths, _ = QFileDialog.getOpenFileNames(
+            self, "Use existing ARL met files", self.gdas_dir_edit.text(), "All files (*)"
+        )
+        if paths:
+            self._set_met_files(sorted(paths), "met file(s) chosen")
+        self.raise_()
+        self.activateWindow()
+
+    def _set_met_files(self, paths: list[str], what: str) -> None:
+        self._gdas_paths = list(paths)
+        self.gdas_hint.setText(
+            f"{len(paths)} {what}: {', '.join(os.path.basename(p) for p in paths)}"
+        )
 
     def _run_hysplit(self) -> None:
         exe = self.hysplit_exec_edit.text().strip()
         if not exe:
-            QMessageBox.information(self, "No hyts_std", "Point 'hyts_std' at your HYSPLIT install.")
+            QMessageBox.information(
+                self, "No hyts_std", "Point 'hyts_std' at your HYSPLIT install."
+            )
             return
         if not self._gdas_paths:
             QMessageBox.information(
-                self, "No meteorology", "Download GDAS1 files first (or point to existing ARL met files)."
+                self,
+                "No meteorology",
+                "Download GDAS1 files first, or use existing ARL met files.",
             )
             return
-        receptors = self.receptor_table.receptors()
+        try:
+            receptors = self.receptor_table.receptors()
+        except ValueError as exc:
+            QMessageBox.warning(self, "Receptor sites", str(exc))
+            return
         if not receptors:
             QMessageBox.information(
                 self, "No receptors", "Add at least one receptor site (name, lat, lon)."
             )
             return
-        main_df = getattr(self, "_main_df", None)
-        if main_df is None or "date" not in main_df.columns:
+        span = self._receptor_span()
+        if span is None:
             QMessageBox.information(
                 self,
                 "No receptor times",
                 "Load data in the main window first — its dates set the receptor time range.",
             )
             return
-        dates = pd.to_datetime(main_df["date"])
         step = self.time_res_spin.value()
-        times = list(pd.date_range(dates.min().floor("h"), dates.max().ceil("h"), freq=f"{step}h"))
-        if not times:
-            QMessageBox.information(
-                self, "No receptor times", "The main window's date range is empty."
+        times = list(pd.date_range(span[0].floor("h"), span[1].ceil("h"), freq=f"{step}h"))
+        hours_back = self.hours_back_spin.value()
+        met_files = list(self._gdas_paths)
+        missing = _missing_gdas1_files(
+            met_files, times[0] - pd.Timedelta(hours=hours_back), times[-1]
+        )
+        if missing:
+            self._suggest_gdas_range()
+            shown = ", ".join(missing[:6]) + (", ..." if len(missing) > 6 else "")
+            ans = QMessageBox.question(
+                self,
+                "Meteorology missing",
+                f"The receptor times and their {hours_back}-h backward windows need "
+                f"{len(missing)} GDAS1 file(s) the met files lack: {shown}.\n\n"
+                "Run anyway? Times no met file covers are skipped, and trajectories that "
+                "reach into a gap are cut short. (The GDAS1 range above now covers the "
+                "missing weeks, to download them instead.)",
             )
+            if ans != QMessageBox.StandardButton.Yes:
+                return
+        ok, source_regions = self._regions_or_warn()
+        if not ok:
             return
 
-        met_files = list(self._gdas_paths)
+        from .nm import run_back_trajectories
+
         height_m = float(self.height_spin.value())
-        hours_back = self.hours_back_spin.value()
-        source_regions = self.region_table.regions() or None
-        region_files = self.region_file_table.entries() or None
         prefix = self.prefix_edit.text() or "traj_"
         diagnostics = [name for name, cb in self.diag_checks.items() if cb.isChecked()]
+        min_hours = hours_back if self.run_min_check.isChecked() else None
+        stop = threading.Event()
 
         def job() -> pd.DataFrame:
             frames = []
             for name, lat, lon in receptors:
-                res = self.bridge.run_back_trajectories(
+                if stop.is_set():
+                    break
+                res = run_back_trajectories(
                     times,
                     lat,
                     lon,
@@ -740,8 +967,9 @@ class TrajectoryWindow(QMainWindow):
                     hours_back=hours_back,
                     diagnostics=diagnostics,
                     source_regions=source_regions,
-                    region_files=region_files,
                     prefix=prefix,
+                    min_hours=min_hours,
+                    stop=stop,
                 )
                 if res is not None and not res.empty:
                     res = res.copy()
@@ -751,14 +979,18 @@ class TrajectoryWindow(QMainWindow):
                 return pd.DataFrame()
             return pd.concat(frames) if len(frames) > 1 else frames[0]
 
-        self.runner.submit(
+        if self.runner.submit(
             f"run HYSPLIT back-trajectories ({len(receptors)} site(s), {len(times)} time(s))",
             job,
             self._show_features,
             self._show_error,
-        )
+        ):
+            self._hysplit_stop = stop
 
     def closeEvent(self, event) -> None:  # noqa: N802
-        self.runner.shutdown()
-        self.bridge.cleanup()
+        if self._hysplit_stop is not None:
+            self._hysplit_stop.set()
+        # A stopped run ends within a fraction of a second; give it the time, so its
+        # thread is not destroyed while it runs.
+        self.runner.shutdown(wait_ms=5000)
         super().closeEvent(event)

@@ -194,3 +194,21 @@ test_that("nm_extract_features detects lightgbm model", {
   feat <- nm_extract_features(result$model)
   expect_equal(sort(feat), sort(c("a", "b", "c")))
 })
+
+test_that("nm_feature_importance reads a LightGBM booster's gain", {
+  skip_if_not_installed("lightgbm")
+  covariates <- c("ws", "wd", "temp", "RH")
+  build <- nm_build_model(
+    my1[1:400, c("date", "NO2", covariates)], target = "NO2",
+    covariates = c(covariates, "hour"),
+    model_config = list(n_trials = 1, cv_folds = 2, nrounds = 15,
+                        num_leaves_min = 5, num_leaves_max = 15),
+    seed = 1, verbose = FALSE
+  )
+  fi <- nm_feature_importance(build$model)
+  expect_equal(names(fi), c("variable", "relative_importance", "scaled_importance", "percentage"))
+  expect_setequal(fi$variable, c(covariates, "hour"))
+  expect_equal(sum(fi$percentage), 1)
+  expect_equal(max(fi$scaled_importance), 1)
+  expect_false(is.unsorted(rev(fi$relative_importance)))
+})

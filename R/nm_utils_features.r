@@ -148,7 +148,11 @@ nm_extract_features_h2o <- function(model, importance_ascending = FALSE, verbose
 #' @param verbose Logical flag to enable progress messages.
 #' @param ... Additional arguments passed to the implementation function.
 #'
-#' @return A data frame containing variables and their importance metrics.
+#' @return A data frame containing variables and their importance metrics,
+#'   largest first: `variable`, `relative_importance`, `scaled_importance` (relative
+#'   to the largest) and `percentage` (a share of the total). For a LightGBM booster
+#'   the importance is each feature's total gain (`lightgbm::lgb.importance`); a
+#'   feature the booster never split on is listed with zero.
 #' @export
 nm_feature_importance <- function(model, verbose = FALSE, ...) {
   log <- nm_get_logger("features.importance")
@@ -158,11 +162,34 @@ nm_feature_importance <- function(model, verbose = FALSE, ...) {
   if (!is.null(model_backend) && startsWith(model_backend, "h2o")) {
     if (verbose) log$info("Dispatching to H2O backend for feature importance table.")
     return(nm_feature_importance_h2o(model, verbose = verbose, ...))
+  } else if (identical(model_backend, "lightgbm")) {
+    return(.nm_feature_importance_lgb(model))
   } else {
     err_msg <- "Model type not supported or 'backend' attribute is missing."
     log$error(err_msg)
     stop(err_msg)
   }
+}
+
+# A LightGBM booster's importance (total gain per feature), in the H2O table's columns.
+.nm_feature_importance_lgb <- function(model) {
+  nm_require("lightgbm", hint = "install.packages('lightgbm')")
+  imp <- as.data.frame(lightgbm::lgb.importance(model))
+  feats <- tryCatch(nm_extract_features(model), error = function(e) character(0))
+  gain <- stats::setNames(imp$Gain, imp$Feature)
+  vars <- unique(c(imp$Feature, feats))
+  rel <- as.numeric(gain[vars])
+  rel[is.na(rel)] <- 0
+  out <- data.frame(
+    variable = vars,
+    relative_importance = rel,
+    scaled_importance = if (max(rel) > 0) rel / max(rel) else rel,
+    percentage = if (sum(rel) > 0) rel / sum(rel) else rel,
+    stringsAsFactors = FALSE
+  )
+  out <- out[order(out$relative_importance, decreasing = TRUE), , drop = FALSE]
+  rownames(out) <- NULL
+  out
 }
 
 #' Extract Feature Importance Table from an H2O Model
