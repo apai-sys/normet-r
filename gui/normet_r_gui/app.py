@@ -47,6 +47,12 @@ def main(argv: list[str] | None = None) -> int:
     app.setOrganizationName("apai-sys")
     _install_excepthook()
 
+    # The window's language, before anything is built: its texts are translated as
+    # they are set (.uilang) -- the system's language unless View → Language says.
+    from . import uilang
+
+    uilang.install(app)
+
     from .main_window import MainWindow
 
     window = MainWindow()

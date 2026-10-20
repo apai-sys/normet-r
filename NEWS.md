@@ -113,6 +113,14 @@
   it is now refused up front with a clear message. `met_noise` is documented as
   what it is -- the model residual shifted by `met_base` -- rather than
   "unexplained meteorological variance".
+* **GUI in Chinese** (View -> Language: Follow System / English / 中文): every
+  label, button, menu, tab, tooltip and dialog is translated as it is set, and
+  figures' texts as they are drawn, while the code still reads the English back.
+  Data's own words (column names, backends, file names) stay as written. The
+  translation engine and its catalogue are `normet-py`'s own (`uilang.py`,
+  `_i18n.py`, `ui_zh.py`, kept as they are there); this window's own texts are
+  in `ui_zh_r.py`. The HTML report the GUI exports follows the window's
+  language, and is now written as UTF-8 on every platform.
 * **`nm_join_trajectory_features()`** joins a trajectory feature table onto a
   panel backward: a row takes the latest trajectory to have arrived, less than
   one release interval before it (inferred: the commonest step between one
