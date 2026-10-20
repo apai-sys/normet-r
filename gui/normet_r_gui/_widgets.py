@@ -128,6 +128,27 @@ def as_figure(obj: Any):
     return fig if fig is not None else plt.gcf()
 
 
+def _follow_language(tab) -> None:
+    """Have ``tab`` redraw its figure's texts when the window's language changes; held
+    weakly, so a closed window's tabs are not kept alive by it."""
+    import weakref
+
+    from . import uilang
+
+    ref = weakref.ref(tab)
+
+    def changed(_code: str) -> None:
+        t = ref()
+        if t is None:
+            return
+        try:
+            t._relanguage()
+        except RuntimeError:  # its Qt side deleted already
+            pass
+
+    uilang.on_change(changed)
+
+
 class CanvasTab(QWidget):
     """A result tab: verdict banner + notes + table + matplotlib figure.
 
@@ -142,6 +163,15 @@ class CanvasTab(QWidget):
         self._layout.setContentsMargins(0, 0, 0, 0)
         self.canvas = None
         self._show_placeholder()
+        _follow_language(self)
+
+    def _relanguage(self) -> None:
+        """The figure's texts written again in the window's language (.uilang)."""
+        if self.canvas is not None:
+            from .uilang import figure_texts
+
+            figure_texts(self.canvas.figure)
+            self.canvas.draw_idle()
 
     # ------------------------------------------------------------------ util
     def _show_placeholder(self) -> None:
@@ -237,11 +267,17 @@ class CanvasTab(QWidget):
             for r, row in enumerate(rows):
                 for c, val in enumerate(row):
                     table.setItem(r, c, QTableWidgetItem(str(val)))
+            from .uilang import translate_cells
+
+            translate_cells(table)  # the window's words in it, not the data's
             table.setMaximumHeight(160)
             table.resizeColumnsToContents()
             self._layout.addWidget(table)
         if fig is not None:
             fig = as_figure(fig)
+            from .uilang import figure_texts
+
+            figure_texts(fig)  # in the window's language; the English kept to go back
             self.canvas = FigureCanvasQTAgg(fig)
             self._layout.addWidget(NavigationToolbar2QT(self.canvas, self))
             self._layout.addWidget(self.canvas, 1)

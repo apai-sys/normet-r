@@ -23,7 +23,7 @@ import os
 
 import pandas as pd
 from PySide6.QtCore import QSettings, Qt, QUrl
-from PySide6.QtGui import QDesktopServices
+from PySide6.QtGui import QActionGroup, QDesktopServices
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -171,6 +171,17 @@ class MainWindow(QMainWindow):
         vm.addAction("Run &History…", self.show_history)
         vm.addSeparator()
         vm.addAction(self._log_dock.toggleViewAction())
+        vm.addSeparator()
+        from . import uilang
+
+        language = vm.addMenu("&Language")
+        group = QActionGroup(self)
+        for code, label in (("system", "Follow System"), *uilang.LANGUAGES.items()):
+            act = language.addAction(label)
+            act.setCheckable(True)
+            act.setChecked(code == uilang.choice())
+            act.triggered.connect(lambda _checked=False, c=code: uilang.set_choice(c))
+            group.addAction(act)
 
         rm = mb.addMenu("&R")
         rm.addAction("&Locate Rscript…", self._locate_rscript)
@@ -1113,18 +1124,24 @@ class MainWindow(QMainWindow):
             table_html = result.head(50).to_html(border=0)
             cfg = json.dumps(self.get_config(), indent=2)
             banner = self.r_label.text()
-            html = f"""<!doctype html><html><head><meta charset="utf-8">
-<title>normet report — {key}</title>
+            # In the window's language: its headings, not the data's words.
+            from . import uilang
+
+            lang = uilang.language()
+            title = uilang.tr(f"normet — {key} report")
+            generated = uilang.tr(f"Generated {datetime.datetime.now():%Y-%m-%d %H:%M}")
+            html = f"""<!doctype html><html lang="{lang}"><head><meta charset="utf-8">
+<title>{title}</title>
 <style>body{{font-family:system-ui,sans-serif;max-width:1100px;margin:2em auto;padding:0 1em}}
 table{{border-collapse:collapse;font-size:12px}}td,th{{padding:2px 8px;border-bottom:1px solid #eee}}
 pre{{background:#f6f6f6;padding:1em;overflow:auto}}</style></head><body>
-<h1>normet — {key} report</h1>
-<p>Generated {datetime.datetime.now():%Y-%m-%d %H:%M} · {banner}</p>
+<h1>{title}</h1>
+<p>{generated} · {banner}</p>
 {img_html}
-<h2>Result (first 50 rows)</h2>{table_html}
-<h2>Configuration</h2><pre>{cfg}</pre>
+<h2>{uilang.tr("Result (first 50 rows)")}</h2>{table_html}
+<h2>{uilang.tr("Configuration")}</h2><pre>{cfg}</pre>
 </body></html>"""
-            with open(path, "w") as f:
+            with open(path, "w", encoding="utf-8") as f:
                 f.write(html)
             self.statusBar().showMessage(f"Saved {os.path.basename(path)}")
             log.info("HTML report written to %s", path)
