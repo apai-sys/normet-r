@@ -355,9 +355,9 @@ nm_plot_pdp <- function(pdp_df, ncol = 2) {
   ggplot2::ggplot(pdp_df, ggplot2::aes(x = value, y = pdp_mean, group = variable)) +
 
     # Line for trend (Using 'linewidth' instead of deprecated 'size')
-    ggplot2::geom_line(color = "#0073C2", linewidth = 1) +
+    ggplot2::geom_line(colour = nm_colours[["component"]], linewidth = .pt_lw(1.4)) +
     # Points to show actual data density (optional, kept small)
-    ggplot2::geom_point(size = 1.5, alpha = 0.5) +
+    ggplot2::geom_point(colour = nm_colours[["component"]], size = 0.8, alpha = 0.6) +
 
     # Facet with free X scales allows different ranges per feature
     ggplot2::facet_wrap(~variable, scales = "free_x", ncol = ncol) +
@@ -371,14 +371,8 @@ nm_plot_pdp <- function(pdp_df, ncol = 2) {
 
     ggplot2::labs(
       title = "Partial Dependence Plots",
-      y = "Mean Predicted Response",
-      x = "Feature Value"
+      y = "Partial dependence",
+      x = NULL
     ) +
-    ggplot2::theme_minimal() +
-    ggplot2::theme(
-      strip.background = ggplot2::element_rect(fill = "grey90", color = NA),
-      strip.text = ggplot2::element_text(face = "bold"),
-      # Horizontal text is cleaner for reading trends
-      axis.text.x = ggplot2::element_text(angle = 0, hjust = 0.5, size = 9)
-    )
+    nm_theme_normet()
 }

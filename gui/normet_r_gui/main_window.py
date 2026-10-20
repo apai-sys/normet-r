@@ -52,6 +52,7 @@ from PySide6.QtWidgets import (
 )
 
 from . import _settings
+from ._trajjoin import join_trajectory_features
 from ._widgets import (
     CanvasTab,
     NoWheelComboBox,
@@ -1649,62 +1650,48 @@ pre{{background:#f6f6f6;padding:1em;overflow:auto}}</style></head><body>
 
     def merge_trajectory_features(self, features: pd.DataFrame) -> None:
         """Join transport-aware ``traj_*`` columns (indexed by receptor time)
-        onto the loaded dataset by nearest hour, then re-select them as
-        features so they show up ticked in Step 1.
+        onto the loaded dataset, each row taking the latest trajectory to have
+        arrived within one release interval, then re-select them as features
+        so they show up ticked in Step 1.
 
         When *features* carries a ``site`` column (multi-receptor Transport
-        Studio runs) and the loaded dataset has one too, the join is done
-        per site so each row only picks up its own site's trajectory
-        features; otherwise it falls back to a plain nearest-hour join
-        (the usual single-site case).
+        Studio runs) and the loaded dataset has one too, each row only picks
+        up its own site's trajectory features. Columns sent again replace the
+        ones already there.
         """
         if self.df_raw is None:
             QMessageBox.information(
                 self, "No data", "Load a dataset in the main window first."
             )
             return
-        traj_cols = [c for c in features.columns if c != "site"]
-
-        if "site" in features.columns and "site" in self.df_raw.columns:
-            main_sites = set(self.df_raw["site"].unique())
-            feat_sites = set(features["site"].unique())
-            missing = feat_sites - main_sites
-            if missing:
-                log.warning(
-                    "Trajectory features for site(s) %s have no matching rows in the main "
-                    "dataset — skipped",
-                    ", ".join(sorted(missing)),
-                )
-            parts = []
-            for site, sub_main in self.df_raw.set_index("date").groupby("site"):
-                sub_feats = features[features["site"] == site].drop(columns="site")
-                if sub_feats.empty:
-                    parts.append(sub_main)
-                    continue
-                parts.append(
-                    pd.merge_asof(
-                        sub_main.sort_index(),
-                        sub_feats.sort_index(),
-                        left_index=True,
-                        right_index=True,
-                        direction="nearest",
-                    )
-                )
-            merged = pd.concat(parts).sort_index()
-        else:
-            df = self.df_raw.set_index("date").sort_index()
-            feats = features.drop(columns="site", errors="ignore").sort_index()
-            merged = pd.merge_asof(
-                df, feats, left_index=True, right_index=True, direction="nearest"
+        traj_cols = [c for c in features.columns if c not in ("site", "date")]
+        # Backward, within one release interval: a row takes the latest trajectory to
+        # have arrived, and a row none covers stays empty (as nm_join_trajectory_features).
+        try:
+            merged, n_hit = join_trajectory_features(self.df_raw, features)
+        except ValueError as exc:
+            QMessageBox.warning(self, "Cannot join", str(exc))
+            return
+        if n_hit == 0:
+            QMessageBox.information(
+                self,
+                "Nothing joined",
+                "No row of the data took a trajectory: check that the sites and dates "
+                "match the trajectories'. The data was left as it was.",
             )
-
+            return
         new_cols = [c for c in traj_cols if c not in self.df_raw.columns]
-        self._ingest(merged.reset_index(), f"{self.file_label.text().splitlines()[0]} + transport features")
+        self._ingest(merged, f"{self.file_label.text().splitlines()[0]} + transport features")
         for i in range(self.feature_list.count()):
             item = self.feature_list.item(i)
             if item.text() in new_cols:
                 item.setCheckState(Qt.CheckState.Checked)
-        log.info("Merged %d transport feature column(s) onto the dataset", len(new_cols))
+        log.info(
+            "Joined %d transport feature column(s): %d of %d rows took a trajectory",
+            len(traj_cols),
+            n_hit,
+            len(merged),
+        )
 
     # ------------------------------------------------------------- misc
     def _about(self) -> None:

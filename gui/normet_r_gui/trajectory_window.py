@@ -470,8 +470,9 @@ class TrajectoryWindow(QMainWindow):
         self.save_btn.setEnabled(False)
         self.send_btn = QPushButton("⬆  Send to main window")
         self.send_btn.setToolTip(
-            "Join the traj_* columns onto the main window's data by date\n"
-            "(nearest-hour match), ready to tick as predictors in Step 1."
+            "Join the traj_* columns onto the main window's data: each row takes\n"
+            "the latest trajectory to have arrived, within one release interval,\n"
+            "ready to tick as predictors in Step 1."
         )
         self.send_btn.clicked.connect(self._send_to_main)
         self.send_btn.setEnabled(False)

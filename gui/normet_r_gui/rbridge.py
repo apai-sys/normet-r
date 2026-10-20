@@ -406,8 +406,11 @@ class RBridge:
     ) -> pd.DataFrame:
         """nm_run_back_trajectories → date-indexed transport feature table."""
         times_path = self.session_dir / "receptor_times.txt"
+        # HYSPLIT runs on UTC: a zoned time is converted, a naive one is taken as UTC.
+        stamps = [pd.Timestamp(t) for t in times]
+        stamps = [ts.tz_convert("UTC") if ts.tzinfo is not None else ts for ts in stamps]
         times_path.write_text(
-            "\n".join(pd.Timestamp(t).strftime("%Y-%m-%d %H:%M:%S") for t in times)
+            "\n".join(ts.strftime("%Y-%m-%d %H:%M:%S") for ts in stamps if not pd.isna(ts))
         )
         names, paths = self._fmt_region_files(region_files)
         self._run(
