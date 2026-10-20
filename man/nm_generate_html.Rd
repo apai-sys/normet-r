@@ -4,7 +4,13 @@
 \alias{nm_generate_html}
 \title{Generate an HTML Report}
 \usage{
-nm_generate_html(run, out_path, title = NULL, extra_plots = NULL)
+nm_generate_html(
+  run,
+  out_path,
+  title = NULL,
+  extra_plots = NULL,
+  lang = c("en", "zh")
+)
 }
 \arguments{
 \item{run}{An \code{nm_run} object (see \code{\link{nm_make_run}},
@@ -18,6 +24,11 @@ directory is created if missing.}
 
 \item{extra_plots}{List of ggplot2/patchwork objects to embed below the
 auto-selected plot.}
+
+\item{lang}{\code{"en"} (default) or \code{"zh"}: the report's language -- its
+headings, labels and its figure's texts. Data's own words (column names,
+file names, the provenance record) stay as they are. Figures drawn while
+\code{options(normet.lang = "zh")} is set are in Chinese too.}
 }
 \value{
 Invisibly, \code{out_path}.

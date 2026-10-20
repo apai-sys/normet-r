@@ -46,7 +46,9 @@ A ggplot2 object.
 }
 \description{
 Plot observed vs. normalised (deweathered) time series with optional
-uncertainty band.
+uncertainty band. Times are kept as they are, so a sub-daily record keeps its hours;
+a dense record (hourly over months) is drawn in thin lines, a short or averaged one
+fuller, and either is broken where the record has a gap rather than joined across it.
 }
 \examples{
 \donttest{

@@ -12,6 +12,26 @@ reference:
   - nm_build_model
   - nm_train_model
 
+- title: Reading Tables
+  contents:
+  - nm_read_time_series
+  - nm_read_table
+  - nm_find_dates
+  - nm_parse_dates
+  - nm_on_clock
+  - nm_table_suffixes
+
+- title: Transport Features
+  contents:
+  - nm_run_back_trajectories
+  - nm_build_trajectory_features
+  - nm_join_trajectory_features
+  - nm_trajectory_features
+  - nm_read_trajectory_tdump
+  - nm_load_source_regions
+  - nm_fetch_gdas1
+  - nm_gdas1_filenames
+
 - title: Data Preparation
   contents:
   - nm_process_date
@@ -58,6 +78,13 @@ reference:
   - nm_plot_effect_with_bands
   - nm_plot_uncertainty_bands
   - nm_plot_decomposition_stack
+  - nm_plot_polar
+  - nm_plot_time_series
+  - nm_plot_bayesian_scm
+  - nm_cycle_profiles
+  - nm_theme_normet
+  - nm_palette
+  - nm_formula
 
 - title: Utilities
   contents:

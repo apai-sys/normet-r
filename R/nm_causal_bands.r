@@ -560,12 +560,12 @@ nm_plot_effect_with_bands <- function(bands_df, cutoff_date = NULL,
 
   # Resolve x-axis: datetime ('date') or event-time ('event_time')
   if ("date" %in% colnames(bands_df)) {
-    bands_df$.x <- as.Date(bands_df$date)
-    x_label <- "Date"
+    bands_df$.x <- .as_time(bands_df$date)
+    x_label <- NULL
     is_event_time <- FALSE
   } else if ("event_time" %in% colnames(bands_df)) {
     bands_df$.x <- bands_df$event_time
-    x_label <- "Event time"
+    x_label <- .say("Event time")
     is_event_time <- TRUE
   } else {
     stop("bands_df must contain a 'date' or 'event_time' column.")
@@ -584,22 +584,25 @@ nm_plot_effect_with_bands <- function(bands_df, cutoff_date = NULL,
     p <- p +
       ggplot2::geom_ribbon(
         ggplot2::aes(ymin = !!rlang::sym(lower_col), ymax = !!rlang::sym(upper_col), fill = band_label),
-        alpha = 0.5
+        alpha = if (band_label == "placebo band") 0.3 else 0.18
       ) +
-      ggplot2::scale_fill_manual(name = NULL, values = stats::setNames("grey80", band_label))
+      ggplot2::scale_fill_manual(name = NULL, values = stats::setNames(
+        nm_colours[[if (band_label == "placebo band") "neutral" else "modelled"]], band_label
+      ), labels = .say(band_label))
   }
 
   p <- p +
-    # Updated: use linewidth instead of size
-    ggplot2::geom_line(ggplot2::aes(y = effect), color = "blue", linewidth = 1) +
-    ggplot2::geom_hline(yintercept = 0, linetype = "dotted", color = "black") +
-    ggplot2::labs(title = title, x = x_label, y = "Effect") +
-    ggplot2::theme_minimal()
+    .zero_line() +
+    ggplot2::geom_line(ggplot2::aes(y = effect), colour = nm_colours[["modelled"]],
+                       linewidth = .pt_lw(1.2)) +
+    .time_scale(bands_df$.x) +
+    ggplot2::labs(title = .say(title), x = x_label, y = .say("Effect (observed - synthetic)")) +
+    nm_theme_normet()
 
   # Optional cutoff line
   if (!is.null(cutoff_date)) {
-    cutoff_x <- if (is_event_time) as.numeric(cutoff_date) else as.Date(cutoff_date)
-    p <- p + ggplot2::geom_vline(xintercept = cutoff_x, linetype = "dashed", color = "red")
+    cutoff_x <- if (is_event_time) as.numeric(cutoff_date) else .as_cutoff(cutoff_date, bands_df$.x)
+    p <- p + .cutoff_line(cutoff_x)
   }
 
   return(p)

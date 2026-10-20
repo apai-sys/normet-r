@@ -44,12 +44,14 @@ nm_process_date <- function(df, prefer = NULL, verbose = TRUE) {
       # Check first non-NA value to speed up
       val <- na.omit(as.character(x))[1]
       if (is.na(val)) return(FALSE)
-      return(grepl("^\\d{4}[-/]\\d{2}[-/]\\d{2}", val))
+      return(grepl("^\\d{4}[-/]\\d{1,2}[-/]\\d{1,2}", val))
     })]
 
     for (c in candidates) {
-      # Try conversion with explicit UTC
-      try_date <- suppressWarnings(as.POSIXct(df[[c]], tz = "UTC"))
+      # Parse value by value: as.POSIXct() would drop the time from
+      # "2020-01-31T13:00" and ignore a "+01:00" offset. Offsets are applied
+      # each by its own, so dates across a daylight-saving change are UTC.
+      try_date <- .to_datetime_coerced(df[[c]])
 
       # Check if conversion was successful (mostly valid dates)
       if (inherits(try_date, "POSIXct") && mean(is.na(try_date)) < 0.5) {
