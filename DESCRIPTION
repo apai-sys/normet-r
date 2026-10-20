@@ -36,6 +36,7 @@ Imports:
     progress (>= 1.2.0),
     quadprog (>= 1.5),
     rlang (>= 0.4.0),
+    scales,
     zoo (>= 1.8.0)
 Suggests:
     arrow,
@@ -48,10 +49,12 @@ Suggests:
     lightgbm (>= 3.0.0),
     memuse,
     patchwork,
+    readxl,
     rmarkdown,
     sf,
     solitude,
-    testthat (>= 3.0.0)
+    testthat (>= 3.0.0),
+    withr
 Depends:
     R (>= 4.0)
 Config/testthat/edition: 3

@@ -113,6 +113,74 @@
   it is now refused up front with a clear message. `met_noise` is documented as
   what it is -- the model residual shifted by `met_base` -- rather than
   "unexplained meteorological variance".
+* **`nm_join_trajectory_features()`** joins a trajectory feature table onto a
+  panel backward: a row takes the latest trajectory to have arrived, less than
+  one release interval before it (inferred: the commonest step between one
+  site's successive trajectories), so a window whose run is missing stays empty.
+  A nearest-time join handed 04:00 and 05:00 the 06:00 trajectory -- air that
+  had not arrived -- and, without a tolerance, filled every row before the first
+  and after the last. With a `site` column in both frames each row takes only
+  its own site's trajectories and other sites' rows are left alone, so sites can
+  be joined a batch at a time; a column sent again is replaced. Times are
+  compared as UTC. The GUI's *Send to main window* uses the same rule, and says
+  when no row took a trajectory instead of reporting a join that had not
+  happened. Mirrors `normet-py`.
+* **Fixed: `nm_build_trajectory_features()` kept one start height of several.**
+  Rows were de-duplicated on the receptor time alone, so a run started at 100,
+  500 and 1500 m came back as the 1500 m trajectory's row. Each height now has
+  its own columns (`traj_dist_km_500m`, ...), and tdumps that start from
+  different places are refused instead of interleaved. Mirrors `normet-py`.
+* **`nm_run_back_trajectories()` fixes.** A tdump an earlier call left in a
+  reused `work_dir` is removed before its run (a failed run used to pass it off
+  as its own). Receptor times are run on UTC whatever their time zone, and text
+  with an offset is converted by it; a time off the hour passes its minutes to
+  `CONTROL` and its tdump name; repeated times run once and `NA` is skipped.
+  Times no met file covers are skipped with one warning instead of each being
+  handed every file to fail on, and `stop =` (a function polled before each
+  run) ends a long batch, returning what was run. Mirrors `normet-py`.
+* **Reading tables and their times.** `nm_read_table()` reads delimited text
+  (separator, decimal comma, UTF-8/GB18030/Windows-1252 and gzip settled from the
+  file), Excel (via readxl), Parquet/Feather (via arrow) and JSON;
+  `nm_find_dates()` finds the times in a named column, a date plus a time
+  column, or year/month/day/hour columns; `nm_parse_dates()` reads them in any
+  common form (ISO 8601 with `T` and offsets, day- or month-first as the column
+  shows, month names, AM/PM, CJK-written dates, Unix seconds or milliseconds,
+  Excel serial days, `20200131`); `nm_on_clock()`, `nm_clock_to_utc()` and
+  `nm_utc_to_clock()` move times between a site's local clock and UTC (a
+  skipped hour goes forward to the change, a repeated one is taken in order);
+  `nm_read_time_series()` does all of it. Mirrors `normet-py`'s `normet.io.tables`.
+* **Fixed: `nm_process_date()` dropped the time from ISO dates and ignored
+  their offsets.** `as.POSIXct("2020-01-01T13:00:00")` reads midnight, and
+  `"... 13:00+01:00"` reads 13:00 UTC; text dates are now parsed value by value,
+  each offset applied on its own -- so local times across a daylight-saving
+  change (`+00:00` in winter, `+01:00` in summer) come out as UTC in order. The
+  R counterpart of `normet-py`'s mixed-offset fix.
+* **Figures in a journal style.** `nm_theme_normet()`: 7-8.5 pt text, 0.6 pt
+  axes with ticks outward, frameless legends, a faint grid; `nm_palette`
+  (Okabe-Ito) and `nm_colours` (observed blue, normalised/synthetic red, context
+  grey, one meaning each); `nm_formula()` sets NO2, PM2.5, SO42- as chemistry
+  writes them (Unicode, or plotmath for the PDF device). Every `nm_plot_*()`
+  draws in it, with short date axes, series broken at gaps and line widths that
+  follow a series' density. `nm_plot_pdp_grid()` marks each variable's deciles
+  (`data =`) and draws whole-valued variables as steps; `nm_plot_scm_dashboard()`
+  takes `ylabel =`. Mirrors `normet-py`'s `normet.style`.
+* **Fixed: sub-daily series were drawn on days.** `nm_plot_normalise()`,
+  `nm_plot_decomposition_stack()`, the SCM plots and `nm_plot_effect_with_bands()`
+  converted times to `Date`, so an hourly record put 24 points on each day; they
+  keep the times now. `nm_plot_polar()` put north on the left (`start = -pi/2`)
+  and stretched the circle over the data's directions; it now reads as a compass.
+* **`nm_cycle_profiles()`** draws a record's mean by hour of day, day of week and
+  month with 95% confidence intervals (or the IQR), as openair's
+  `timeVariation`; the cycles default to those the record can show. Mirrors
+  `normet-py`'s `cycle_profiles`.
+* **Reports and figures in Chinese.** `nm_generate_html(lang = "zh")` writes the
+  report's headings, labels and figure in Chinese; `options(normet.lang = "zh")`
+  does the same for any figure's own texts. The words are `normet-py`'s.
+* **`nm_scm()` documents what its pre-period fit can and cannot show**: the
+  ridge features include the treated unit's own pre-period outcomes, so the fit
+  flatters the counterfactual more the more donors there are (pure noise is
+  fitted with a pre-period R-squared of 0.47 from the bundled panel's 103
+  donors). Mirrors `normet-py`.
 
 # normet 0.0.1
 

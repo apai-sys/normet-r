@@ -40,5 +40,6 @@ or "p\if{html}{\out{<NN>}}" e.g. "p95". Default "mean".}
 A ggplot2 object.
 }
 \description{
-Wind-direction x wind-speed concentration polar plot ("openair" style).
+Wind-direction x wind-speed concentration polar plot ("openair" style), read as a
+compass: north at the top, clockwise.
 }

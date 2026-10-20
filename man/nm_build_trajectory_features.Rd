@@ -27,7 +27,14 @@ output, so it joins straight onto a date-keyed panel. Default \code{"date"}.}
 \value{
 A data.frame with a \code{date_col} column (receptor timestamp) and one
 \verb{<prefix>*} column per feature, sorted by time and deduplicated on the
-receptor timestamp (last wins).
+receptor timestamp (last wins). Trajectories started at several heights --
+a run with a column of starting points, or runs at different heights mixed
+-- each get their own columns, suffixed with the start height:
+\code{traj_dist_km_500m}, \code{traj_dist_km_1500m}.
+
+Stops when the trajectories start from more than one place: a feature
+table is one receptor's. Build each site's on its own (and tag it with a
+\code{site} column to join several, see \code{\link{nm_join_trajectory_features}}).
 }
 \description{
 Reduce many HYSPLIT \code{tdump} files to a transport-feature table, one row per

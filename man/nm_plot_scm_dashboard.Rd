@@ -9,6 +9,7 @@ nm_plot_scm_dashboard(
   cutoff_date,
   diagnostics = NULL,
   title = "SCM dashboard",
+  ylabel = "Outcome",
   ...
 )
 }
@@ -20,6 +21,9 @@ nm_plot_scm_dashboard(
 \item{diagnostics}{List. Optional output of \code{nm_scm_diagnostics}.}
 
 \item{title}{Character. Plot title.}
+
+\item{ylabel}{Character. The outcome's name, on the top panel's y axis. Default
+"Outcome".}
 
 \item{...}{Additional arguments passed to ggplot2.}
 }

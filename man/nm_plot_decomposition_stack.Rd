@@ -29,5 +29,6 @@ observed, model_pred, residual, base.}
 A ggplot2 object.
 }
 \description{
-Stacked-area visualisation of a decomposition output.
+Stacked-area visualisation of a decomposition output, contributions in
+\code{\link{nm_palette}}'s colours and the observed series as a thin dark line.
 }
