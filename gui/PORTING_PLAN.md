@@ -180,6 +180,28 @@ The R GUI *is* normet-py's GUI code, vendored, with every analysis routed to R:
 - Then normet-py main at aeff5f3 (#43, #36): the task clock ignores a time budget given
   with no task running (vendored with its test); #36 is py's own figures and PDFs.
 
+## Sync with normet-py gui/assistant-like-cume (#48) and gui/data-overview
+- The Assistant as cume's (next message on Tab, Apply that trains, copies, find, the
+  status line, the whole API as tools, cume's harness) comes over as it is. Its
+  carry_out and api_help run R here: `normet_r_gui/_code.py` is this window's own
+  (SKIP_GUI), calling rpc.R's `.gui_run_code` (the code in an env with df, df_prep,
+  model) and `.gui_api_help` (the package's Rd pages). Test: tests/test_r_assistant.py.
+- normet-py #44-#47 adopted R's window names: the window-name patches are gone;
+  `nm.window_column(s)` stand in for normet.analysis.rolling's; nm_rolling pads to two
+  digits at least, as normet-py does.
+- Start-up: `packaging/launcher.py` is normet-py's (a kept font cache, a splash):
+  21.5 s to the window before, 3.0 s after (measured on the DMG).
+- The Data tab (overview with rows picked and left out, cycles, wind, statistics) is
+  vendored; the rows left out are written by this window's own `commandlog.exclude`
+  as R (`df_kept <- df[!left_out, , drop = FALSE]`).
+- Bilingual as cume's (normet-py #49): the report's language is picked under File →
+  Export HTML Report or the HTML report button (kept in this window's settings,
+  `normet-r-gui`); uilang's label heads and multi-line texts; a Chinese walk of the
+  window leaves only names and codes in English. ui_data.png grabbed from this window
+  (both languages).
+- workers.py: a task's thread that ended after its window was gone raised "Signal
+  source has been deleted" (the end of the transport tests); fixed in normet-py.
+
 ## Local setup used here
 - R 4.3 + normet installed from this repo (`R CMD INSTALL .`), lightgbm R package
   built from GitHub source (`Rscript build_r.R` in microsoft/LightGBM).

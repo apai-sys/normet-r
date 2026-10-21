@@ -530,6 +530,20 @@ patch(
     "from normet_r_gui.nm.analysis.rolling import window_column",
     "from normet_r_gui.nm import window_column",
 )
+# The rows left out are written in R.
+patch(
+    "tests/test_gui_data_tab.py",
+    "left out in R",
+    'assert "df_kept = df[~left_out]" in',
+    'assert "df_kept <- df[!left_out" in',
+)
+# The report's language is kept in this window's settings, which the test puts back.
+patch(
+    "tests/test_gui_smoke.py",
+    "the R window's settings",
+    'prefs = QSettings("apai-sys", "normet-gui")',
+    'prefs = QSettings("apai-sys", "normet-r-gui")',
+)
 skip(
     "tests/test_progress.py",
     "test_rolling_reports_its_windows_and_keeps_a_window_inside_its_share",
