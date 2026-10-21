@@ -126,6 +126,7 @@ nm_train_lgb <- function(df, target = "value", covariates = NULL,
   }
 
   for (i in seq_len(cfg$n_trials)) {
+    .nm_progress_report(i - 1, cfg$n_trials)
 
     params <- list(
       objective          = "regression",

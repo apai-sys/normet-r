@@ -138,6 +138,31 @@ test_that("nm_pdp works with lightgbm model", {
   expect_true("temp" %in% pdp$variable)
 })
 
+test_that("nm_pdp gives a factor (weekday) its levels as codes", {
+  skip_if_not_installed("lightgbm")
+
+  set.seed(42)
+  n <- 24 * 28
+  dates <- seq(as.POSIXct("2020-01-06", tz = "UTC"), by = "hour", length.out = n)
+  df <- data.frame(
+    date = dates,
+    value = 10 + 3 * (as.POSIXlt(dates)$wday %in% c(0, 6)) + rnorm(n, 0, 0.5),
+    temp = rnorm(n, 15, 3)
+  )
+  result <- nm_build_model(
+    df, target = "value",
+    covariates = c("temp", "weekday"),
+    model_config = list(n_trials = 1, cv_folds = 2, nrounds = 20),
+    seed = 42, verbose = FALSE
+  )
+  pdp <- nm_pdp(result$df_prep, result$model, var_list = c("weekday", "temp"),
+                n_cores = 1, verbose = FALSE)
+  wk <- pdp[pdp$variable == "weekday", ]
+  expect_equal(wk$value, 1:7)  # 1 = Mon ... 7 = Sun
+  expect_true(all(is.finite(wk$pdp_mean)))
+  expect_true("temp" %in% pdp$variable)
+})
+
 test_that("nm_run_scm works with mlscm backend using lightgbm", {
   skip_if_not_installed("lightgbm")
 
@@ -193,4 +218,22 @@ test_that("nm_extract_features detects lightgbm model", {
 
   feat <- nm_extract_features(result$model)
   expect_equal(sort(feat), sort(c("a", "b", "c")))
+})
+
+test_that("nm_feature_importance reads a LightGBM booster's gain", {
+  skip_if_not_installed("lightgbm")
+  covariates <- c("ws", "wd", "temp", "RH")
+  build <- nm_build_model(
+    my1[1:400, c("date", "NO2", covariates)], target = "NO2",
+    covariates = c(covariates, "hour"),
+    model_config = list(n_trials = 1, cv_folds = 2, nrounds = 15,
+                        num_leaves_min = 5, num_leaves_max = 15),
+    seed = 1, verbose = FALSE
+  )
+  fi <- nm_feature_importance(build$model)
+  expect_equal(names(fi), c("variable", "relative_importance", "scaled_importance", "percentage"))
+  expect_setequal(fi$variable, c(covariates, "hour"))
+  expect_equal(sum(fi$percentage), 1)
+  expect_equal(max(fi$scaled_importance), 1)
+  expect_false(is.unsorted(rev(fi$relative_importance)))
 })

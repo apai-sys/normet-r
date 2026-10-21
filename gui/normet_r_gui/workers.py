@@ -51,6 +51,8 @@ class FunctionWorker(QObject):
     finished = Signal(object)
     failed = Signal(str)
     done = Signal()
+    #: The share of the call done, 0 to 1, as it reports it (:mod:`normet.utils.progress`).
+    progress = Signal(float)
 
     def __init__(self, fn: Callable[..., Any], *args: Any, **kwargs: Any) -> None:
         super().__init__()
@@ -59,8 +61,11 @@ class FunctionWorker(QObject):
         self._kwargs = kwargs
 
     def run(self) -> None:
+        from .nm.utils import progress
+
         try:
-            result = self._fn(*self._args, **self._kwargs)
+            with progress.listening(self.progress.emit):
+                result = self._fn(*self._args, **self._kwargs)
         except Exception:
             log.exception("Background task failed")
             self.failed.emit(traceback.format_exc(limit=8))
@@ -81,12 +86,24 @@ class TaskRunner(QObject):
 
     started = Signal(str)
     finished = Signal()
+    #: The share of the active task done, 0 to 1, where the task reports it.
+    progress = Signal(float)
+    #: The active task's result or error is in, before its handler sees it: from here
+    #: on the status bar is the handler's (the thread's end, ``finished``, comes later).
+    settled = Signal()
 
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
         self._active: tuple[QThread, FunctionWorker] | None = None
         self._zombies: list[tuple[QThread, FunctionWorker]] = []
         self.task_name: str = ""
+        #: ``record(fn, args, kwargs)``, asked as a task is submitted, may return what
+        #: to do once it has succeeded -- the window's command log uses it to write
+        #: down the call a task made, from the arguments it was started with.
+        self.record: Callable[[Callable[..., Any], tuple[Any, ...], dict[str, Any]], Any] | None = (
+            None
+        )
+        self._commit: Callable[[], None] | None = None
 
     @property
     def busy(self) -> bool:
@@ -104,14 +121,20 @@ class TaskRunner(QObject):
         """Start *fn* in a background thread. Returns False if already busy."""
         if self.busy:
             return False
-
+        self._commit = self.record(fn, args, kwargs) if self.record is not None else None
         thread = QThread()
         worker = FunctionWorker(fn, *args, **kwargs)
         worker.moveToThread(thread)
 
         thread.started.connect(worker.run)
+        # Through a method of this object, which lives on the GUI thread, so Qt queues
+        # it there -- a plain function would run on the worker's thread -- and before
+        # on_result, connected after it.
+        worker.finished.connect(self._committed)
         worker.finished.connect(on_result)
+        worker.failed.connect(self._failed)
         worker.failed.connect(on_error)
+        worker.progress.connect(self.progress)
         worker.done.connect(thread.quit)
         thread.finished.connect(lambda t=thread, w=worker: self._on_thread_finished(t, w))
 
@@ -121,6 +144,16 @@ class TaskRunner(QObject):
         thread.start()
         return True
 
+    def _committed(self, _result: Any) -> None:
+        """The active task succeeded: what ``record`` asked to be done, done."""
+        self.settled.emit()
+        commit, self._commit = self._commit, None
+        if commit is not None:
+            commit()
+
+    def _failed(self, _tb: str) -> None:
+        self.settled.emit()
+
     def abandon(self) -> None:
         """Detach the active task; its eventual result is discarded.
 
@@ -129,8 +162,12 @@ class TaskRunner(QObject):
         """
         if self._active is None:
             return
+        from . import _rpc
+
+        _rpc.cancel()  # the R process doing the work is stopped, not left to finish
         _thread, worker = self._active
-        for sig in (worker.finished, worker.failed):
+        for sig in (worker.finished, worker.failed, worker.progress):
+            # (the runner's own slots too: an abandoned task's end is not the next one's)
             try:
                 sig.disconnect()
             except RuntimeError:

@@ -127,3 +127,65 @@ test_that("nm_scm_robust recovers donor mix and is reachable via nm_run_scm", {
   expect_equal(colnames(out), c("date", "observed", "synthetic", "effect"))
   expect_equal(nrow(out), length(dates))
 })
+
+test_that(".nm_ridge_loo picks each target's penalty by exact leave-one-out", {
+  set.seed(11)
+  X <- matrix(rnorm(15 * 6), 15, 6)
+  B <- cbind(X %*% rnorm(6) + rnorm(15), X %*% rnorm(6) + rnorm(15, sd = 3))
+  newx <- matrix(rnorm(2 * 6), 2, 6)
+  alphas <- c(0.1, 1, 5, 20)
+  fit <- .nm_ridge_loo(X, B, alphas, newx)
+
+  ridge <- function(X, y, a, newx) {  # intercept unpenalised, as RidgeCV fits it
+    xm <- colMeans(X); ym <- mean(y)
+    Xc <- sweep(X, 2, xm)
+    b <- solve(crossprod(Xc) + a * diag(ncol(X)), crossprod(Xc, y - ym))
+    as.numeric(sweep(newx, 2, xm) %*% b + ym)
+  }
+  for (k in seq_len(ncol(B))) {
+    loo <- sapply(alphas, function(a) {
+      mean(sapply(seq_len(nrow(X)), function(i) {
+        (B[i, k] - ridge(X[-i, , drop = FALSE], B[-i, k], a, X[i, , drop = FALSE]))^2
+      }))
+    })
+    expect_equal(fit$alpha[k], alphas[which.min(loo)])
+    expect_equal(fit$pred[, k], ridge(X, B[, k], fit$alpha[k], newx), tolerance = 1e-8)
+  }
+})
+
+test_that("nm_scm reproduces normet-py's ULEZ fit", {
+  # The design of normet-py's manual: MY1 against the traffic sites with a complete
+  # record, January 2017 to February 2020, cutoff April 2019.
+  d <- scm[scm$date >= as.Date("2017-01-01") & scm$date < as.Date("2020-03-01") &
+             grepl("Traffic", scm$type), ]
+  cnt <- table(d$code[!is.na(d$NO2_dw)])
+  donors <- setdiff(names(cnt)[cnt == length(unique(d$date))], "MY1")
+  d <- d[d$code %in% c(donors, "MY1"), c("date", "code", "NO2_dw")]
+  res <- nm_scm(d, treated_unit = "MY1", cutoff_date = "2019-04-01", donors = donors,
+                outcome_col = "NO2_dw", verbose = FALSE)
+  s <- res$synthetic
+  pre <- s$date < as.Date("2019-04-01")
+  expect_length(donors, 53)
+  expect_equal(sqrt(mean(s$effect[pre]^2)), 0.16, tolerance = 0.05)
+  expect_equal(mean(s$effect[!pre]), -18.14, tolerance = 0.01)
+})
+
+test_that("nm_bayesian_scm samples normet-py's posterior on the ULEZ design", {
+  # normet-py (PyMC, NUTS) on this design: pre-cutoff RMSE 21.73, ATT 1.97, CAE6's
+  # weight 0.730. A flat Dirichlet on 53 donors puts its mass in the simplex's interior,
+  # away from the least-squares vertex (RMSE 13.20).
+  d <- scm[scm$date >= as.Date("2017-01-01") & scm$date < as.Date("2020-03-01") &
+             grepl("Traffic", scm$type), ]
+  cnt <- table(d$code[!is.na(d$NO2_dw)])
+  donors <- setdiff(names(cnt)[cnt == length(unique(d$date))], "MY1")
+  d <- d[d$code %in% c(donors, "MY1"), c("date", "code", "NO2_dw")]
+  res <- nm_bayesian_scm(d, treated_unit = "MY1", cutoff_date = "2019-04-01",
+                         donors = donors, outcome_col = "NO2_dw", verbose = FALSE)
+  s <- res$synthetic
+  pre <- s$date < as.Date("2019-04-01")
+  expect_equal(sqrt(mean(s$effect[pre]^2)), 21.73, tolerance = 0.03)
+  expect_equal(mean(s$effect[!pre]), 1.97, tolerance = 0.3)
+  expect_equal(unname(res$weights["CAE6"]), 0.73, tolerance = 0.05)
+  expect_true(all(s$effect_low <= s$effect & s$effect <= s$effect_high))
+  expect_gt(mean(s$effect_high[!pre] - s$effect_low[!pre]), 1)
+})

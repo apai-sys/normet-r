@@ -1,4 +1,4 @@
-"""Per-user GUI state under ``~/.normet-r``: recent files and run history."""
+"""Per-user GUI state under ``~/.normet``: recent files and run history."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from typing import Any
 
 
 def config_dir() -> str:
-    d = os.path.join(os.path.expanduser("~"), ".normet-r")
+    d = os.path.join(os.path.expanduser("~"), ".normet")
     os.makedirs(d, exist_ok=True)
     return d
 

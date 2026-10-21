@@ -844,6 +844,7 @@ nm_run_back_trajectories <- function(times, lat, lon, met_files, hysplit_exec,
       stopped <- TRUE
       break
     }
+    .nm_progress_report(i - 1, length(stamps))
     ts <- stamps[i]
     # Minutes in the name only off the hour, so on-the-hour names stay as they were.
     on_hour <- as.POSIXlt(ts, tz = "UTC")$min == 0

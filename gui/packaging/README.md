@@ -1,8 +1,8 @@
 # Building normet-r GUI installers
 
 This is a Qt front-end only — computation runs in R subprocesses via
-`normet_r_gui/bridge.R`, executed by the *target machine's* `Rscript` (with
-the normet R package installed). R itself is never bundled; only the bridge
+`normet_r_gui/rpc.R`, executed by the *target machine's* `Rscript` (with
+the normet R package installed). R itself is never bundled; only the rpc
 script ships inside the app. That keeps the frozen app small and, more
 importantly, cross-platform — PySide6 + matplotlib on the Python side, plain
 `Rscript` calls on the R side.
@@ -44,7 +44,7 @@ Actions tab (`workflow_dispatch`).
 
 - `normet_r_gui.spec` — cross-platform PyInstaller spec (macOS `.app` BUNDLE;
   Windows/Linux ship the COLLECT onedir `dist/normet/`). Version is read from
-  `gui/pyproject.toml` at build time. Bundles `normet_r_gui/bridge.R` as a
+  `gui/pyproject.toml` at build time. Bundles `normet_r_gui/rpc.R` as a
   data file.
 - `assets/normet.icns` / `normet.ico` / `normet.png` — per-OS icons, generated
   by `assets/make_icon.py` (Pillow). Re-run it if the design should change.
@@ -65,7 +65,7 @@ package (`install.packages("sf")`) on the machine running the app.
 
 - The CI smoke-test job only constructs `MainWindow` offscreen (Qt/Python
   side) — it does not install R, so it can't exercise the bridge itself.
-  Test any bridge.R change locally with real R before relying on CI alone.
+  Test any rpc.R change locally with real R before relying on CI alone.
 - Linux GUI apps occasionally miss system `xcb` libs at runtime on minimal
   distros; the CI smoke-test job installs `libegl1 libgl1 libxkbcommon0
   libdbus-1-3 libxcb-cursor0` — mirror that list if the AppImage fails to

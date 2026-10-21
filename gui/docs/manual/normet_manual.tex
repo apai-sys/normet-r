@@ -1,0 +1,1739 @@
+\documentclass[11pt]{report}
+
+% ---------------------------------------------------------------------------
+% normet User Manual
+% Build:  docs/manual/build.sh   (runs pdflatex until the references settle)
+% Figures: gui/tools/walk_gui.py   (screenshots of the R window)
+% This is normet-py's book, rewritten for the window of the normet R package by
+% gui/tools/vendor_py_gui.py and the patches in gui/tools/manual_patches.py.
+% ---------------------------------------------------------------------------
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+% Typewriter text is code: "--" stays two hyphens, as a command-line option is typed,
+% instead of becoming an en dash.
+\usepackage{microtype}
+\DisableLigatures[-]{encoding = T1, family = tt*}
+\usepackage[a4paper,margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{xcolor}
+\usepackage{fancyhdr}
+\usepackage{textcomp}
+\usepackage{listings}
+\usepackage[hidelinks,colorlinks=true,linkcolor=blue!55!black,urlcolor=blue!55!black,
+            citecolor=blue!55!black]{hyperref}
+
+% Compact list spacing without the enumitem package.
+\newcommand{\nosep}{\setlength{\itemsep}{0pt}\setlength{\parskip}{0pt}\setlength{\topsep}{2pt}}
+
+\definecolor{nmblue}{HTML}{2C7BB6}
+\definecolor{nmgray}{HTML}{8E8E93}
+\definecolor{codebg}{HTML}{F5F5F7}
+\definecolor{warn}{HTML}{FF9500}
+
+% --- code listings -----------------------------------------------------------
+\lstdefinestyle{normet}{
+  backgroundcolor=\color{codebg},
+  basicstyle=\ttfamily\small,
+  keywordstyle=\color{nmblue}\bfseries,
+  commentstyle=\color{nmgray}\itshape,
+  stringstyle=\color{green!45!black},
+  breaklines=true, frame=single, rulecolor=\color{nmgray!40},
+  showstringspaces=false, upquote=true, columns=fullflexible, xleftmargin=4pt, framexleftmargin=4pt,
+  literate={−}{{$-$}}1 {≥}{{$\geq$}}1 {→}{{$\rightarrow$}}1,
+}
+\lstset{style=normet}
+
+% --- headers / footers -------------------------------------------------------
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small\textsc{normet User Manual} (R)}
+\fancyhead[R]{\small\leftmark}
+\fancyfoot[C]{\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+% --- handy macros ------------------------------------------------------------
+\newcommand{\nm}{\textsf{normet}}
+% Code may break after an underscore, where a break reads naturally in a name, so a long
+% identifier near the end of a line wraps instead of running into the margin.
+\newcommand{\codeunderscore}{\textunderscore\allowbreak}
+\newcommand{\code}[1]{\texttt{\let\_\codeunderscore #1}}
+% A line that still cannot be set is stretched a little rather than left overfull.
+\setlength{\emergencystretch}{2.5em}
+\newcommand{\tab}[1]{\textbf{#1}}
+\newcommand{\NOtwo}{NO\textsubscript{2}}
+\newcommand{\PMtwo}{PM\textsubscript{2.5}}
+\newcommand{\ugm}{\ensuremath{\mu}g\,m\textsuperscript{$-3$}}
+\newcommand{\note}[1]{\par\noindent\colorbox{codebg}{\parbox{0.97\linewidth}{\small\textbf{Note.} #1}}\par}
+\newcommand{\caution}[1]{\par\noindent\colorbox{warn!15}{\parbox{0.97\linewidth}{\small\textbf{Caution.} #1}}\par}
+\newcommand{\screenshot}[3]{%
+  \begin{figure}[htbp]\centering
+    \fboxsep=0pt\fbox{\includegraphics[width=0.98\linewidth]{figures/#1}}%
+    \caption{#2}\label{#3}
+  \end{figure}}
+
+\begin{document}
+
+% ============================ TITLE PAGE ====================================
+\begin{titlepage}
+\centering
+\vspace*{2.5cm}
+{\IfFileExists{../../packaging/assets/normet.png}{\includegraphics[width=3.2cm]{../../packaging/assets/normet.png}\\[1cm]}{}}
+{\Huge\bfseries\color{nmblue} normet\par}
+\vspace{0.4cm}
+{\Large Normalisation, Decomposition and Counterfactual Modelling\\for Environmental Time Series\par}
+\vspace{1.2cm}
+{\large\bfseries User Manual\par}
+\vspace{0.2cm}
+{\large the window of the normet R package\par}
+\vspace{0.3cm}
+{\large Version 1.0.0\par}
+\vfill
+{\large An R package, and a desktop window on it, for removing the weather\\
+from air-quality records and asking what an intervention changed.\par}
+\vspace{1.5cm}
+{\color{nmgray}\today}
+\end{titlepage}
+
+\tableofcontents
+\cleardoublepage
+
+% ============================ 1. INTRODUCTION ===============================
+\chapter{Introduction}\label{ch:intro}
+
+\section{What is normet?}
+\nm{} is an R package, with a desktop window, for the analysis of environmental
+time series, air-quality records above all. It answers two questions that a raw
+concentration record cannot answer by itself:
+\begin{enumerate}\nosep
+  \item \emph{How much of the change I see is the weather?} A month of stagnant,
+        cold anticyclonic air raises concentrations as surely as a new source does.
+        \nm{} learns how the pollutant depends on the meteorology and the calendar, then
+        averages the meteorology out, leaving the part of the record the weather does
+        not explain. This is \emph{meteorological normalisation}, or
+        \emph{de-weathering}.
+  \item \emph{What would have happened without the intervention?} A low-emission
+        zone, a lockdown or a plant closure changes one place at one date. \nm{}
+        builds a counterfactual for that place from other places the intervention did
+        not touch --- a \emph{synthetic control} --- and measures the difference after
+        the date, with placebo tests and uncertainty bands to say whether the
+        difference is larger than chance.
+\end{enumerate}
+Everything the window does is a call into the \nm{} R package, run by \code{Rscript}
+in an R process of its own; the same functions are scripted in R, or driven by an AI
+assistant over the Model Context Protocol (Chapter~\ref{ch:script}). The window writes
+down each call it makes, so an analysis done by clicking can be saved as an R script that
+repeats it (Section~\ref{sec:commandlog}). The window is normet-py's, the same screen for
+screen; what it runs is R.
+
+\section{The idea in one equation}
+Let $y_t$ be the concentration at time $t$, $\mathbf{m}_t$ the meteorology at that time
+(wind speed and direction, temperature, humidity, boundary-layer height, \dots) and
+$\mathbf{c}_t$ the calendar (a trend counter, the day of the year, the weekday, the hour).
+\nm{} fits a machine-learning model
+\begin{equation}
+  y_t \approx f(\mathbf{m}_t, \mathbf{c}_t)
+\end{equation}
+and then asks what $f$ predicts at time $t$ if the weather at $t$ had been any other
+weather the site has seen. Averaging over many such draws,
+\begin{equation}
+  \tilde{y}_t \;=\; \frac{1}{N}\sum_{k=1}^{N} f\bigl(\mathbf{m}^{(k)}, \mathbf{c}_t\bigr),
+  \qquad \mathbf{m}^{(k)} \sim \text{the record's own meteorology},
+  \label{eq:norm}
+\end{equation}
+gives the \emph{normalised} series $\tilde{y}_t$: the concentration expected at time $t$
+under typical weather. Because the calendar $\mathbf{c}_t$ is kept, a change in
+emissions --- which the model can only express through the trend, season, week and
+hour --- survives in $\tilde{y}_t$, while the day-to-day swings that the weather caused
+are averaged away. Chapter~\ref{ch:theory} develops this and the decompositions built on
+it.
+
+\section{Key features}
+\begin{itemize}\nosep
+  \item Training with LightGBM (a random hyperparameter search) or H2O AutoML (an
+        algorithm search within a time budget), with the held-out fit reported as
+        $R^2$, RMSE and nine further statistics.
+  \item Monte-Carlo meteorological normalisation, with a choice of which variables
+        are resampled, uncertainty quantiles, reference pools and conditional
+        resampling; an adaptive version that stops when the series has converged.
+  \item Emission decomposition (trend, seasonal, weekly, diurnal, short-term) and
+        meteorological decomposition (one contribution per variable or named group,
+        sequential or Shapley).
+  \item Rolling (windowed) normalisation, and a multi-scale decomposition that
+        separates the weather's influence by timescale.
+  \item Partial-dependence curves of the trained model.
+  \item Synthetic control on panel data: augmented SCM, classic Abadie SCM,
+        difference-in-differences, matrix completion, robust SCM, ML-SCM and Bayesian
+        SCM, with placebo-in-space and placebo-in-time tests, jackknife and bootstrap
+        bands, and an all-units batch.
+  \item Data Studio: UK air quality from six monitoring networks with reanalysis
+        meteorology, merged into a model-ready table without an API key.
+  \item Transport Studio: HYSPLIT back-trajectories turned into transport predictors
+        and joined onto the record.
+  \item A command log that writes every action as the call that repeats it; HTML
+        reports with provenance; figures laid out for a journal's column.
+  \item An Assistant (a language model working in the window) that proposes the
+        target and predictors and reads the results with you.
+\end{itemize}
+
+\section{How this manual is organised}
+Chapter~\ref{ch:install} covers installation. Chapter~\ref{ch:theory} explains the
+methods in enough depth to interpret every number the program reports. Chapters
+\ref{ch:start}--\ref{ch:pdp} walk through a complete de-weathering analysis in the
+window on a real record, and Chapter~\ref{ch:scm} the synthetic-control workflow on a
+real panel. Chapter~\ref{ch:data} covers getting data in, Chapter~\ref{ch:export}
+exporting, reporting and reproducing a session, Chapter~\ref{ch:assistant} the
+Assistant and Chapter~\ref{ch:script} scripting. The appendices list the defaults, where
+\nm{} keeps its files, and a troubleshooting guide.
+
+The figures are screenshots of the real window, made by
+\code{gui/tools/walk\_gui.py} on the record \nm{} ships with: hourly \NOtwo{} and
+ERA5 meteorology at London Marylebone Road (site MY1), January to August 2020, a window
+that spans the UK's first COVID-19 lockdown. The numbers quoted in the text are the ones
+that script printed. A run of your own should match them closely: LightGBM's search and every
+draw are seeded, though LightGBM's threads may move a last digit.
+
+This manual is also published in Chinese (\code{normet\_manual\_zh.pdf}), chapter for
+chapter, with its screenshots of the window in Chinese (Section~\ref{sec:appearance}).
+
+% ============================ 2. INSTALLATION ===============================
+\chapter{Installation}\label{ch:install}
+
+The window runs the \nm{} R package, so R and the package come first; then the window,
+as an application or from the repository.
+
+\section{R and the normet package}
+\nm{} needs R~4.1 or newer. In R:
+\begin{lstlisting}[language=R]
+install.packages(c("remotes", "lightgbm"))
+remotes::install_github("apai-sys/normet-r")
+install.packages("h2o")      # optional: the H2O AutoML backend (needs Java)
+\end{lstlisting}
+LightGBM is the default backend. H2O AutoML is optional and needs a Java runtime; the
+window starts its cluster when an H2O step runs and shuts it down when the window closes.
+The window finds \code{Rscript} on the \code{PATH} or where R installs it;
+\tab{R $\rightarrow$ Locate Rscript\ldots} points it at another, and
+\tab{R $\rightarrow$ Check R environment} asks again which R, which \nm{} and which
+backends there are. The status bar shows R's version, its tooltip \nm{}'s and the
+backends that load; a notice says what to install when something is missing.
+
+\section{macOS}
+Open \code{Normet-1.0.0-macos-arm64.dmg} and drag \code{Normet.app} onto the
+\code{Applications} folder. The application carries its own Python and Qt, not R: it runs
+the R installed on the machine. The first launch takes longer than the rest while it
+builds a font cache, which later launches reuse (it is kept in
+\code{\textasciitilde/.normet/matplotlib}); a splash screen shows meanwhile.
+
+\note{The application is not signed with an Apple Developer ID. The first time, open it
+by right-clicking \code{Normet.app} and choosing \emph{Open}, then confirming in the
+dialog; this is needed only once. Alternatively run
+\code{xattr -dr com.apple.quarantine /Applications/Normet.app} in Terminal.}
+
+\section{Windows and Linux}
+On Windows run \code{normet-setup-1.0.0.exe}, an Inno~Setup wizard that adds Start-menu
+and optional desktop shortcuts. The installer is unsigned, so SmartScreen shows
+\emph{Windows protected your PC} on first run: choose \emph{More info} $\rightarrow$
+\emph{Run anyway}. On Linux download \code{Normet-1.0.0-x86\_64.AppImage}, mark it
+executable (\code{chmod +x}) and run it. On a minimal distribution Qt may need
+\code{libegl1 libgl1 libxkbcommon0 libdbus-1-3 libxcb-cursor0}.
+
+The installers are built by the repository's \code{build-gui.yml} workflow (one per
+operating system; PyInstaller cannot cross-compile) and are attached to its runs under
+\emph{Actions $\rightarrow$ Artifacts}. \code{gui/packaging/README.md} explains how to
+build one locally.
+
+\section{From the repository}
+The window is a Python package in the repository's \code{gui} folder. It needs
+Python~3.10 or newer:
+\begin{lstlisting}[language=bash]
+python -m venv .venv && source .venv/bin/activate
+pip install "git+https://github.com/apai-sys/normet-r#subdirectory=gui"
+normet-r-gui                         # or: normet-r-gui mydata.csv
+\end{lstlisting}
+Its extra \code{geo} adds Shapely and pyshp, for source regions read from GeoJSON or
+Shapefile files in the Transport Studio.
+
+normet-py's window has one backend more, the Chronos-2 foundation model (it runs on
+PyTorch). The R package has no counterpart, so this window does not offer it
+(Section~\ref{sec:chronos}).
+
+% ============================ 3. METHODOLOGY =================================
+\chapter{Methodology}\label{ch:theory}
+
+This chapter explains what \nm{} computes, so that the numbers it reports can be
+interpreted with confidence. You do not need it to run an analysis; you do need it to
+defend one.
+
+\section{Preparing the data}\label{sec:prepare}
+Before a model is trained the table goes through \code{nm\_prepare\_data}, in this order:
+\begin{enumerate}\nosep
+  \item \textbf{A date column.} The table must have one datetime column called
+        \code{date} (or an index, or a column named \code{datetime}, \code{time} or
+        \code{timestamp}, which is renamed). Dates with time zones are converted to UTC
+        and then made naive.
+  \item \textbf{Target and predictors.} The target is renamed \code{value}; the table is
+        reduced to the date, the target and the predictors.
+  \item \textbf{Missing values.} Rows with a missing target are dropped. A missing
+        numeric predictor is filled with that column's median; a missing categorical
+        one with its most frequent value.
+  \item \textbf{Calendar variables.} Four columns are added: \code{date\_unix} (seconds
+        since 1970, the trend), \code{day\_julian} (day of the year, the season),
+        \code{weekday} (1~=~Monday to 7~=~Sunday, categorical) and \code{hour}.
+        The model uses only those listed among its predictors; the window always lists
+        all four.
+  \item \textbf{Train/test split.} A column \code{set} marks each row
+        \code{training} or \code{testing} (Section~\ref{sec:split}).
+\end{enumerate}
+
+\subsection{The split}\label{sec:split}
+The held-out rows are what the model's fit is judged on. Four splits are offered:
+\begin{description}\nosep
+  \item[\code{random}] (default) A random 25\,\% of rows are held out. Every season,
+        weekday and hour is represented in training.
+  \item[\code{ts}] The last 25\,\% of the record is held out. A trend variable must then
+        be extrapolated past anything seen in training, which tree models cannot do;
+        use it to test forecasting, not to train for normalisation.
+  \item[\code{month\_ts}] Within every calendar month of every year, one contiguous
+        block of 25\,\% is held out, at a random (seeded) position in the month.
+  \item[\code{season\_ts}] The same within every meteorological season (DJF, MAM, JJA,
+        SON; December counts with the following year's winter).
+\end{description}
+
+\caution{Under \code{random}, neighbouring hours fall on both sides of the split, so an
+autocorrelated record looks easier to predict than it is: the test $R^2$ is an upper
+bound. This matters most for predictors that are constant over several hours, such as
+back-trajectory features released every six hours, which a tree model can use as a time
+stamp. On the bundled MY1 \PMtwo{} case a trajectory-only model scores about 0.84 under a
+random split and 0.46 under a blocked one. Judge such models with \code{month\_ts}.}
+
+\section{Training the model}\label{sec:train}
+\nm{} trains gradient-boosted trees (by default) that map the predictors to the target.
+Two backends are offered:
+\begin{description}\nosep
+  \item[LightGBM] (the default) LightGBM with a random hyperparameter search of a set
+        number of \emph{trials}, each scored by cross-validation (50 trials in the
+        library, 20 in the window).
+  \item[H2O AutoML] An AutoML search over the algorithms ticked (GBM alone by default;
+        DRF, GLM, deep learning, XGBoost and stacked ensembles can be added) within a
+        wall-clock \emph{time budget} (\code{max\_runtime\_secs}, 60~s), on a local H2O
+        cluster.
+\end{description}
+LightGBM's search is seeded, so the same script on the same data finds the same model.
+Because H2O's budget is wall-clock time, the same script can stop at a different
+candidate on a busier machine; set \code{max\_models} in \code{model\_config} for a search
+bounded by models instead.
+
+\subsection{Model statistics}\label{sec:modstats}
+\code{nm\_modStats} predicts the training rows, the testing rows and all rows, and reports
+for each: $n$; FAC2 (the fraction of predictions within a factor of two of the
+observation); MB and MGE (mean bias and mean gross error); NMB and NMGE (the same,
+normalised by the sum of observations); RMSE; $r$ and its significance; COE (coefficient
+of efficiency); IOA (index of agreement); and $R^2$. The held-out ($\text{set} =
+\text{testing}$) row is the one to judge the model by.
+
+\section{Meteorological normalisation}\label{sec:normalise}
+Equation~\eqref{eq:norm} is computed by Monte Carlo. For each of $N$ draws
+(\code{n\_samples}, 300 by default):
+\begin{enumerate}\nosep
+  \item The \emph{resampled variables} of every row are replaced, all together, by those
+        of a row drawn at random (with replacement) from the \emph{resample pool} ---
+        by default the record itself. Whole rows are drawn, so the resampled variables
+        keep their joint structure: a draw never pairs a winter temperature with a
+        summer boundary layer.
+  \item Every other predictor --- by default the four calendar variables --- keeps its
+        observed value.
+  \item The model predicts every row.
+\end{enumerate}
+The normalised series is the mean of the $N$ predictions at each timestamp; with
+\code{return\_quantiles} the chosen quantiles of the $N$ predictions are returned as
+well, as columns \code{q050}, \code{q950} and so on (the quantile $\times 1000$). These
+quantiles describe the spread of the prediction over weather, not the uncertainty of the
+model.
+
+\paragraph{Which variables to resample.} Resampling the meteorology and keeping the
+calendar is the usual de-weathering. Resampling a calendar variable too removes what it
+carries: resampling \code{day\_julian} removes the seasonal cycle, resampling
+\code{date\_unix} removes the trend. A predictor that is not meteorological --- traffic
+counts, say --- can be kept at its observed values by leaving it unticked.
+
+\paragraph{How many samples.} The Monte-Carlo error of each timestamp shrinks as
+$1/\sqrt{N}$. 300 is ample for a smooth daily or monthly mean; individual hours are
+noisier. \code{nm\_normalise\_auto} chooses $N$ for you: it adds batches of 100 draws until,
+for three checks in a row, 95\,\% of the timestamps have a Monte-Carlo relative standard
+error below 3\,\%, or 5000 draws have been made (a warning says when the cap was hit).
+
+\paragraph{Reference pools.} \code{resample\_df} draws the weather from another table ---
+2019's weather, for example, to ask what 2020 would have looked like under 2019's
+meteorology. \code{conditional\_on} (of \code{nm\_normalise\_ext}) restricts the pool to rows
+meeting a condition --- a value, a vector of values, or a function of the column, as
+\code{list(ws = function(v) v < 2)} draws from calm hours only. \code{resample\_pools}
+draws some variables from a pool of their own: \code{list(transport = clean\_hours[traj\_cols])}
+draws the trajectory features
+from clean-air-mass hours while the local weather is still drawn from the whole record.
+Each pool has its own random stream, so adding or renaming a pool does not move the draws
+of the others.
+
+\paragraph{Reproducibility.} The draws are seeded (\code{seed = 7654321} by default), so the
+same model, data and settings give the same series to the last digit.
+
+\section{Emission decomposition}\label{sec:emission}
+The emission decomposition splits the normalised series into the timescales the calendar
+variables carry, by \emph{nested} normalisation. Five normalisations are run with the
+same seed, fixing one more calendar variable each time, in this fixed order:
+\begin{center}\small
+\begin{tabular}{@{}llll@{}}
+\toprule
+Run & Held at observed values & Resampled & Gives \\
+\midrule
+$b$         & nothing                                  & everything & base \\
+$u$         & \code{date\_unix}                        & the rest   & trend $= u - b$ \\
+$j$         & \ldots{} + \code{day\_julian}            & the rest   & seasonal $= j - u$ \\
+$w$         & \ldots{} + \code{weekday}                & the rest   & weekly $= w - j$ \\
+$h$         & \ldots{} + \code{hour}                   & meteorology & diurnal $= h - w$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+The last run, $h$, is the ordinary normalised series, reported as \code{emi\_total}.
+The base run is split into its mean, \code{emi\_base}, and its deviation from that mean,
+\code{emi\_noise}; so
+\begin{equation}
+  \text{emi\_total} = \text{emi\_base} + \text{date\_unix} + \text{day\_julian}
+     + \text{weekday} + \text{hour} + \text{emi\_noise}.
+\end{equation}
+A calendar variable that is not among the model's predictors gets no column.
+
+\caution{The order decides what each component can hold. The trend is computed while the
+day of the year, weekday and hour are still being averaged over, so it cannot carry a
+signal that recurs at the same date every year --- only a genuine drift. The seasonal
+component is computed with each row's own trend value already fixed, so it is not a
+climatology: it stays specific to its year and can register a one-off event, such as a
+single year's holiday dip or a lockdown, despite its label. Look for a recurring calendar
+effect in \code{day\_julian}, not \code{date\_unix}.}
+
+\section{Meteorological decomposition}\label{sec:metdecomp}
+The meteorological decomposition splits the part of the prediction the weather accounts
+for among the meteorological variables, or among named groups of them. The calendar is
+held at its observed values throughout. Write $v(S)$ for the normalised series with the
+variables in $S$ held at their observed values and the rest resampled; $v(\emptyset)$ is
+\code{emi\_total}, and $v(\text{all})$ is the model's prediction with nothing resampled.
+The difference $v(\text{all}) - v(\emptyset)$ is split in one of two ways:
+\begin{description}
+  \item[Sequential] Fix the variables one at a time and report each step's change:
+        $\phi_i = v(\{1,\dots,i\}) - v(\{1,\dots,i-1\})$. This takes $k+1$
+        normalisations for $k$ variables, but each contribution is conditional on those
+        fixed before it, so the split depends on the order --- an explicit
+        \code{variable\_order}, else the model's feature importance, which can reshuffle
+        when the model is refitted.
+  \item[Shapley] Average each variable's marginal effect over every order it could be
+        fixed in:
+        \begin{equation}
+          \phi_i = \sum_{S \not\ni i} \frac{|S|!\,(k-|S|-1)!}{k!}\,
+                   \bigl[v(S\cup\{i\}) - v(S)\bigr].
+        \end{equation}
+        No order is privileged. The exact values need all $2^k$ coalitions, allowed up
+        to $k=10$; beyond that, group the variables or pass \code{n\_permutations} for
+        an estimate from random orders (drawn in antithetic pairs).
+\end{description}
+Either way the contributions add up exactly to $v(\text{all}) - v(\emptyset)$, and every
+normalisation uses the same seed, so the differences between them are paired (common
+random numbers) rather than the difference of two noisy estimates. The result also
+carries \code{met\_total} = observed $-$ \code{emi\_total}, its mean \code{met\_base},
+and \code{met\_noise} = \code{met\_total} $-$ \code{met\_base} $-\sum_i\phi_i$, the part
+of the observation the model does not reproduce.
+
+\paragraph{Groups.} \code{groups = list(local = met\_cols, transport = traj\_cols)} gives one
+column per group; a group is fixed and resampled as a unit, so its column includes the
+interactions among its members. Every meteorological predictor must be in exactly one
+group. With groups the default attribution is Shapley; without them it is sequential.
+
+\section{Rolling normalisation}\label{sec:rolling}
+\code{nm\_rolling} normalises the record window by window: windows of \code{window\_days}
+days (14 by default), started every \code{rolling\_every} days (7), each normalised with
+its weather drawn \emph{from that window only}. A short window therefore removes only the
+weather that varies within it --- synoptic variability for a fortnight --- and keeps the
+slower meteorological variation that a full-record normalisation would remove. The result
+has one column per window, \code{window\_01}, \code{window\_02}, \dots{} (numbered from 1),
+named so in the window's table and its export too; the window shows their mean, with the
+spread across overlapping windows.
+
+\section{Multi-scale decomposition}\label{sec:multiscale}
+Write $Y_W$ for the mean of the rolling-normalised series at window width $W$, and
+$Y_\infty$ for the ordinary normalised series, whose pool is the whole record. As $W$
+grows the window's pool approaches the record's, and $Y_W \to Y_\infty$. Differences
+between widths isolate the weather influence specific to each band of timescales,
+much as wavelet detail coefficients do:
+\begin{align}
+  D_\text{fast} &= Y_\text{fast} - Y_\text{meso} && \text{synoptic, sub-monthly} \\
+  D_\text{meso} &= Y_\text{meso} - Y_\text{slow} && \text{intra-seasonal} \\
+  D_\text{slow} &= Y_\text{slow} - Y_\infty      && \text{what even the slow window's pool leaves}
+\end{align}
+The widths default to 14, 90 and 365~days. Each scale's windows are stepped every quarter
+of the width, and a scale with fewer than two windows on the record is skipped, with a
+note saying so.
+
+\section{Partial dependence}\label{sec:pdptheory}
+A partial-dependence curve shows how the model's prediction responds to one predictor
+with the others averaged over the data: for each of \code{grid\_points} values spanning
+the 1st to 99th percentile of the variable, every training row's value of it is set to
+that value and the predictions are averaged. \code{pdp\_mean} is that average and
+\code{pdp\_std} the spread of the predictions about it. A curve describes the model, not
+the atmosphere; correlated predictors (temperature and boundary-layer height, say) are
+varied one at a time, into combinations the record may never contain.
+
+\section{Zero-shot de-weathering with Chronos-2}\label{sec:chronos}
+normet-py also de-weathers with Chronos-2, a pretrained time-series foundation model, with
+nothing trained: the meteorology enters through the model's covariate channel and is
+marginalised by resampling as in Equation~\eqref{eq:norm}. Chronos-2 runs on PyTorch,
+and the R package has no counterpart, so this window does not offer it, nor the donor
+ranking built on its embeddings in the SCM Studio. Use normet-py's window for either.
+
+\section{Synthetic control}\label{sec:scmtheory}
+A synthetic control estimates the effect of an intervention on one \emph{treated} unit
+(a site, a city) from a panel of units observed before and after a \emph{cutoff} date.
+Units the intervention did not touch --- the \emph{donor pool} --- are combined into a
+synthetic version of the treated unit that tracks it before the cutoff; after the cutoff,
+the synthetic series is the counterfactual, and
+\begin{equation}
+  \text{effect}_t = \text{observed}_t - \text{synthetic}_t .
+\end{equation}
+The average effect over the post-cutoff period is reported as the ATT (average treatment
+effect on the treated). For an air-quality outcome, a de-weathered series is the natural
+input: the weather is then not part of what the donors must reproduce.
+
+\subsection{Estimators}
+\begin{description}\nosep
+  \item[\code{scm}] Augmented SCM (the default). At each date a ridge regression across
+        the donors predicts the outcome from each unit's pre-cutoff trajectory; the
+        synthetic value is the treated unit's ridge prediction plus a weighted sum of the
+        donors' ridge residuals, the weights summing to one (non-negative unless allowed
+        otherwise).
+  \item[\code{abadie}] Classic SCM: non-negative donor weights summing to one, fitted to
+        the treated unit's pre-cutoff path. Interpretable, but it cannot reach a treated
+        unit that lies outside the range of its donors.
+  \item[\code{did}] Difference-in-differences: a two-way fixed-effects baseline that
+        assumes parallel trends.
+  \item[\code{mcnnm}] Matrix completion with nuclear-norm minimisation (Athey et~al.,
+        2021): the post-cutoff treated cells are treated as missing and filled from a
+        low-rank fit of the panel.
+  \item[\code{robust}] Robust SCM (Amjad, Shah and Shen, 2018): the donor matrix is
+        de-noised by singular-value thresholding before the weights are fitted.
+  \item[\code{mlscm}] ML-augmented SCM (\emph{experimental}): a LightGBM or H2O model maps donor
+        outcomes to the treated outcome in the pre-period. It lacks the causal
+        guarantees of the others and warns so.
+  \item[\code{bayesian}] Bayesian simplex SCM: a flat Dirichlet prior on the weights,
+        sampled by Markov chain Monte Carlo, giving posterior credible bands directly.
+\end{description}
+
+\subsection{Diagnostics}\label{sec:scmdiag}
+\code{nm\_scm\_diagnostics} reports the pre-cutoff fit (\code{pre\_rmse}, \code{pre\_mae},
+\code{pre\_mape}, \code{pre\_r2}), the post-cutoff effect (\code{att}, \code{att\_cum},
+\code{post\_rmse}) and how concentrated the weights are: the Herfindahl index
+$\text{HHI} = \sum_j w_j^2$, the effective number of donors $1/\text{HHI}$, and the top
+donors with their share.
+
+\caution{A good pre-cutoff fit is evidence only if the estimator could not have fitted
+any series as well. Every estimator that weights donors to match the pre-period overfits
+when the donors are many for the pre-cutoff dates, and augmented SCM (\code{scm}) most of
+all: its ridge features are the units' pre-cutoff outcomes, so at a pre-cutoff date the
+treated unit's own value at that date is one of the features it is predicted from, and
+with as many donors as dates it reproduces almost any pre-period. On the ULEZ panel of
+Chapter~\ref{ch:scm} (27 pre-cutoff months), a treated series replaced by random noise is
+fitted with $R^2 = 0.06$ from 5 donors, 0.81 from 20 and 0.999 from 53. So the SCM Studio
+refits each design with the treated unit's pre-cutoff values shuffled in time, and reads
+the pre-cutoff $R^2$ only when that shuffled series cannot also reach 0.5
+(Section~\ref{sec:scmfit}). The \code{scm} estimator's donor weights balance only the
+ridge residuals, so their concentration does not describe which donors the synthetic unit
+is made of.}
+
+\subsection{Inference}\label{sec:scminference}
+\begin{description}
+  \item[Placebo in space] Each donor in turn is treated as if it had been treated, and
+        given a synthetic control built from the \emph{other} donors (the real treated
+        unit is never a donor to a placebo). With the post-cutoff mean effect as the
+        statistic, the permutation $p$-value is
+        \begin{equation}
+          p = \frac{1 + \#\{\,j : |\bar{e}_j| \ge |\bar{e}_\text{treated}|\,\}}{1 + J},
+        \end{equation}
+        for $J$ placebo units; the smallest it can be is $1/(J+1)$. The placebo effects
+        also give a pointwise band for the treated effect.
+  \item[Placebo in time] The cutoff is moved to earlier dates (every \code{placebo\_every}
+        steps, keeping at least \code{min\_pre\_period} steps before it), where nothing
+        happened. The true effect is ranked against the fake cutoffs' effects in the same
+        way. Every fake post-period must end before the true cutoff.
+  \item[Jackknife bands] The fit is repeated leaving out each donor in turn; the spread of
+        the effect gives a pointwise band. A result carried by one donor shows here.
+  \item[Bootstrap bands] The fit is repeated $B$ times on random subsets of the donors
+        (80\,\% by default), optionally with the pre-cutoff period resampled in blocks.
+  \item[Conformal interval] \code{nm\_conformal\_effect\_interval} gives a finite-sample
+        interval for the average post-period effect (Chernozhukov, W\"uthrich and Zhu,
+        2021); \code{nm\_rmspe\_ratio\_test} gives Abadie's post/pre RMSPE-ratio test.
+\end{description}
+
+% ============================ 4. GETTING STARTED ==============================
+\chapter{Getting started}\label{ch:start}
+
+\section{The window before a table is open}
+\nm{} opens on its \tab{Data} tab with nothing loaded (Figure~\ref{fig:welcome}), the
+parameter panel folded away and the Assistant (Chapter~\ref{ch:assistant}) open beside the
+results. \emph{Expand Panel} on the action bar, or Ctrl+B, brings the panel out;
+\tab{View $\rightarrow$ Assistant} closes the Assistant. Under
+\emph{Start with a time series} are two buttons --- \emph{Open Data\ldots} and \emph{Ask
+the Assistant} --- and cards for the ways in: the examples, the
+five tables opened most recently (each with its folder, size and the date it last
+changed; one that has since moved is greyed out), and the two places data can come from
+without a file of your own, the Data Studio and the Transport Studio. A card with nothing
+to list is left out. Dropping a table file (Section~\ref{sec:input}) anywhere on the
+window opens it.
+
+\screenshot{ui_welcome.png}{The window as it opens: the welcome on the \tab{Data} tab, the
+action bar above the tabs (\emph{Expand Panel} first), the Assistant on the right and the
+log at the bottom. The parameter panel is folded away until it is needed.}{fig:welcome}
+
+\section{The examples}\label{sec:examples}
+The examples are under \tab{File $\rightarrow$ Load Example} and on the
+welcome's \emph{Examples} card; each opens with its target and predictors set as its
+source sets them.
+\begin{description}
+  \item[London Marylebone Road \NOtwo{} (2020)] The \nm{} paper's de-weathering case
+        study: hourly \NOtwo{} at a kerbside site with ERA5 meteorology, January to August
+        2020, the UK's COVID-19 lockdown in it (\code{my1} below). This manual's
+        main-window figures are made from it.
+  \item[London Marylebone Road \PMtwo{} (2020)] The paper's transport-aware case: hourly
+        \PMtwo{} at the same site, its own wind and temperature with ERA5's other fields
+        (\code{my1\_pm25}).
+  \item[Synthetic site, one year hourly] A synthetic year of hourly data generated on the fly: \PMtwo{}, PM\textsubscript{10},
+        \NOtwo{}, O\textsubscript{3}, SO\textsubscript{2} and CO with ERA5-style
+        meteorology (\code{u10}, \code{v10}, \code{t2m}, \code{d2m}, \code{blh},
+        \code{sp}, \code{ssrd}, \code{tcc}, \code{tp}, \code{rh2m}, \code{ws},
+        \code{wd}). The pollutants mix a seasonal cycle, a rush-hour cycle and a
+        dependence on wind speed, so every step has something to show. The target is set
+        to \PMtwo{} and the meteorology ticked.
+  \item[Synthetic control panel] Opens the SCM Studio with its own example; the SCM
+        Studio's \tab{File $\rightarrow$ Load Example} has two (Chapter~\ref{ch:scm}): the
+        paper's London ULEZ panel and a synthetic weekly panel of 31 units, in which the
+        unit ``2+26 cities'' has its SO\textsubscript{2} cut by about 35\,\% from 2015-10-23
+        and every other unit is a clean donor.
+\end{description}
+The real records of the \nm{} model-description paper ship with the package, as its data
+sets (in a script, \code{my1} once \code{library(normet)} is loaded):
+\begin{center}\small
+\begin{tabular}{@{}lp{7.0cm}p{3.2cm}@{}}
+\toprule
+Data set & Contents & Used for \\
+\midrule
+\code{my1}      & Hourly \NOtwo{} + ERA5 met, London Marylebone Road, Jan--Aug 2020 & de-weathering \\
+\code{scm}      & Monthly de-weathered \NOtwo{}, 104 UK sites, 2016--2021 & synthetic control (ULEZ) \\
+\code{my1\_pm25} & Hourly \PMtwo{} + met at MY1, Jan--Aug 2020 & transport-aware case \\
+\code{traj\_my1} & 6-hourly HYSPLIT trajectory features arriving at MY1 & transport-aware case \\
+\code{extdata/traj} & Two days of raw HYSPLIT \code{tdump} files (\code{system.file("extdata", "traj", package = "normet")}) & Transport Studio \\
+\bottomrule
+\end{tabular}
+\end{center}
+Sources: UK AURN (Defra, Open Government Licence v3.0); ERA5 (Copernicus Climate Change
+Service); HYSPLIT (NOAA ARL).
+
+\section{A first analysis}
+\begin{enumerate}\nosep
+  \item \tab{Load data.} \emph{Open Data\ldots} and choose a table with its times, the
+        pollutant and its meteorology (Chapter~\ref{ch:data}); set the \emph{Time zone} the
+        site keeps (Section~\ref{sec:clock}). Bring the
+        parameter panel out with \emph{Expand Panel} (Ctrl+B), or ask the Assistant.
+  \item \tab{Choose the columns.} Check the target and tick the predictors
+        (Section~\ref{sec:columns}).
+  \item \tab{Train} and read the \tab{Model} tab: is the held-out fit good
+        enough to normalise with? (Chapter~\ref{ch:train})
+  \item \tab{Normalise} and compare the normalised series with the observed
+        (Chapter~\ref{ch:normalise}).
+  \item \tab{Decompose}, \tab{Rolling} and \tab{Partial dependence} as the question
+        needs (Chapters~\ref{ch:decompose}--\ref{ch:pdp}).
+  \item \tab{Keep the result:} export the tables, an HTML report and the session as a
+        script (Chapter~\ref{ch:export}).
+\end{enumerate}
+
+% ============================ 5. THE INTERFACE ================================
+\chapter{The interface}\label{ch:ui}
+
+The main window has a \emph{parameter panel} on the left and \emph{result tabs} on the
+right. The panel has a page for each step of the workflow, chosen from the bar at its top
+--- \tab{Data}, \tab{Model}, \tab{Normalise}, \tab{Decompose}, \tab{Rolling} and
+\tab{PDP} --- and each step has its own \emph{Run} button beside the settings that govern
+it. Results
+land in the tab of the same step, which comes to the front when the step finishes. The
+panel starts folded away, leaving the width to the results and the Assistant;
+\emph{Collapse / Expand Panel} on the action bar (Ctrl+B) folds it and brings it back. The
+window can be narrowed to about 740 pixels with the panel folded: the action bar then
+wraps onto a second row.
+
+\section{The parameter panel}
+Its pages, and what each holds (a page's first box goes untitled, the tab naming it):
+\begin{description}\nosep
+  \item[Data] \emph{Open Data\ldots}, the file's name with its rows and columns, the
+        \emph{Time zone} its times are kept on and how they were read
+        (Section~\ref{sec:input}); then \emph{Columns}: the target and the predictors
+        (Section~\ref{sec:columns}).
+  \item[Model] Backend, split, training fraction, search trials (or, for H2O, the time
+        budget and the algorithms), seed (Chapter~\ref{ch:train}).
+  \item[Normalise] The variables resampled, the number of samples, CPU cores and the
+        quantile band (Chapter~\ref{ch:normalise}).
+  \item[Decompose] Emission or meteorology; for meteorology the attribution and the
+        groups (Chapter~\ref{ch:decompose}). Under it \emph{Multi-scale decomposition}:
+        three window widths (Section~\ref{sec:multiscaleui}).
+  \item[Rolling] Window, step and samples (Section~\ref{sec:rollingui}).
+  \item[PDP] Variables and grid points (Chapter~\ref{ch:pdp}).
+\end{description}
+The panel is as wide as its widest page needs. A configuration of the panel is saved and
+read from the \tab{File} menu (Section~\ref{sec:config}).
+
+\section{Result tabs}
+\begin{center}\small
+\begin{tabular}{@{}lll@{}}
+\toprule
+Tab & Shows & Filled by \\
+\midrule
+Data        & a preview of the target, the table, its size, span and missing values & loading \\
+Model       & verdict, statistics table, parity plot, feature importance & Train model \\
+Normalise   & observed and normalised series, the quantile band, their cycles & Run normalisation \\
+Decompose   & the emission or meteorological components, the cycles & Run decomposition \\
+Rolling     & the mean of the rolling windows, with their spread & Run rolling normalisation \\
+Multi-scale & the scale-space cascade and the energy in each band & Multi-scale \\
+PDP         & one partial-dependence panel per variable & Compute PDP \\
+\bottomrule
+\end{tabular}
+\end{center}
+A tab with a judgement to make opens with a \emph{verdict banner} in green (good), amber
+(caution) or red (not usable), followed by plain lines of what was run and, where there
+is one, a compact table. Every figure has a toolbar of small icons in the window's
+colours --- home, back, forward, pan, zoom, subplot spacing, axes and curve options,
+save --- then \emph{For print\ldots} (Section~\ref{sec:print}) and, at its right end, the
+value under the pointer. A figure is saved on a white page with dark ink whatever the
+window's appearance. Every figure is drawn as journals ask for one: 7 to 8.5~pt text, thin
+axes with ticks outward, legends without a frame, colours a colour-blind reader can tell
+apart, formulas with their subscripts (\NOtwo{}, \PMtwo{}), and a date axis written once
+at each level --- the year once, then the months --- with panels stacked on one time axis
+dated on the bottom panel only.
+
+\paragraph{Resolution.} The time series on the \tab{Data}, \tab{Normalise},
+\tab{Decompose}, \tab{Rolling} and \tab{Multi-scale} tabs have a \emph{Resolution} selector above the
+figure: \emph{As recorded}, \emph{Hourly}, \emph{Daily}, \emph{Weekly}, \emph{Monthly}
+or \emph{Yearly}. A coarser step redraws the figure from the means of each period, which
+makes a long hourly record readable; steps finer than the record's own are greyed out.
+A record finer than daily and longer than 2,000 points opens as daily means --- months of
+hours drawn as they are are a solid band --- and the choice made on a tab is kept for its
+next result. Only the display changes: the result, its table and its export stay at the
+record's resolution. A series is drawn broken where the record has a gap (an interval
+over five times its usual step), not joined across it by a straight line. The $\sigma$ a
+figure quotes are the record's, whatever step it is drawn at.
+
+When both an emission and a meteorological decomposition have been run on the model, the
+\tab{Decompose} tab keeps both: a \emph{Method} selector beside \emph{Resolution} switches
+between them, and a saved session brings both back.
+
+\section{The action bar}
+Above the tabs: \emph{Collapse / Expand Panel}; the studios side by side ---
+\emph{Get UK data} (the Data Studio, Section~\ref{sec:datastudio}), \emph{Transport
+Studio} (Section~\ref{sec:transport}) and \emph{SCM Studio} (Chapter~\ref{ch:scm}); then
+what is done with a result --- \emph{Export result CSV} (the current tab's table) and
+\emph{HTML report} (the current tab's result as a report with its provenance).
+
+\section{Run buttons}
+\begin{center}\small
+\begin{tabular}{@{}lp{5.0cm}l@{}}
+\toprule
+Button & Needs & Runs \\
+\midrule
+Train model           & a table, one predictor ticked & \code{nm\_build\_model} \\
+Run normalisation     & a model, one variable to resample & \code{nm\_normalise} \\
+Run decomposition     & a model                  & \code{nm\_decompose} \\
+Run rolling normalisation & a model              & \code{nm\_rolling} \\
+Multi-scale decomposition & a model, a normalisation & \code{nm\_rolling} $\times 3$ \\
+Compute PDP           & a model, one variable ticked & \code{nm\_pdp} \\
+\bottomrule
+\end{tabular}
+\end{center}
+A button is enabled only when it can act, and its tooltip says what is missing when it
+cannot. One task runs at a time, on a background thread, so the window stays responsive;
+while it runs the run buttons are disabled, \emph{Cancel} is enabled, and the status bar
+names the task with the time it has taken so far. Where the task says how far it has come
+--- R reports the Monte-Carlo batches, the rolling windows, the decomposition's steps,
+LightGBM's trials and the receptor times HYSPLIT runs; for H2O it is the time against its
+budget --- the progress bar fills with it, and the line gives
+the share done and, once there is enough to go on, the time left; elsewhere the bar is a
+busy bar. When the task ends, the line its step writes says how long it took. Cancel stops the task: the R process doing it is
+ended, with whatever it started (a HYSPLIT run, say), and the window is free at once. Each step's call is added to the command log when it
+succeeds (Section~\ref{sec:commandlog}).
+
+A step asked for before what it needs --- normalising before a model is trained, a
+multi-scale run before the normalisation --- is answered by a \emph{notice} above the results, not a
+dialog: it says what is missing and carries the step that answers it on a button
+(\emph{Train model}, \emph{Run normalisation}); \(\times\) puts it away, and it goes by itself
+once the step has been taken. At the right of the status bar a light per step --- Data,
+Model, Normalised, Decomposed, Rolling, Multi-scale, PDP --- turns green when that step
+has a result.
+
+\section{Menus and shortcuts}
+\begin{center}\small
+\begin{tabular}{@{}lll@{}}
+\toprule
+Menu & Command & Shortcut \\
+\midrule
+File     & Open Data\ldots                      & Ctrl+O \\
+         & Load Example (the examples, SCM's)   & \\
+         & Get UK Data (AQ networks + met)\ldots & Ctrl+D \\
+         & Open Recent (eight tables)           & \\
+         & Save Results\ldots{} / Load Results\ldots & Ctrl+S \\
+         & Reopen Last Session                  & \\
+         & Load Session Script\ldots            & \\
+         & Methods Paragraph\ldots              & \\
+         & Export Current Result\ldots          & Ctrl+E \\
+         & Export HTML Report\ldots             & \\
+         & Report Language: As the Window, English, Chinese & \\
+         & Save Session as Script\ldots         & \\
+         & Save Config\ldots{} / Load Config\ldots & \\
+         & Run History\ldots                    & \\
+View     & Command Palette\ldots                & Ctrl+K \\
+         & Collapse / Expand Panel              & Ctrl+B \\
+         & Log\ldots, Command Log\ldots       & \\
+         & Assistant                            & Ctrl+Shift+A \\
+         & Appearance: Follow System, Light, Dark & \\
+         & Language: Follow System, English, Chinese & \\
+Analysis & Synthetic Control (SCM) Studio\ldots & Ctrl+Shift+S \\
+         & Polar Plot\ldots                     & \\
+R        & Locate Rscript\ldots, Check R environment & \\
+Help     & User Manual                          & F1 \\
+         & Keyboard Shortcuts\ldots             & \\
+         & Documentation, About Normet          & \\
+\bottomrule
+\end{tabular}
+\end{center}
+On macOS, Ctrl is the Command key. The \emph{command palette} (Ctrl+K) lists every
+menu command and every result tab; type a few letters of one and press Return.
+\tab{Help $\rightarrow$ Keyboard Shortcuts} lists every shortcut, read from the menus;
+\tab{Help $\rightarrow$ User Manual} (F1) opens this manual in the window's language.
+
+\section{The log and the Assistant}
+\tab{View $\rightarrow$ Log\ldots} opens \nm{}'s log in a window of its own, which can
+stay open beside the main window: each call into R (\code{R> nm\_normalise(\ldots)}) and
+R's own lines --- what each step did, how many rows, LightGBM's search trials, how many
+windows a rolling run made.
+\tab{View $\rightarrow$ Command Log\ldots} opens the calls that repeat the session
+(Section~\ref{sec:commandlog}). When a task fails, R's error is written to the
+Log, with the traceback, and shown in a dialog. The \emph{Assistant} takes the right of the
+window, its whole height (Chapter~\ref{ch:assistant}).
+
+\section{Appearance and language}\label{sec:appearance}
+The window and its figures follow the system's light or dark appearance;
+\tab{View $\rightarrow$ Appearance} pins one. A figure on a dark window is recoloured
+for display only --- its faces, text, ticks and grid; colours that carry data are left
+alone --- and saved in its light colours.
+
+The window speaks English or Chinese: the system's language by default, or the one
+\tab{View $\rightarrow$ Language} chooses, kept for the next session. The switch is
+immediate --- menus, buttons, tabs, tooltips, verdicts and the figures' titles, labels and
+month names are written again in the language chosen, and a figure is saved as it is
+shown. The data's own words (column names, site codes), the log, the command log's code
+and the Assistant's conversation stay as they were written. What the system draws
+itself stays in the system's language whichever the window is written in: the
+open and save panels, their titles too, and, on a Mac, the items macOS adds to the menus
+(\emph{AutoFill}, \emph{Start Dictation}, \emph{Emoji \& Symbols}). An HTML
+report (Section~\ref{sec:commandlog}) is written in the window's language too, or in the
+one \tab{File $\rightarrow$ Report Language} chooses: its headings, labels and figure.
+
+% ============================ 6. COLUMNS AND TRAINING =========================
+\chapter{Training a model}\label{ch:train}
+
+\section{The table and its columns}\label{sec:columns}
+A table opened in the main window needs a column called \code{date} (any case) whose
+values parse as dates; every other column numeric is offered as a target and as a
+predictor. The target is preset to the first column named like a pollutant (\PMtwo{},
+PM10, \NOtwo{}, O3, SO2, CO, NOx), and the predictors to the columns recognised as
+meteorology:
+\begin{center}\small
+\code{u10 v10 d2m t2m blh sp ssrd tcc tp rh2m ws wd temp rh pressure}
+\end{center}
+(matched without regard to case). \emph{All} ticks every predictor --- and, once all are
+ticked, unticks every one --- and \emph{Met only} ticks the meteorology alone. The target is never a predictor, even when ticked. The four calendar
+variables are added to every model automatically and are not listed.
+
+\note{A meteorological column under another name is not recognised and must be ticked by
+hand --- in MY1, \code{atmos\_pres}. The same applies to the \tab{Normalise} page's \emph{Met only}
+(Chapter~\ref{ch:normalise}).}
+
+\screenshot{ui_data.png}{MY1 opened from \tab{File $\rightarrow$ Load Example}: 5,793
+hourly rows of 11 columns from 2020-01-01 to 2020-08-31, with no missing values. The
+example sets the paper's target, \NOtwo{}, and its nine meteorological predictors
+(\code{atmos\_pres} among them, a name the window does not recognise). The tab previews the
+target series and lists the table.}{fig:data}
+
+\section{Settings}
+\begin{description}\nosep
+  \item[Backend] \code{lightgbm} (the default) or \code{h2o}. H2O needs Java and the
+        \code{h2o} R package; \tab{R $\rightarrow$ Check R environment} says whether it
+        loads.
+  \item[Split method, Training fraction] Section~\ref{sec:split}; 0.75 by default.
+  \item[Search trials] LightGBM's random-search trials, 20 by default. For H2O the row
+        becomes \emph{Time budget}, 60~s by default; each backend's value is kept when you
+        switch.
+  \item[Algorithms] (H2O only) GBM alone by default; add more to widen the search.
+  \item[Seed] 7654321 by default: the split and the search are seeded with it.
+\end{description}
+
+\section{Reading the Model tab}
+\emph{Train model} runs \code{nm\_build\_model} --- preparation, the split and the search ---
+and fills the \tab{Model} tab (Figure~\ref{fig:model}). The verdict is read from the
+held-out $R^2$: 0.7 or above is a good fit, 0.5 to 0.7 moderate, below 0.5 poor. The table
+is \code{nm\_modStats} for the training rows, the testing rows and all rows
+(Section~\ref{sec:modstats}); the parity plot shows the held-out rows against the
+prediction, square, with the 1:1 line and, in its corner, the number of rows, the slope of
+predicted on observed (below 1: the extremes are pulled in) and the mean bias --- as a
+density of hexagons where the rows run to thousands; the bars are the model's feature
+importance (each predictor's share of LightGBM's gain).
+
+\screenshot{ui_model.png}{MY1 trained with LightGBM (10 search trials, random split):
+on the 1,449 held-out hours $R^2 = 0.991$ and RMSE $= 2.42$~\ugm{}, against
+$0.991$ on the 4,344 training hours. The calendar --- the day of the year, the trend
+and the hour --- and the wind direction carry the most gain.}{fig:model}
+
+A fit on the training rows much better than on the held-out rows is expected of boosted
+trees and is not by itself a problem; a poor held-out fit is. Before normalising with a
+moderate or poor model, try more predictors, more search trials, or H2O. The
+normalised series inherits the model's errors.
+
+\section{Chronos-2}\label{sec:chronosui}
+normet-py's window has a third backend here, \code{chronos-2}, with a device and a
+fine-tuning step of its own (Section~\ref{sec:chronos}). This window does not.
+
+% ============================ 7. NORMALISATION ================================
+\chapter{Normalising}\label{ch:normalise}
+
+\begin{description}\nosep
+  \item[Resample vars] Every variable the model was trained on, the four calendar
+        variables included. Ticked variables are resampled (their influence averaged
+        out); unticked ones keep their observed values. After training the list is set
+        to \emph{Met only} --- the usual de-weathering --- and \emph{All} ticks
+        everything, which removes the trend and the seasonal and weekly cycles as well.
+  \item[Samples] Monte-Carlo draws, 300 by default (Section~\ref{sec:normalise} on how
+        many are enough).
+  \item[CPU cores] \emph{auto} uses all but one.
+  \item[5--95\,\% quantile band] Also return the 5th, 25th, 75th and 95th percentiles of
+        the draws and shade the outer band.
+\end{description}
+
+Beneath the series, the observed and normalised series are averaged by the hour of the
+day, the day of the week and the month, each mean with its 95\,\% confidence interval ---
+the record's cycles, as openair's \code{timeVariation} draws them, and how much of each
+the weather moved. A cycle the record cannot show (the hours of a daily record) is left
+out; the cycles are averaged from the record as it is, whatever resolution the series
+above is shown at. In R: \code{nm\_cycle\_profiles(result, c("observed",
+"normalised"))}.
+
+\screenshot{ui_normalise.png}{MY1 normalised with 300 draws of all nine meteorological
+variables, shown as daily means. The normalised series (red) falls in the third week
+of March, the lockdown, which the weather does not explain. Beneath, its cycles: the
+normalised series keeps the rush hours and the weekday--weekend difference --- the
+calendar is held at its observed values --- with less of the observed series' spread.}{fig:normalise}
+
+The line above the figure gives the number of timestamps, draws and resampled variables,
+and the mean of normalised $-$ observed over the record: here $-0.20$~\ugm{}, since over
+eight months the weather averages out. The monthly means tell the story the figure shows:
+\begin{center}\small
+\begin{tabular}{@{}lrrrrrrrr@{}}
+\toprule
+\NOtwo{} (\ugm{}) & Jan & Feb & Mar & Apr & May & Jun & Jul & Aug \\
+\midrule
+observed   & 60.3 & 65.2 & 51.7 & 34.5 & 30.7 & 35.1 & 31.6 & 36.6 \\
+normalised & 60.0 & 64.9 & 54.7 & 33.2 & 31.1 & 32.2 & 31.9 & 35.8 \\
+\bottomrule
+\end{tabular}
+\end{center}
+From February to April the normalised series falls by 31.7~\ugm{} (49\,\%), against
+30.7~\ugm{} observed: almost none of the spring drop was the weather. In March the weather
+was cleaner than usual (observed 3.0 below normalised), in June and August dirtier.
+
+\caution{The normalised series is the model's expectation under typical weather. A model
+that has not learnt the weather's effect --- a poor fit, or meteorology missing from the
+predictors --- returns something close to the observed series, which looks like a
+de-weathered series with nothing to remove. Read the \tab{Model} tab first.}
+
+% ============================ 8. DECOMPOSITION ================================
+\chapter{Decomposing}\label{ch:decompose}
+
+\section{By time scale: the emission decomposition}
+With \emph{Method} set to \emph{emission}, the decomposition runs the nested normalisation of
+Section~\ref{sec:emission} and plots the normalised series with its trend, seasonal,
+weekly, diurnal and short-term components, each with its standard deviation $\sigma$
+(Figure~\ref{fig:emission}). The line above the figure names the component with the
+largest $\sigma$. On a record finer than daily, the diurnal and weekly components are
+drawn on the right as their cycles --- the component's mean by hour of day and by day of
+week, shaded between its 25th and 75th percentiles --- rather than as months of
+oscillation.
+
+\screenshot{ui_decompose_emission.png}{The emission decomposition of MY1 (100 draws per
+normalisation; baseline 43.0~\ugm{}). The lockdown appears as a step in both the trend
+($\sigma = 6.59$) and the seasonal component ($\sigma = 8.34$): a one-off event is not a
+season, and the record is too short to tell them apart. The diurnal cycle (right) is the
+largest ($\sigma = 9.42$): low before 05:00, high through the working day, its spread wide
+because it shrank after the lockdown, as rush-hour traffic did; the weekly cycle
+($\sigma = 4.18$) dips at the weekend.}{fig:emission}
+
+\section{By variable: the meteorological decomposition}
+With \emph{Method} set to \emph{meteorology}, the decomposition splits observed $-$ normalised among
+the meteorological variables (Section~\ref{sec:metdecomp}). \emph{Attribution} is enabled and \emph{Groups} appears
+(it is hidden for \emph{emission}):
+\begin{description}\nosep
+  \item[Attribution] \emph{sequential}, \emph{shapley}, or \emph{auto} (Shapley when groups
+        are given, else sequential).
+  \item[Groups] A table of the meteorological variables the model was trained on, each
+        with its group: \emph{Wind}, \emph{Temperature and humidity}, \emph{Boundary
+        layer and pressure}, \emph{Sky and rain}, or a name typed in. \emph{Suggest
+        groups} puts each recognised variable in its group; \emph{Each alone} clears
+        them. A variable left without a group is a contribution of its own. A group's
+        rows are tinted in one colour, and the line under the table says how many
+        contributions the grouping makes.
+\end{description}
+The figure shows met\_total and one panel per variable or group, with a ranking of their
+$\sigma$ beside \code{met\_noise}, the part the model does not reproduce
+(Figure~\ref{fig:metdecomp}).
+
+\screenshot{ui_decompose_met.png}{MY1's weather influence (observed $-$ normalised,
+$\sigma = 16.60$~\ugm{}) split among four groups by exact Shapley values (16 coalitions):
+wind (\code{ws}, \code{wd}; $\sigma = 9.81$), thermodynamics (\code{temp}, \code{RH};
+4.92), mixing (\code{blh}, \code{atmos\_pres}; 6.00) and sky (\code{tcc}, \code{tp},
+\code{ssrd}; 4.57).}{fig:metdecomp}
+
+The decomposition runs $k+1$ normalisations sequentially or $2^k$ by Shapley, each of
+\emph{Samples} draws, so its cost grows quickly with the number of variables. Ten
+variables by Shapley is 1024 normalisations: group them. Unlike the normalisation, the
+meteorological decomposition always resamples every meteorological variable trained on;
+it does not follow the \tab{Normalise} page's list.
+
+% ============================ 9. ROLLING ======================================
+\chapter{Rolling and multi-scale}\label{ch:rolling}
+
+\section{Rolling normalisation}\label{sec:rollingui}
+\emph{Window} (14~d), \emph{Step} (7~d) and \emph{Samples} (100) set the windows of
+Section~\ref{sec:rolling}; the variables resampled are the \tab{Normalise} page's. The tab shows the mean of
+the overlapping windows at each time, with $\pm 1$ standard deviation across them where
+two or more overlap (Figure~\ref{fig:rolling}). The result table, exported, has one column
+per window.
+
+\screenshot{ui_rolling.png}{Rolling normalisation of MY1: 33 fortnightly windows started
+weekly, 50 draws each. Each window removes only the weather that varies within its own
+fortnight.}{fig:rolling}
+
+\section{Multi-scale decomposition}\label{sec:multiscaleui}
+The multi-scale box runs rolling normalisations at three widths --- \emph{Fast} (14~d),
+\emph{Meso} (90~d) and \emph{Slow} (365~d) by default --- and differences them against each
+other and against the normalised series (Section~\ref{sec:multiscale}); so the
+normalisation must have been run first. It uses the \tab{Rolling} page's \emph{Samples} and costs about three rolling runs. The
+verdict names the band with the most energy ($\sigma$); a band that could not be computed
+is named in the notes, with why.
+
+\screenshot{ui_multiscale.png}{Multi-scale decomposition of MY1 at 14, 60 and 120~days
+(the 365-day default is longer than this eight-month record): 77, 13 and 5 windows. The
+synoptic band carries the most ($D_\text{fast}$, $\sigma \approx 3.0$), then the intra-seasonal
+and the slow.}{fig:multiscale}
+
+% ============================ 10. PDP =========================================
+\chapter{Partial dependence}\label{ch:pdp}
+
+After training, the variable list holds every predictor and the calendar variables, with
+the first four ticked. \emph{Time variables} and \emph{Met only} toggle those groups;
+\emph{Grid points} (50) sets the resolution. Each panel shows the curve
+(\code{pdp\_mean}) with a band of $\pm$ \code{pdp\_std}, the spread of the predictions
+across the training rows at that value (Section~\ref{sec:pdptheory}). The short ticks
+along the bottom are the variable's deciles in the training data: where they are far
+apart --- a curve's ends --- the data are few. A variable of a few whole values (the hour,
+the weekday) is drawn as steps, a point on each value.
+
+\screenshot{ui_pdp.png}{Partial dependence of the MY1 model: \NOtwo{} falls as wind
+speed rises and as the boundary layer deepens from its shallowest, rises above about
+20\,$^\circ$C, and follows the traffic day --- low before 05:00, high from 07:00 to
+17:00.}{fig:pdp}
+
+The bands are wide because the other predictors still vary across the rows; they are not
+a confidence interval for the curve.
+
+% ============================ 11. SCM STUDIO ==================================
+\chapter{Synthetic control (SCM Studio)}\label{ch:scm}
+
+The synthetic-control workflow takes a different input --- a long panel of many units
+--- so it has a window of its own, opened from \emph{SCM Studio} on the action bar,
+\tab{Analysis $\rightarrow$ Synthetic Control (SCM) Studio} (Ctrl+Shift+S) or the
+welcome's example card. It is laid out as the main window is: the panel on the left,
+its pages chosen from a bar --- \tab{Data} (the panel data and its columns),
+\tab{Design}, \tab{Estimator}, \tab{Inference} --- result tabs on the right
+(\tab{Panel}, \tab{Fit}, \tab{Placebo Space}, \tab{Placebo Time}, \tab{Uncertainty},
+\tab{All Units}, \tab{Similarity}), and \emph{Export current tab data} above them. The
+method is described in Section~\ref{sec:scmtheory}.
+
+This chapter's figures reproduce the ULEZ case study of the \nm{} paper: the London Ultra
+Low Emission Zone, launched on 8~April 2019, evaluated at Marylebone Road (MY1) on
+monthly de-weathered \NOtwo{}, with traffic sites elsewhere in the UK as donors. To keep
+COVID-19 out of the post-period the panel ends in February~2020, and only traffic sites
+with a complete record are kept: 53 donors over 38 months. The SCM Studio's
+\tab{File $\rightarrow$ Load Example $\rightarrow$ London ULEZ} sets this design up; in a
+script:
+\begin{lstlisting}[language=R]
+library(normet)
+df <- subset(scm, date >= as.Date("2017-01-01") & date < as.Date("2020-03-01"))
+df <- df[grepl("Traffic", df$type), ]
+counts <- table(df$code[!is.na(df$NO2_dw)])
+donors <- setdiff(names(counts)[counts == length(unique(df$date))], "MY1")
+df <- df[df$code %in% c(donors, "MY1"), ]
+write.csv(df, "ulez_panel.csv", row.names = FALSE)
+\end{lstlisting}
+
+\section{Panel data and columns}
+\emph{Open Data\ldots} (also \tab{File $\rightarrow$ Open Data\ldots}) reads a long
+table, in any of the formats of Section~\ref{sec:input}: one row per unit and date. \emph{Use
+main-window data} takes the main window's table, when it has a unit column. The
+\emph{Date} column is guessed from its name, the \emph{Unit} column as the first
+non-numeric column with between 3 and a quarter as many distinct values as rows, and the
+\emph{Outcome} as a numeric column whose name ends in \code{wn} (the de-weathered series
+of the paper's tables), else the first numeric one. Check all three.
+
+\section{Design}
+\begin{description}\nosep
+  \item[Treated unit] The unit the intervention reached.
+  \item[Cutoff date] The first date of the post-period. The month containing the
+        intervention is a judgement: here 2019-04-01, the ULEZ's launch month.
+  \item[Donor pool] Every other unit, ticked. Untick any unit the intervention could
+        have reached, directly or by spill-over --- a donor that was itself treated
+        biases the counterfactual towards the treated unit.
+  \item[Rank donors by similarity] normet-py ranks the donors by the similarity of
+        their Chronos-2 embeddings to the treated unit's; here the button is greyed out
+        (Section~\ref{sec:chronos}).
+\end{description}
+The \tab{Panel} tab plots the outcome of every unit with the treated one in red, and
+checks the panel: amber when more than 10\,\% of the date $\times$ unit cells are missing
+or there are fewer than 10 pre-cutoff dates, green otherwise.
+
+\screenshot{ui_scm_panel.png}{The ULEZ panel: MY1 (red) against the 53 traffic-site donors,
+monthly de-weathered \NOtwo{}, January~2017 to February~2020. MY1 is the highest of
+them throughout.}{fig:scmpanel}
+
+\section{Fitting}\label{sec:scmfit}
+\emph{Backend} chooses the estimator (Section~\ref{sec:scmtheory}); \emph{ML backend}
+(\code{lightgbm} or \code{h2o}) and \emph{Search trials} (5; for H2O \emph{Time budget},
+15~s) apply to \code{mlscm}, \emph{Draws} (1000) to \code{bayesian}. \emph{Run synthetic control} fills the \tab{Fit} tab: observed and
+synthetic, the effect, the largest donor weights, and the diagnostics table.
+
+For \code{scm}, \code{abadie}, \code{did}, \code{mcnnm} and \code{robust} the fit is
+followed by one more, of the same design with the treated unit's pre-cutoff values
+shuffled in time: a series with the treated unit's level and spread but no relation to the
+donors (Section~\ref{sec:scmdiag}). Its pre-cutoff $R^2$ is the table's
+\code{pre\_r2, shuffled} row, and it decides how the verdict reads:
+\begin{itemize}\nosep
+  \item If the shuffled series also reaches $R^2 \ge 0.5$, the design fits anything and
+        the observed $R^2$ is not read. The verdict is amber, gives the ATT and both
+        $R^2$, and sends you to Placebo in space and the other estimators.
+  \item Otherwise the verdict is read from the pre-cutoff $R^2$: green at 0.8 or above,
+        amber from 0.5, red below; it gives the ATT.
+\end{itemize}
+\code{mlscm} and \code{bayesian} are too slow to fit twice; their verdict is read from the
+pre-cutoff $R^2$ alone. An \code{scm} fit adds a line saying its weights balance the ridge
+residuals only.
+
+\screenshot{ui_scm_fit.png}{The augmented SCM (\code{scm}) fit for MY1: ATT $=
+-18.15$~\ugm{} over the 11 post-cutoff months. Its pre-cutoff $R^2$ is 0.999, but with
+MY1's pre-cutoff values shuffled it still fits 0.9998 (both shown as 1.00), so the verdict
+does not read the fit and points to the placebo tests.}{fig:scmfit}
+
+With 53 donors for 27 pre-cutoff months, this design is one where augmented SCM fits
+anything. Its top donor carries all of the weight ($\text{HHI} = 1.00$), but those
+weights only balance the ridge model's residuals.
+
+The estimators do not agree on this design. Run on the same panel, cutoff and donors:
+\begin{center}\small
+\begin{tabular}{@{}lrrrr@{}}
+\toprule
+Backend & pre-cutoff $R^2$ & shuffled $R^2$ & pre-cutoff RMSE & ATT (\ugm{}) \\
+\midrule
+\code{scm}    & 0.999  & 1.000   & 0.16  & $-18.15$ \\
+\code{abadie} & $-2.94$ & $-3.33$ & 13.20 & $-6.83$ \\
+\code{robust} & 0.37   & 0.16    & 5.27  & $-9.48$ \\
+\code{did}    & $-0.23$ & $-0.09$ & 7.36  & $-20.67$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+The shuffled column is the baseline the \tab{Fit} tab computes: only for \code{scm} does
+a series unrelated to the donors fit as well as MY1, so only its pre-cutoff $R^2$ goes
+unread. Classic SCM cannot fit MY1 at all: its weights are non-negative and sum to one, so the
+synthetic unit cannot exceed the highest donor, and MY1 is above every donor. Robust SCM
+fits it only loosely. The four estimates agree on the sign and differ threefold in size.
+That is a finding about the design, not a fault of the software: a treated unit outside
+its donors' range is the case synthetic control handles worst, and an analysis of it
+should report the spread, not one number.
+
+\section{Inference}
+\begin{description}
+  \item[Run placebo in space] The \tab{Placebo Space} tab draws every donor's placebo
+        effect in grey and the treated unit's in red, then the treated effect inside a
+        95\,\% band of the placebos. Green at $p \le 0.05$, amber with ``borderline'' up to
+        0.15, amber otherwise.
+  \item[Run placebo in time] Fake cutoffs every \emph{Placebo every} steps (7), each with
+        at least \emph{Min pre-period} steps (30) before it. A fake post-period must fit
+        before the true cutoff, so this needs a long pre-period; the tab says so when
+        none fits. Green at $p \le 0.05$; when $p$ is the smallest the number of fake
+        cutoffs allows, the verdict says so and suggests a smaller step.
+  \item[Uncertainty bands] Jackknife (leave each donor out) or bootstrap ($B$ refits,
+        100 by default). The verdict gives the mean post-cutoff effect and on what
+        share of post-cutoff dates the band excludes zero; green at half or more.
+  \item[Run all units] Fits every unit as if it had been treated, with all the others as
+        donors, and ranks them by the size of their post-cutoff effect. The treated unit
+        should stand out: green when it is in the top tenth.
+\end{description}
+
+\screenshot{ui_scm_placebo.png}{Placebo in space for the ULEZ: no donor's placebo effect
+comes near MY1's, so $p = 1/54 = 0.019$, the smallest 53 placebos allow. Every placebo is
+fitted by the same estimator, so this comparison is fair even where the pre-period fit
+is not informative.}{fig:scmplacebo}
+
+\screenshot{ui_scm_bands.png}{Jackknife bands: the effect is recomputed 53 times, leaving
+out one donor each time. The mean post-cutoff effect is $-18.15$~\ugm{}, and the band
+excludes zero on 55\,\% of the post-cutoff dates (the verdict says ``days''; the panel is
+monthly).}{fig:scmbands}
+
+% ============================ 12. DATA ========================================
+\chapter{Getting data in}\label{ch:data}
+
+\section{Input format}\label{sec:input}
+\emph{Open Data\ldots} (Ctrl+O) reads CSV and other delimited text
+(\code{.csv}, \code{.tsv}, \code{.txt}, \code{.dat}; comma, semicolon, tab, bar or space, a
+decimal comma, UTF-8 or a Windows code page --- each told from the file), any of them
+gzipped, Excel (\code{.xlsx}, \code{.xlsm}, \code{.xls}), Parquet, Feather and JSON. The table needs:
+\begin{itemize}\nosep
+  \item its times: a column named \code{date}, \code{datetime}, \code{time},
+        \code{timestamp} (any case, or their Chinese words), a date
+        column with a time-of-day column beside it, or \code{year}, \code{month},
+        \code{day} (and \code{hour}) columns;
+  \item the pollutant(s), numeric;
+  \item the meteorology and any other predictors, numeric.
+\end{itemize}
+The times may be written in any of the usual ways: ISO~8601, \code{31/01/2020 13:00}
+(day first) or \code{01/31/2020} (month first) --- the order told from the values, and
+said under the file's name when they do not tell ---, \code{31.01.2020},
+Chinese year--month--day writing, \code{2020013113}, Unix seconds or Excel's serial days. How they
+were read is shown under the file's name. One row per timestamp, hourly or coarser. A
+table of several sites in one file belongs in the SCM Studio, or in a script with
+\code{nm\_do\_all\_multisite}. A table without times is refused, with a pointer to the SCM
+Studio for panel data. Missing values are allowed: rows without a target are dropped,
+missing predictors filled (Section~\ref{sec:prepare}).
+
+\section{The clock: time zone}\label{sec:clock}
+The \emph{Time zone} under the file's name is the clock the analysis keeps and its
+figures and tables show: the site's local time, or UTC (the default). Times written
+without an offset are taken to be on it, as a monitoring network's local-time record is;
+times written with one (\code{+08:00}, \code{Z}) are put on it. The hour and the weekday
+the model learns from are then the site's own --- a rush hour stays at its hour through
+summer time. Meteorology and trajectories fetched on UTC (the Data and Transport Studios)
+are put on this clock as they are joined, so an hour of ERA5 meets the hour of the
+measurement it belongs to. The choice is kept for the next session; changing it reads the
+open file again. In R, \code{nm\_read\_time\_series(path, zone = \ldots)} reads a
+table the same way.
+
+\section{Data Studio: UK air quality and meteorology}\label{sec:datastudio}
+\emph{Get UK data} (Ctrl+D) assembles a model-ready table without leaving the app
+(Figure~\ref{fig:datastudio}):
+\begin{enumerate}\nosep
+  \item \textbf{Air quality.} Choose a network --- AURN (the national network, about 210
+        sites), AQE, SAQN, WAQN, NI or LMAM (locally managed), about 1500 stations in
+        all --- tick the pollutants (\PMtwo{}, \NOtwo{} and O\textsubscript{3} by
+        default), and \emph{Find stations}. The \tab{Stations} tab lists the sites that
+        measure them; search by name or official code (\code{MAN3} is Manchester
+        Piccadilly) and select one.
+  \item \textbf{Date range.} The archives are whole calendar years, from each station's
+        opening; selecting a station snaps the range to its record.
+  \item \textbf{Meteorology.} Open-Meteo's ERA5 archive (no key), or the Copernicus CDS
+        (needs the \code{ecmwfr} R package and a CDS key, set with
+        \code{ecmwfr::wf\_set\_key}). Open-Meteo adds \code{t2m},
+        \code{d2m}, \code{rh2m}, \code{sp}, \code{tcc}, \code{tp}, \code{ssrd},
+        \code{ws}, \code{wd}, \code{u10} and \code{v10} --- names the \emph{Columns} box
+        recognises as meteorology. They come on UTC and are put on the window's clock
+        (Section~\ref{sec:clock}) as they are joined.
+  \item \textbf{Fetch \& merge} downloads the hourly measurements and the meteorology for
+        the site's coordinates and joins them on the hour. \tab{Preview} and
+        \tab{Table} show the result; \emph{Save merged CSV\ldots} writes it and
+        \emph{Send to main window} opens it there.
+\end{enumerate}
+The archives are the openair \code{.RData} files R's \code{importUKAQ()} reads, read by
+the R package (\code{nm\_fetch\_ukaq\_measurements}), so the data match an openair
+workflow. The Data Studio needs an internet connection; a table sent from it is held in
+memory, and the command log says so rather than writing a \code{nm\_read\_time\_series} it
+could not repeat.
+
+\screenshot{ui_data_studio.png}{The Data Studio before a search: network, pollutants,
+date range and meteorology source on the left; the station table, preview and merged
+table on the right.}{fig:datastudio}
+
+\section{Transport Studio: back-trajectory predictors}\label{sec:transport}
+Local meteorology does not say where the air came from. The Transport Studio turns
+HYSPLIT back-trajectories into predictors that do, and joins them onto the table
+(Figure~\ref{fig:transport}). Its panel has two pages: \emph{Trajectories}, for files
+already made, and \emph{HYSPLIT}, for running them.
+
+\paragraph{Trajectory files.} \emph{Add files\ldots} takes existing HYSPLIT
+\code{tdump} files (no HYSPLIT installation is needed to read them). \emph{Site name}
+tags the result with a \code{site} column, so batches for several receptors, built one
+at a time, each fill only their own site's rows. \emph{Null trajectories shorter than}
+(72~h) blanks trajectories that stopped early because the meteorology ran out or the air
+left the domain, which would otherwise pass for short-range transport.
+
+\paragraph{Source regions.} Optional regions, as bounding boxes (name, lon/lat min and
+max) or polygons from GeoJSON or Shapefile files (\code{geo} extra). Each adds a
+residence-time feature: the fraction of the trajectory spent inside. Overlapping regions
+each count an endpoint inside both.
+
+\paragraph{Features.} Every trajectory becomes one row of: \code{traj\_n\_endpoints} and
+\code{traj\_age\_max\_h} (quality: how far back it reached), \code{traj\_dist\_km}
+(straight-line reach), \code{traj\_pathlen\_km}, \code{traj\_speed\_kmh},
+\code{traj\_inflow\_deg} (bearing from the receptor to the origin),
+\code{traj\_height\_mean} and \code{traj\_height\_min}, one
+\code{traj\_resid\_}\emph{region} per region, and --- where the \code{tdump} carries
+them --- along-path rainfall, mixing depth, humidity, pressure and temperature.
+
+\paragraph{HYSPLIT (advanced).} With a local \code{hyts\_std}, the studio can run the
+trajectories itself, on its \emph{HYSPLIT} page, for a table of receptors, at a chosen
+height, hours back and time step, with GDAS1 meteorology it downloads or ARL files already
+on disk. The features are built with the source regions set on the \emph{Trajectories}
+page.
+
+\paragraph{Joining.} \emph{Send to main window} joins the features onto the open table:
+each row takes the latest trajectory that has \emph{already arrived}, within one release
+interval --- a nearest-time join would give 04:00 the 06:00 trajectory, air that has not
+yet arrived --- and the new \code{traj\_*} columns are ticked as predictors. The
+trajectories' times, UTC as HYSPLIT writes them, are put on the window's clock first
+(Section~\ref{sec:clock}); the studio is given the table's times in UTC to start them from.
+
+\screenshot{ui_transport.png}{The two days of \code{tdump} files that ship with \nm{},
+built for receptor MY1: 9 features for 8 receptor times, released every six hours.
+Inflow turns from the east (80$^\circ$) to the west (270$^\circ$) over 1--2 January
+2020.}{fig:transport}
+
+\caution{Trajectories released every six hours are constant over six hourly rows. Under a
+random split a tree model uses them as a time stamp and its test $R^2$ is inflated
+(Section~\ref{sec:split}). Judge a transport-aware model with \code{month\_ts}. To split
+\PMtwo{} into local-weather and transport contributions, give the meteorological
+decomposition two groups, \code{local} and \code{transport}
+(Section~\ref{sec:metdecomp}).}
+
+\section{Polar plot: where a pollutant comes from}\label{sec:polar}
+\tab{Analysis $\rightarrow$ Polar Plot\ldots} draws a variable of the open table by wind
+direction and speed, as openair's \code{polarPlot} does (Figure~\ref{fig:polar}): its
+mean, median, 95th percentile or maximum in bins of 10$^\circ$ of direction and of speed,
+on a compass, north at the top. The wind columns are found by name (\code{ws} and
+\code{wd}), else made from \code{u10} and \code{v10}, and can be chosen. In a script:
+\code{nm\_plot\_polar(df, target = "NO2", ws\_col = "ws", wd\_col = "wd")} in R.
+
+\screenshot{ui_polar.png}{Mean \NOtwo{} at MY1 by wind direction and speed: highest with
+winds from the south and south-west, lowest with winds from the north and
+north-east.}{fig:polar}
+
+% ============================ 13. EXPORT ======================================
+\chapter{Exporting and reproducing}\label{ch:export}
+
+\section{Tables and reports}
+\begin{description}
+  \item[Export result CSV] (Ctrl+E) The table behind the current tab: the loaded data on
+        \tab{Data}, the statistics on \tab{Model}, the normalised series with its
+        quantiles, the decomposition, every rolling window, the multi-scale series, the
+        partial-dependence values.
+  \item[HTML report] The current tab's result as one self-contained HTML file --- figures
+        embedded, no scripts or external links --- with a summary of the model and the
+        result, and its provenance: \nm{}'s version, the time, the platform and R
+        version, the host and user names, the shape and hash of the data, the panel's
+        settings and their hash, and the seed. Remove the host and user names before
+        sharing a report if they should not travel with it.
+\end{description}
+
+\section{The command log}\label{sec:commandlog}
+Every step that decides a result --- opening a table, training, normalising,
+decomposing, a rolling run, a multi-scale run, partial dependence --- is written to
+\tab{View $\rightarrow$ Command Log\ldots} as the \nm{} call that does the same, with the
+arguments the window actually used. An entry is written only once its task has
+succeeded, from the call that was made, not from what the panel shows now.
+\emph{Copy} puts the log on the clipboard, \emph{Save as Script\ldots} (also \tab{File
+$\rightarrow$ Save Session as Script\ldots}) writes it as an R script that repeats the
+session, and \emph{Clear} empties it.
+
+\screenshot{ui_command_log.png}{The Command Log after this manual's session, its last
+entries in view: the multi-scale run and the partial dependence, as the calls that
+repeat them.}{fig:commandlog}
+
+The session behind this manual's figures saves as (the emission decomposition, the
+multi-scale and partial-dependence calls left out):
+\begin{lstlisting}[language=R]
+# 21:32:48  Load example: London Marylebone Road NO2 (2020)
+df <- my1
+
+# 21:33:07  Train model
+res <- nm_build_model(df, target = "NO2", backend = "lightgbm",
+                      covariates = c("ws", "wd", "temp", "RH", "atmos_pres", "blh",
+                                     "tcc", "tp", "ssrd", "date_unix", "day_julian",
+                                     "weekday", "hour"),
+                      split_method = "random", train_fraction = 0.75,
+                      model_config = list(n_trials = 10), seed = 7654321)
+df_prep <- res$df_prep
+model <- res$model
+
+# 21:34:58  Normalise
+normalised <- nm_normalise(df_prep, model,
+                           resample_vars = c("ws", "wd", "temp", "RH", "atmos_pres",
+                                             "blh", "tcc", "tp", "ssrd"),
+                           n_samples = 300, seed = 7654321,
+                           return_quantiles = c(0.05, 0.25, 0.75, 0.95))
+
+# 21:46:18  Decompose
+decomposition <- nm_decompose("meteorology", df = df_prep, model = model,
+                              target = "value",
+                              covariates = c(...the same 13...),
+                              n_samples = 100, seed = 7654321,
+                              groups = list(Wind = c("ws", "wd"),
+                                            `Temperature and humidity` = c("temp", "RH"),
+                                            `Boundary layer and pressure` = c("atmos_pres", "blh"),
+                                            `Sky and rain` = c("tcc", "tp", "ssrd")))
+
+# 21:47:17  Rolling normalisation
+rolled <- nm_rolling(df_prep, model = model, covariates = c(...),
+                     resample_vars = c(...the nine...),
+                     window_days = 14, rolling_every = 7, n_samples = 50,
+                     seed = 7654321)
+\end{lstlisting}
+Run again with \code{Rscript}, or \code{source()} in R, it gives the same model and the
+same results: every call carries its seed, and the LightGBM search runs a fixed number of
+trials rather than for a time.
+
+\section{Figures for publication}\label{sec:print}
+A figure on screen is drawn at the tab's size; shrunk into a journal's 89~mm column its
+lettering shrinks with it. \emph{For print\ldots}, on every figure's toolbar, lays the
+figure out again at the size the journal prints it, each text at the size its guide gives
+that kind of text --- a title, an axis label, a tick label, a legend --- with the margins
+and the ticks worked out anew for that size, not scaled to it (Figure~\ref{fig:print}):
+\begin{description}\nosep
+  \item[Journal] Elsevier, Nature, Copernicus (ACP, AMT, \ldots) or ACS (ES\&T), each with
+        what its own artwork guide asks, and a link to that guide.
+  \item[Width] The journal's columns (Nature 89 or 183~mm; Elsevier 90, 140 or 190~mm;
+        ACS 3.33 or 7~in; Copernicus at least 80~mm), or a width of your own. A figure of
+        one column of panels starts at the narrowest, panels side by side at the widest.
+  \item[Height] As the figure needs --- its own proportion, raised until every panel has
+        at least 12~mm for its data, within the journal's greatest height --- or set.
+  \item[Panel labels] None, a~b~c, (a)~(b)~(c), A~B~C or (A)~(B)~(C), bold or not, from any
+        letter (a figure that is panels c and d of a composite starts at c); each column of
+        panels has its letters in a line.
+  \item[Line width, Marker size] The data lines' stroke; a time series takes round
+        markers when the size is raised. Reference lines keep theirs.
+  \item[Legend] Where it sits (or drag it), its text size, its columns, its frame. A legend
+        laid out in a row wider than the printed figure is given fewer columns.
+  \item[Formulas] Written as chemistry writes them: NO$_2$, PM$_{2.5}$, SO$_4^{2-}$.
+  \item[Titles] The figure's and the panels' titles are left to the caption, as journals
+        ask; ticked, they are drawn.
+  \item[Raster resolution] 300, 600 or 1200~dpi, for TIFF and PNG.
+\end{description}
+Under the settings, the checks read the figure as it is laid out against the journal's
+guide: its width and height, its smallest text and its smallest sub- or superscript
+(Nature asks for 5~pt at least and 7~pt at most, Elsevier 7~pt, ACS 8~pt), the face it is
+drawn in (Arial or Helvetica where the guide names them), tick labels that run into one
+another, and how many panels it has (ACS: four at most); a check the figure fails is shown
+in red, and all are read again as the settings change. The preview fits the window, or
+shows the figure at its actual printed size. On the preview, double-click a title, an axis
+label or a panel letter to edit its text and size, a tick's numbers to size and turn them
+(and give that tick a text of its own), the legend to place it, or a colour bar to put it
+on another side of its panel; drag the legend or a colour bar where it reads best.
+\emph{Save\ldots} writes the formats the journal takes --- PDF, EPS or SVG with the text
+kept as editable text and the fonts embedded, TIFF or PNG at the resolution chosen --- at
+exactly the size shown, on a white page. While the dialog is open the figure is in the
+report's language (File $\rightarrow$ Report Language). When it closes the figure goes back
+to its tab as it was; the journal, width, panel labels, formulas and resolution are kept
+for the next figure. Check the journal's current guide before submitting.
+
+\screenshot{ui_print.png}{The normalised series laid out for a Nature double column:
+183~mm wide, its panels lettered, beside what Nature's guide asks of it --- a subscript
+at 4.9~pt, below the 5~pt Nature asks, is the one check it fails: Nature's 7~pt ceiling
+leaves no room for more.}{fig:print}
+
+\section{Saving and reopening a session}\label{sec:saved}
+\tab{File $\rightarrow$ Save Results\ldots} (Ctrl+S) writes the session to one file
+(\code{.normet}): the table, the panel's settings, the model, every step's result and the
+command log. \tab{Load Results\ldots} reads one back into the window as it was --- each
+result is handed to its step's own handler, so its tab, verdict and figure are drawn again
+--- and a notice says what was restored. After each step that finishes, the window also
+keeps the session as \code{\textasciitilde/.normet/last\_session.normet};
+\tab{Reopen Last Session} reads it, should the window have been closed, or have crashed,
+before the results were saved. A session file is a Python pickle, with the R models'
+folders inside it, so it opens on another machine: open only one you or the window wrote.
+
+\tab{File $\rightarrow$ Load Session Script\ldots} runs a script the command log wrote
+(Section~\ref{sec:commandlog}) and brings its results into the window the same way: its
+table, model and results, and the panel set from the calls it made --- read by R's own
+parser, before it runs. The script is R and runs as it is written, in R, from the folder
+it was saved in (so a table it reads by a relative path is found); the window asks
+first.
+
+\section{A Methods paragraph}\label{sec:methods}
+\tab{File $\rightarrow$ Methods Paragraph\ldots} writes what the session ran as a paper's
+Methods says it, ready to copy (Figure~\ref{fig:methods}): the record (its length, span and
+step), the model (backend, search, predictors, split and seed) and its held-out fit, then
+each step run --- the normalisation's draws and resampled variables, the decomposition, the
+rolling windows, the multi-scale widths, the partial-dependence variables --- with the
+references the methods rest on. It is written from each step's call as it ran, not from
+the panel as it stands, and in the window's language. Check it against what you did.
+
+\screenshot{ui_methods.png}{The Methods paragraph of this manual's session: the record,
+the LightGBM model and its held-out fit, and each step that was run, with its
+references.}{fig:methods}
+
+\section{Configurations and history}\label{sec:config}
+\tab{File $\rightarrow$ Save Config\ldots} writes every setting of the panel to JSON ---
+target, predictors, backend, split, budget, estimators, seed, and every step's settings
+--- and \tab{Load Config\ldots} sets the panel from one; the data are not part of it.
+\tab{File $\rightarrow$ Run History\ldots} lists every run with its time, task, target, backend, rows and a
+detail (the held-out $R^2$ for a training run, the samples for a normalisation).
+
+% ============================ 14. ASSISTANT ===================================
+\chapter{The Assistant}\label{ch:assistant}
+
+The Assistant is a language model working in the window. It is open on the right when
+\nm{} starts; \tab{View $\rightarrow$ Assistant} (Ctrl+Shift+A) closes it and opens it
+again. It reads what the window holds --- the table, the model's held-out fit, the
+normalised series, the decomposition --- as \nm{}'s own readings of them, in text, and
+runs the window's steps the way their buttons do, so what it does appears on screen as
+your own runs do and goes into the command log.
+
+The conversation reads as a chat does: your messages on the right, the replies as their
+Markdown reads (code shaded, tables ruled), each tool the Assistant calls one quiet line
+--- its dot grey while it runs, green when it answered, red when it was refused, the
+refusal under it --- whose result opens with a click. Ctrl/Cmd $+$ and $-$ (or the wheel
+with the key held) size its text, and Ctrl/Cmd 0 resets it; the size is kept. You write
+in the rounded box at its foot, which grows with what you write: Enter sends, Shift+Enter
+starts a new line. \emph{Send}, \emph{Stop} and \emph{New chat}, which starts the
+conversation again, are inside the box.
+
+Where it helps most is what to model and how to read the result. It \emph{proposes} a
+target and predictors as a card with an \emph{Apply} button, saying what it left out and
+why; nothing in the panel changes until you click Apply, and it trains or normalises only
+once you have agreed. It is told to quote only numbers the tools return.
+
+\section{Full automatic}\label{sec:autoassistant}
+\emph{Auto}, beside \emph{Key\ldots}, lets the Assistant work without waiting for you.
+With it on, the target and predictors it proposes are applied at once (the
+card says \emph{Applied}), and it works the analysis through in the window's order ---
+the data, the set-up, training, normalisation, decomposition --- reading each result as it
+comes. A model that stops with steps left is told what is left and goes on, up to eight
+times; two reminders in a row that change nothing end the turn, as a model that cannot do
+a step should not circle. A call to the model that fails, or an empty reply, is made again,
+twice at most. Each reminder and retry is a line in the conversation. \emph{Stop} ends it
+at any time; the choice is kept for the next session, and \emph{What full automatic
+does\ldots} under the button's arrow says all this. A command-line agent has the set-up
+applied at once too, and works the chain as far as its own loop allows.
+
+\section{Choosing a model}
+\begin{description}
+  \item[An API model] named \code{provider:model}: \code{anthropic}, \code{openai},
+        \code{deepseek}, \code{gemini}, or a local \code{ollama} or \code{lmstudio}
+        server --- for example \code{anthropic:claude-sonnet-5-5},
+        \code{deepseek:deepseek-chat}, \code{ollama:qwen3:8b}. Its key is read from the
+        macOS keychain (\emph{Key\ldots} stores it there) or the provider's environment
+        variable (\code{ANTHROPIC\_API\_KEY}, \code{OPENAI\_API\_KEY},
+        \code{DEEPSEEK\_API\_KEY}, \code{GEMINI\_API\_KEY}), and written nowhere else.
+        Local servers need no key.
+  \item[A command-line agent] signed in to your own plan: Claude Code, Codex, Google
+        Antigravity's \code{agy} or GitHub Copilot, with the effort it thinks at. The
+        window serves its tools to the agent over MCP on 127.0.0.1 with a token drawn for
+        that window, and gives it no shell and no files of its own.
+\end{description}
+What the Assistant sends to a remote model is the readings --- summaries, statistics,
+captions --- and your messages, not the table.
+
+% ============================ 15. SCRIPTING ===================================
+\chapter{Scripting: R and MCP}\label{ch:script}
+
+\section{The R package}
+Everything the window does is a function of the \nm{} R package. The one-call pipeline
+prepares, trains and normalises:
+\begin{lstlisting}[language=R]
+library(normet)
+
+met <- c("ws", "wd", "temp", "RH", "atmos_pres", "blh", "tcc", "tp", "ssrd")
+predictors <- c(met, "date_unix", "day_julian", "weekday", "hour")
+
+res <- nm_do_all(my1, target = "NO2", backend = "lightgbm",
+                 covariates = predictors, resample_vars = met,
+                 n_samples = 300, n_cores = 4)
+nm_modStats(res$df_prep, res$model)   # training, testing and all rows
+\end{lstlisting}
+Step by step:
+\begin{lstlisting}[language=R]
+built <- nm_build_model(my1, target = "NO2", backend = "lightgbm",
+                        covariates = predictors, model_config = list(n_trials = 20))
+df_prep <- built$df_prep
+model <- built$model
+norm <- nm_normalise(df_prep, model, resample_vars = met, n_samples = 300,
+                     return_quantiles = c(0.025, 0.975))
+auto <- nm_normalise_auto(df_prep, model, resample_vars = met)   # stops when converged
+emi <- nm_decompose("emission", df = df_prep, model = model, covariates = predictors)
+mets <- nm_decompose("meteorology", df = df_prep, model = model,
+                     covariates = predictors,
+                     groups = list(wind = c("ws", "wd"), rest = met[-(1:2)]))
+roll <- nm_rolling(df_prep, model, covariates = predictors, resample_vars = met)
+curves <- nm_pdp(df_prep, model, var_list = c("ws", "temp"))
+\end{lstlisting}
+Further functions, all exported:
+\begin{center}\small
+\begin{tabular}{@{}p{7.4cm}p{8.0cm}@{}}
+\toprule
+Function & Does \\
+\midrule
+\code{nm\_do\_all\_unc}       & the pipeline over \code{n\_models} seeds, with confidence bands \\
+\code{nm\_do\_all\_multisite} & per-site pipelines \\
+\code{nm\_cv\_score}          & walk-forward cross-validation \\
+\code{nm\_run\_scm}, \code{nm\_scm\_all} & a synthetic control; every unit as if treated \\
+\code{nm\_placebo\_in\_space}, \code{nm\_placebo\_in\_time} & placebo tests \\
+\code{nm\_uncertainty\_bands}, \code{nm\_effect\_bands\_space} & jackknife/bootstrap and placebo bands \\
+\code{nm\_scm\_diagnostics}, \code{nm\_conformal\_effect\_interval} & fit diagnostics; conformal interval \\
+\code{nm\_bayesian\_scm}      & Bayesian SCM \\
+\code{nm\_detect\_events}, \code{nm\_anomaly\_scores} & events in a normalised series \\
+\code{nm\_plot\_normalise}, \code{nm\_plot\_decomposition\_stack}, \code{nm\_plot\_scm\_dashboard} & figures (ggplot2) \\
+\code{nm\_make\_run}, \code{nm\_save\_run}, \code{nm\_generate\_html} & provenance and reports \\
+\code{nm\_make\_cache}        & on-disk caching \\
+\bottomrule
+\end{tabular}
+\end{center}
+Each function's help page (\code{?nm\_normalise}) gives its arguments and an example, and
+the reference at \url{https://github.com/apai-sys/normet-r} lists them by area.
+
+\section{Rscript}\label{sec:cli}
+The package has no command of its own: an R script runs with \code{Rscript}, and the
+script the command log saves is one (Section~\ref{sec:commandlog}):
+\begin{lstlisting}[language=bash]
+Rscript normet_session.R        # repeats the window's session
+\end{lstlisting}
+\code{nm\_make\_run} and \code{nm\_save\_run} keep a result with its provenance (an
+\code{.rds} with a \code{.meta.json} beside it), which \code{nm\_generate\_html} turns into
+an HTML report.
+
+\section{AI assistants over MCP}\label{sec:mcp}
+\code{nm\_mcp\_server()} serves \nm{} to an AI assistant over the Model Context Protocol, on
+stdio:
+\begin{lstlisting}[language=bash]
+claude mcp add normet -- Rscript -e "normet::nm_mcp_server()"     # Claude Code
+# Claude Desktop, claude_desktop_config.json:
+#   {"mcpServers": {"normet": {"command": "Rscript",
+#                              "args": ["-e", "normet::nm_mcp_server()"]}}}
+\end{lstlisting}
+Its tools are normet-py's \code{normet-mcp}'s, by the same names: the assistant can list
+the examples, inspect a table, start do-all, decompose, SCM and cross-validation jobs,
+follow and cancel them, read a run or a result, draw a figure and write a report. Each job
+is an R script, \code{job.R}, run by \code{Rscript} in a folder of its own
+(\code{\$NORMET\_MCP\_HOME}, \code{\textasciitilde/.normet/mcp-r} by default), so the script
+is its record and runs again without the assistant. The assistant is given \nm{}'s
+readings of a table or result, not the data; files are read only under
+\code{\$NORMET\_MCP\_ROOTS} (your home folder by default). The server asks the assistant to
+propose the target, predictors and donor pool with its reasons, to let you confirm them,
+and to quote only the numbers the tools return. In R, \code{nm\_agent\_tool()} calls the
+same tools.
+
+% ============================ APPENDICES ======================================
+\appendix
+
+\chapter{Defaults}\label{app:defaults}
+\begin{center}\small
+\begin{longtable}{@{}p{4.9cm}p{4.3cm}p{5.8cm}@{}}
+\toprule
+Setting & Window & Library \\
+\midrule
+\endhead
+Split method / training fraction & random / 0.75 & random / 0.75 \\
+LightGBM search trials         & 20 & 50, each scored by 5-fold CV \\
+H2O time budget                & 60 s & 60 s \\
+H2O algorithms                 & GBM & GBM \\
+Seed                           & 7654321 & 7654321 \\
+Normalisation samples          & 300 & 300 \\
+Resampled variables            & recognised meteorology & every non-calendar predictor \\
+Quantiles                      & 5, 25, 75, 95\,\% when ticked & none \\
+Decomposition samples          & 300 & 300 \\
+Attribution                    & auto & sequential (Shapley with groups) \\
+Rolling window / step / samples & 14 d / 7 d / 100 & 14 d / 7 d / 300 \\
+Multi-scale widths             & 14 / 90 / 365 d & --- \\
+PDP grid points / range        & 50 / 1st--99th percentile & 50 / 1st--99th percentile \\
+\code{nm\_normalise\_auto}       & --- & batches of 100, P95 RSE $<$ 3\,\%, 3 in a row, $\le$ 5000 \\
+SCM backend                    & scm & scm \\
+Placebo in time: min pre / every & 30 / 7 steps & --- \\
+Uncertainty bands              & jackknife, $B = 100$ & jackknife, $B = 200$, 80\,\% donors \\
+\bottomrule
+\end{longtable}
+\end{center}
+
+\chapter{Where normet keeps its files}\label{app:files}
+\begin{center}\small
+\begin{tabular}{@{}ll@{}}
+\toprule
+What & Where \\
+\midrule
+Recent tables (eight)        & \code{\textasciitilde/.normet/gui\_recent\_files.json} \\
+Run history                  & \code{\textasciitilde/.normet/gui\_run\_history.jsonl} \\
+Window geometry, appearance, language, Assistant model, Rscript & the system's settings store (\code{apai-sys/normet-r-gui}) \\
+Font cache (installers)      & \code{\textasciitilde/.normet/matplotlib} \\
+The last session (after each step) & \code{\textasciitilde/.normet/last\_session.normet} \\
+Assistant API keys           & macOS keychain, service \code{normet} \\
+MCP jobs                     & \code{\$NORMET\_MCP\_HOME}, default \code{\textasciitilde/.normet/mcp-r} \\
+Each call into R, its tables and models & a temporary folder, removed when the window closes \\
+\bottomrule
+\end{tabular}
+\end{center}
+Nothing else is written unless you save it. The print dialog's choices, the Assistant's
+text size and the report's language are kept in the settings store with the rest.
+
+\chapter{Troubleshooting}\label{app:trouble}
+\begin{description}
+  \item[``The CSV must contain a 'date' column''] Rename the timestamp column to
+        \code{date}. Panel data (several units) belongs in the SCM Studio.
+  \item[The model's verdict is red] The predictors do not explain the target. Check that
+        the meteorology is ticked and on the same time base as the target, raise the
+        search trials, or try H2O. Normalising with a poor model returns little more than
+        the observed series.
+  \item[A meteorological column is not ticked] Only the names in
+        Section~\ref{sec:columns} are recognised; tick others by hand, on the \tab{Data}
+        and \tab{Normalise} pages.
+  \item[Exact Shapley values over $k$ features need $2^k$ normalisations] More than ten
+        variables by Shapley: give groups, or use sequential attribution.
+  \item[``\ldots{} not among the variables trained on''] A group (from a configuration
+        read in) names a variable the model was not trained on; the message names it.
+  \item[``R was not found''] Install R, or point the window at \code{Rscript} with
+        \tab{R $\rightarrow$ Locate Rscript\ldots}.
+  \item[``the normet package could not be loaded''] Install it in R:
+        \code{remotes::install\_github("apai-sys/normet-r")}; then
+        \tab{R $\rightarrow$ Check R environment}.
+  \item[``Neither lightgbm nor h2o loads in R''] \code{install.packages("lightgbm")}; H2O
+        also needs Java.
+  \item[Multi-scale asks for the normalisation first] It differences against the
+        normalised series.
+  \item[A multi-scale band was skipped] Its width leaves fewer than two windows on the
+        record; lower it.
+  \item[SCM: ``The pre-treatment fit is no check on this design''] A series shuffled out
+        of any relation to the donors fits the pre-period as well as the treated unit
+        does: there are too many donors for the pre-cutoff dates. Judge the effect by
+        Placebo in space and by other estimators, or use fewer, better-chosen donors or a
+        longer pre-period.
+  \item[SCM: ``Donor pool too small''] Tick at least two donors.
+  \item[SCM: no valid fake cutoffs] The post-period must fit before the true cutoff with
+        \emph{Min pre-period} steps before it; lower \emph{Min pre-period} or
+        \emph{Placebo every}, or move the cutoff later.
+  \item[A task runs too long] \emph{Cancel} stops it, and the R process running it. Lower
+        the samples, the search trials, or the number of variables decomposed.
+  \item[A notice asks for a step first] It names what is missing and carries the step on
+        a button; it goes by itself once the step has been taken.
+  \item[The window closed before the results were saved] \tab{File $\rightarrow$ Reopen
+        Last Session} brings back the session as it was after its last step.
+  \item[The parameter panel is missing] It is folded away: \emph{Expand Panel} on the
+        action bar, or Ctrl+B.
+  \item[A task failed] The dialog shows R's error; the full traceback is in the
+        \tab{Log} dock.
+  \item[macOS: ``Normet cannot be opened''] The app is unsigned: right-click it and choose
+        \emph{Open} once (Section~\ref{ch:install}).
+\end{description}
+
+\end{document}

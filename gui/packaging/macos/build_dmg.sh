@@ -15,6 +15,11 @@ DIST="$GUI_DIR/dist/macos"               # matches the workflow's gui/dist/macos
 APP_NAME="Normet"
 VERSION="$("$PY" -c 'import importlib.metadata as m; print(m.version("normet-r-gui"))')"
 
+# pandas' table readers are imported by name at run time, so they are only bundled if
+# the build env has them: fail here, not in the app.
+"$PY" -c 'import pyarrow, openpyxl, xlrd' 2>/dev/null || {
+    echo "ERROR: install the GUI's dependencies first:  $PY -m pip install -e gui"; exit 1; }
+
 echo "==> Building $APP_NAME $VERSION with $("$PY" --version 2>&1)"
 cd "$GUI_DIR"
 
@@ -29,7 +34,7 @@ cd "$GUI_DIR"
     --icon "$GUI_DIR/packaging/assets/normet.icns" \
     --osx-bundle-identifier "org.apai-sys.normet-r" \
     --collect-submodules normet_r_gui \
-    --add-data "$GUI_DIR/normet_r_gui/bridge.R:normet_r_gui" \
+    --add-data "$GUI_DIR/normet_r_gui/rpc.R:normet_r_gui" \
     --exclude-module tkinter \
     --exclude-module IPython \
     --exclude-module pytest

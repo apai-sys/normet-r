@@ -51,6 +51,7 @@ nm_placebo_in_space <- function(df, date_col, unit_col, outcome_col,
   # --- 0. Environment Setup ---
   log <- nm_get_logger("causal.placebo.space")
   scm_backend <- tolower(scm_backend)
+  uses_h2o <- .nm_scm_uses_h2o(scm_backend, list(...)$backend)
   cutoff_ts <- as.Date(cutoff_date)
 
   # Validate Aggregation Method
@@ -62,7 +63,7 @@ nm_placebo_in_space <- function(df, date_col, unit_col, outcome_col,
 
   # --- 1. Resource Initialization (Global) ---
   # Initialize H2O once here. Internal calls will attach to this instance.
-  if (scm_backend == "mlscm") {
+  if (uses_h2o) {
     nc_log <- if (is.null(n_cores)) "Auto" else n_cores
     mem_log <- if (is.null(max_mem_size)) "Auto" else max_mem_size
 
@@ -180,7 +181,7 @@ nm_placebo_in_space <- function(df, date_col, unit_col, outcome_col,
 
     results <- foreach::foreach(
       u = valid_donors,
-      .packages = c("glmnet", "quadprog", "stats"),
+      .packages = c("quadprog", "stats"),
       .export = c("internal_safe_run_scm", "nm_run_scm", "nm_scm", "run_one_donor"),
       .options.snow = opts
     ) %dopar% run_one_donor(u)
@@ -202,7 +203,7 @@ nm_placebo_in_space <- function(df, date_col, unit_col, outcome_col,
       pb$tick()
 
       # Safety check: Restart H2O if it crashed during previous iteration
-      if (scm_backend == "mlscm" && !h2o::h2o.clusterIsUp()) {
+      if (uses_h2o && !h2o::h2o.clusterIsUp()) {
         try(nm_init_h2o(n_cores = n_cores, max_mem_size = max_mem_size, verbose = FALSE), silent = TRUE)
         h2o::h2o.no_progress()
       }
@@ -212,7 +213,7 @@ nm_placebo_in_space <- function(df, date_col, unit_col, outcome_col,
 
       # Periodic Cleanup to prevent Out-Of-Memory errors
       counter <- counter + 1
-      if (scm_backend == "mlscm" && counter %% cleanup_every == 0) {
+      if (uses_h2o && counter %% cleanup_every == 0) {
         if (h2o::h2o.clusterIsUp()) {
           try(
             {
