@@ -39,6 +39,12 @@ _ICON = {
 
 hiddenimports = [
     "matplotlib.backends.backend_qtagg",
+    # Figure for Print saves through these, which matplotlib reaches by name at the
+    # save: the import scan does not see them (Save stopped: no module backend_pdf).
+    "matplotlib.backends.backend_agg",
+    "matplotlib.backends.backend_pdf",
+    "matplotlib.backends.backend_ps",
+    "matplotlib.backends.backend_svg",
     "PySide6.QtCore",
     "PySide6.QtGui",
     "PySide6.QtWidgets",
