@@ -257,10 +257,6 @@ normet-r-gui                         # or: normet-r-gui mydata.csv
 Its extra \code{geo} adds Shapely and pyshp, for source regions read from GeoJSON or
 Shapefile files in the Transport Studio.
 
-normet-py's window has one backend more, the Chronos-2 foundation model (it runs on
-PyTorch). The R package has no counterpart, so this window does not offer it
-(Section~\ref{sec:chronos}).
-
 % ============================ 3. METHODOLOGY =================================
 \chapter{Methodology}\label{ch:theory}
 
@@ -483,13 +479,6 @@ that value and the predictions are averaged. \code{pdp\_mean} is that average an
 \code{pdp\_std} the spread of the predictions about it. A curve describes the model, not
 the atmosphere; correlated predictors (temperature and boundary-layer height, say) are
 varied one at a time, into combinations the record may never contain.
-
-\section{Zero-shot de-weathering with Chronos-2}\label{sec:chronos}
-normet-py also de-weathers with Chronos-2, a pretrained time-series foundation model, with
-nothing trained: the meteorology enters through the model's covariate channel and is
-marginalised by resampling as in Equation~\eqref{eq:norm}. Chronos-2 runs on PyTorch,
-and the R package has no counterpart, so this window does not offer it, nor the donor
-ranking built on its embeddings in the SCM Studio. Use normet-py's window for either.
 
 \section{Synthetic control}\label{sec:scmtheory}
 A synthetic control estimates the effect of an intervention on one \emph{treated} unit
@@ -902,10 +891,6 @@ trees and is not by itself a problem; a poor held-out fit is. Before normalising
 moderate or poor model, try more predictors, more search trials, or H2O. The
 normalised series inherits the model's errors.
 
-\section{Chronos-2}\label{sec:chronosui}
-normet-py's window has a third backend here, \code{chronos-2}, with a device and a
-fine-tuning step of its own (Section~\ref{sec:chronos}). This window does not.
-
 % ============================ 7. NORMALISATION ================================
 \chapter{Normalising}\label{ch:normalise}
 
@@ -1067,7 +1052,7 @@ welcome's example card. It is laid out as the main window is: the panel on the l
 its pages chosen from a bar --- \tab{Data} (the panel data and its columns),
 \tab{Design}, \tab{Estimator}, \tab{Inference} --- result tabs on the right
 (\tab{Panel}, \tab{Fit}, \tab{Placebo Space}, \tab{Placebo Time}, \tab{Uncertainty},
-\tab{All Units}, \tab{Similarity}), and \emph{Export current tab data} above them. The
+\tab{All Units}), and \emph{Export current tab data} above them. The
 method is described in Section~\ref{sec:scmtheory}.
 
 This chapter's figures reproduce the ULEZ case study of the \nm{} paper: the London Ultra
@@ -1104,9 +1089,6 @@ of the paper's tables), else the first numeric one. Check all three.
   \item[Donor pool] Every other unit, ticked. Untick any unit the intervention could
         have reached, directly or by spill-over --- a donor that was itself treated
         biases the counterfactual towards the treated unit.
-  \item[Rank donors by similarity] normet-py ranks the donors by the similarity of
-        their Chronos-2 embeddings to the treated unit's; here the button is greyed out
-        (Section~\ref{sec:chronos}).
 \end{description}
 The \tab{Panel} tab plots the outcome of every unit with the treated one in red, and
 checks the panel: amber when more than 10\,\% of the date $\times$ unit cells are missing

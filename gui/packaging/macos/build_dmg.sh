@@ -36,6 +36,8 @@ cd "$GUI_DIR"
     --collect-submodules normet_r_gui \
     --add-data "$GUI_DIR/normet_r_gui/rpc.R:normet_r_gui" \
     --exclude-module tkinter \
+    --exclude-module torch \
+    --exclude-module chronos \
     --exclude-module IPython \
     --exclude-module pytest
 

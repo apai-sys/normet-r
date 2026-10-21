@@ -25,7 +25,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from . import _chronos, _settings, commandlog
+from . import _settings, commandlog
 from ._lists import _checked_items
 
 log = logging.getLogger(__name__)
@@ -87,7 +87,7 @@ class SessionMixin(QMainWindow):
         step = getattr(fn, "__name__", "")
 
         def commit() -> None:
-            if step == "build_model" or step == "load_estimator":
+            if step == "build_model":
                 self._ran.clear()  # a new model: what ran before was on the old one
             self._ran[step] = call
             if entry is not None:
@@ -123,8 +123,6 @@ class SessionMixin(QMainWindow):
             if len(row):
                 r = row.iloc[0]
                 info["test"] = {"r2": float(r["R2"]), "rmse": float(r["RMSE"]), "n": int(r["n"])}
-        if self.chronos_check is not None:
-            info["chronos_pct"] = float(self.chronos_check[0].get("pct_of_prediction", 0.0))
         return info
 
     def show_methods_paragraph(self) -> None:
@@ -245,12 +243,7 @@ class SessionMixin(QMainWindow):
                 item.setCheckState(
                     Qt.CheckState.Checked if item.text() in nvars else Qt.CheckState.Unchecked
                 )
-        # An explicit saved count wins; the fallback follows the restored backend,
-        # so a config written before chronos-2 existed does not push 300 forward
-        # passes onto it.
-        self.norm_samples.setValue(
-            c.get("norm_samples", _chronos.DEFAULT_SAMPLES if self._is_chronos() else 300)
-        )
+        self.norm_samples.setValue(c.get("norm_samples", 300))
         self.norm_cores.setValue(c.get("norm_cores", 0))
         self.norm_quantiles.setChecked(c.get("norm_quantiles", False))
         self.decom_method.setCurrentText(c.get("decom_method", "emission"))

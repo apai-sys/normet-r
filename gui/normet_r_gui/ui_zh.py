@@ -5,7 +5,7 @@ free text does. A text no template matches stays English; ``NORMET_UI_AUDIT``
 lists them.
 
 Data's own words stay as they are: column and variable names (PM2.5, t2m,
-date), backend and model names (flaml, lightgbm, chronos-2), file names, code.
+date), backend and model names (lightgbm, h2o), file names, code.
 
 TEXTS: menus, buttons, labels, tooltips, tabs, dialogs, notes, figure texts.
 INNER: phrases a name or a list holds, written where they stand.
@@ -100,7 +100,6 @@ TEXTS = {
     "Placebo Time": "时间安慰剂",
     "Uncertainty": "不确定性",
     "All Units": "全部单元",
-    "Similarity": "相似度",
     "Stations": "站点",
     "Preview": "预览",
     "Table": "表格",
@@ -188,7 +187,6 @@ TEXTS = {
     "Everything below needs a trained model.": "以下各步都需要已训练的模型。",
     "ML backend": "机器学习后端",
     "Backend": "后端",
-    "flaml = AutoML search (uses the time budget below). lightgbm = LightGBM with random hyperparameter search. chronos-2 = zero-shot foundation model; nothing is trained.": "flaml = AutoML 搜索（使用下方的时间预算）。lightgbm = 带随机超参数搜索的 LightGBM。chronos-2 = 零样本基础模型，无需训练。",
     "Split method": "划分方法",
     "How the train/test split is drawn.": "训练集/测试集的划分方式。",
     "Training fraction": "训练集比例",
@@ -200,32 +198,15 @@ TEXTS = {
     "Random hyperparameter-search trials (LightGBM backend).": "随机超参数搜索次数（LightGBM 后端）。",
     "Seed": "随机种子",
     "CPU cores": "CPU 核心数",
-    "Device": "设备",
-    "Where Chronos-2 runs. auto: CUDA, else Apple Silicon (mps), else CPU. Every Monte-Carlo sample is a full forward pass, so this is the difference between minutes and hours.": "Chronos-2 的运行设备。auto：优先 CUDA，其次 Apple Silicon（mps），否则 CPU。每个蒙特卡洛样本都是一次完整的前向计算，因此这决定了耗时是几分钟还是几小时。",
-    "Chronos-2 is zero-shot — nothing is trained, so there is no budget, search space or train/test split. The first run downloads about 500 MB of weights. Meteorology enters through the model's covariate channel; the ticked features below are what it sees.": "Chronos-2 是零样本模型——无需训练，因此没有时间预算、搜索空间或训练/测试划分。首次运行会下载约 500 MB 的权重。气象通过模型的协变量通道输入；下方勾选的特征就是它看到的内容。",
-    "Chronos-2 conditions on meteorology through its covariate channel. Tick at least one meteorological feature — without any, the run is a plain forecast, not a de-weathering.": "Chronos-2 通过协变量通道以气象为条件。请至少勾选一个气象特征——否则只是普通预测，而非去气象化。",
-    "Fine-tune": "微调",
-    "▶ Fine-tune Chronos-2": "▶ 微调 Chronos-2",
-    "Adapt the loaded checkpoint to this site's own record. The tuned weights replace the model for this session; Load Chronos-2 again to go back.": "用本站点自身的数据微调已载入的检查点。微调后的权重在本次会话中替换原模型；重新载入 Chronos-2 即可恢复。",
-    "Steps": "步数",
-    "Optimiser steps. On a CPU this takes a while; a GPU or Apple Silicon helps.": "优化器步数。在 CPU 上需要一段时间；GPU 或 Apple Silicon 会快很多。",
-    "lora: train small adapters, leave the base weights alone (needs peft). full: update all 119M parameters; overfits a single site's record more easily.": "lora：只训练小型适配器，不改动基础权重（需要 peft）。full：更新全部 1.19 亿个参数，更容易对单个站点的数据过拟合。",
     "▶ Train model": "▶ 训练模型",
     "Train a model to see its quality here.": "训练模型后，可在此查看模型质量。",
     "Train a model first.": "请先训练模型。",
     "Model trained — check its quality, then normalise.": "模型已训练——检查其质量，然后进行归一化。",
     "No model": "没有模型",
-    "Loading Chronos-2 — first run downloads the checkpoint…": "正在载入 Chronos-2——首次运行会下载检查点…",
-    "Fine-tuned — normalise again to use the tuned weights.": "已微调——重新归一化以使用微调后的权重。",
     "Backend: {s0}": "后端：{s0}",
     "backend: {s0}": "后端：{s0}",
     "features: {n0}": "特征：{n0}",
     "rows: {n0}": "行数：{n0}",
-    "Checkpoint: {s0}": "检查点：{s0}",
-    "device: {s0}": "设备：{s0}",
-    "context: {s0} h": "上下文：{s0} 小时",
-    "horizon: {s0} h": "预测步长：{s0} 小时",
-    "Covariates: {n0} met + 6 calendar": "协变量：{n0} 个气象 + 6 个日历",
     "No covariates": "没有协变量",
     "Tick only the recognised meteorological variables.": "只勾选已识别的气象变量。",
     "No meteorology": "没有气象变量",
@@ -435,9 +416,6 @@ TEXTS = {
     "Donor pool": "供体池",
     "Untreated units used to build the synthetic counterfactual.": "用于构建合成反事实的未处理单元。",
     "Tip: use a meteorologically normalised outcome (e.g. SO2wn from the Normalise step) so meteorological differences don't masquerade as effects.": "提示：使用气象归一化后的结果变量（如归一化步骤得到的 SO2wn），避免把气象差异误当成干预效应。",
-    "Rank donors by similarity (Chronos-2)": "按相似度排列供体（Chronos-2）",
-    "Rank donors by similarity (Chronos-2) to compare every unit's pre-period with the treated unit's.": "按相似度排列供体（Chronos-2），比较每个单元与处理单元在干预前的表现。",
-    "Embed every unit's outcome before the cutoff with Chronos-2 and rank the others by how alike their dynamics are to the treated unit's (cosine). Only the pre-period is read, so the effect cannot leak into the choice.": "用 Chronos-2 对每个单元干预前的结果进行嵌入，并按其动态与处理单元的相似程度（余弦）排序。只读取干预前的数据，因此效应不会影响供体的选择。",
     "Tick the top": "勾选前",
     "Tick the most similar units as the donor pool, untick the rest.": "将最相似的单元勾选为供体池，其余取消勾选。",
     "{n0} units compared on the record before {s0} only. Similar dynamics, not levels: the synthetic control still sets each donor's weight.": "仅比较 {s0} 之前的记录，共 {n0} 个单元。比较的是动态而非水平：每个供体的权重仍由合成控制确定。",
@@ -710,7 +688,6 @@ TEXTS.update(
         "Observed": "观测",
         "Normalised (deweathered)": "归一化（去气象化）",
         "Uncertainty band": "不确定性带",
-        "seeded (= observed)": "种子段（= 观测）",
         "Observed vs. Normalised concentration": "观测浓度与归一化浓度",
         # -- Decompose -----------------------------------------------------------------------
         "Meteorologically normalised {s0} — decomposed into time scales (baseline = {n0})": "{s0} 的气象归一化序列——按时间尺度分解（基准 = {n0}）",
@@ -773,8 +750,6 @@ TEXTS.update(
         "Effect is not clearly larger than at fake cutoffs (p = {n0}).": "效应并不明显大于伪干预日期处的效应（p = {n0}）。",
         "Mean post-cutoff effect {n0}; bands exclude zero on {n1} % of post-cutoff days ({s0}).": "干预后平均效应 {n0}；区间在 {n1} % 的干预后日期上排除零（{s0}）。",
         "Not enough successful donor-resampled fits to form bands — try the other method or more donors.": "成功的供体重采样拟合太少，无法构成区间——请换另一种方法或增加供体。",
-        "Units ranked by Chronos-2 embedding similarity": "按 Chronos-2 嵌入相似度排列的单元",
-        "Similarity to {s0} before the cutoff (cosine)": "干预前与 {s0} 的相似度（余弦）",
         "Pseudo-effects: every unit fitted as if treated": "伪效应：每个单元都当作处理单元拟合",
         "Post-cutoff mean effect (observed − synthetic)": "干预后平均效应（观测 − 合成）",
         "{s0} by unit ({n0} units)": "各单元的 {s0}（{n0} 个单元）",
@@ -850,8 +825,6 @@ TEXTS.update(
         "Open a table first: the polar plot is drawn from its wind columns.": "请先打开一张表：风向玫瑰图依据它的风速和风向列绘制。",
         "No session has been kept yet: one is after each step that finishes.": "还没有保存的会话：每完成一步都会保存一次。",
         "Session of {s0} restored: {s1}.": "已恢复 {s0} 的会话：{s1}。",
-        "Session of {s0} restored without its Chronos-2 model, which is not saved: Load Chronos-2 again to go on.": "已恢复 {s0} 的会话，但不含 Chronos-2 模型（模型不保存）：请重新载入 Chronos-2 以继续。",
-        "Load Chronos-2": "载入 Chronos-2",
         "Train a model first: the Methods paragraph says what the session ran.": "请先训练模型：方法段落写的是本次会话运行了什么。",
         "{s0} ran but made no table called df.": "{s0} 已运行，但没有生成名为 df 的表。",
         # -- saved sessions and scripts --------------------------------------------------
@@ -1021,11 +994,6 @@ INNER.update(
 # after each step): the texts it still showed in English that are the window's own words.
 TEXTS.update(
     {
-        "▶ Load Chronos-2": "▶ 载入 Chronos-2",
-        "Not on chronos-2: it reads the calendar off the target's own history.": "chronos-2 不适用：它从目标自身的历史中读取日历。",
-        "Needs the foundation extra: {s0}": "需要 foundation 扩展：{s0}",
-        "Chronos-2 needs the 'foundation' extra ({s0} not installed).": "Chronos-2 需要 'foundation' 扩展（未安装 {s0}）。",
-        "Install with: pip install normet[foundation]": "安装方法：pip install normet[foundation]",
         "Unknown error": "未知错误",
         # units a spin box writes after its number, and a window's width in days
         "d": "天",
@@ -1051,12 +1019,6 @@ TEXTS.update(
         "API key": "API 密钥",
         "Key for {s0}:": "{s0} 的密钥：",
         "Cancelled — the HYSPLIT run in progress was stopped.": "已取消——正在进行的 HYSPLIT 运行已停止。",
-    }
-)
-INNER.update(
-    {
-        "Chronos-2 needs the 'foundation' extra ({s0} not installed).": "Chronos-2 需要 'foundation' 扩展（未安装 {s0}）。",
-        "Install with: pip install normet[foundation]": "安装方法：pip install normet[foundation]",
     }
 )
 INNER.update(

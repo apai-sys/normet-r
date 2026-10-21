@@ -45,16 +45,16 @@ MANUAL_FILES = ("normet_manual.tex", "normet_manual_zh.tex", "build.sh")
 
 #: normet-py's GUI modules this window does not take: its own entry points stay, and
 #: the modules that write or read the session's code, which here is R (``commandlog``
-#: writes it, ``_script`` reads a saved script back), are this window's own.
-#: (``_chronos.py`` comes across for the names the window reads from it; Chronos-2, a
-#: PyTorch model, is not offered -- see r_patches.py.)
-SKIP_GUI = {"__init__.py", "__main__.py", "commandlog.py", "_script.py"}
+#: writes it, ``_script`` reads a saved script back), are this window's own. Nor is
+#: ``_chronos``: Chronos-2, a PyTorch model, has no R side (r_patches.py takes out what
+#: reads it).
+SKIP_GUI = {"__init__.py", "__main__.py", "commandlog.py", "_script.py", "_chronos.py"}
 
 #: normet-py's GUI files that are not code, copied byte for byte: the app's icon, which
 #: the window shows (About, every window's icon) from the package itself.
 GUI_ASSETS = ("assets/normet.png",)
 
-#: normet-py's GUI tests this window does not take: Chronos-2 is not offered here.
+#: normet-py's GUI tests this window does not take: Chronos-2 is not in it.
 SKIP_TESTS = {"test_gui_chronos.py"}
 
 #: normet-py's tests of its manual, which hold for this window's book as they are, and

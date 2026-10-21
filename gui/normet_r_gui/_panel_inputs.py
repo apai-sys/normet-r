@@ -240,7 +240,6 @@ class InputsMixin(QMainWindow):
         self.df_raw = df
         self.df_prep = None
         self.model = None
-        self.chronos_check = None
         self.trained_features = []
         self.results.clear()
         self._multiscale_raw = None

@@ -7,9 +7,7 @@ and figure are drawn again exactly as the run drew them. After each step the ses
 also kept, off the GUI thread, as ``~/.normet/last_session.normet``, the safety net for a
 window closed or crashed before its results were saved.
 
-A Chronos-2 checkpoint is not written: it is the pretrained model, half a gigabyte, and
-is loaded again from its cache with *Load Chronos-2*. A file of this kind is a pickle:
-open only one you or the window wrote.
+A file of this kind is a pickle: open only one you or the window wrote.
 """
 
 from __future__ import annotations
@@ -23,7 +21,7 @@ from typing import Any
 import pandas as pd
 from PySide6.QtWidgets import QFileDialog, QMainWindow, QMessageBox
 
-from . import _chronos, _settings
+from . import _settings
 
 log = logging.getLogger(__name__)
 
@@ -45,7 +43,6 @@ class SavedResultsMixin(QMainWindow):
     # ------------------------------------------------------------- writing
     def session_bundle(self) -> dict[str, Any]:
         """What a saved session holds."""
-        chronos = self._is_chronos()
         return {
             "version": VERSION,
             "saved": datetime.datetime.now().isoformat(timespec="seconds"),
@@ -53,8 +50,7 @@ class SavedResultsMixin(QMainWindow):
             "df_raw": self.df_raw,
             "config": self.get_config(),
             "df_prep": self.df_prep,
-            "model": None if chronos else self.model,
-            "chronos": chronos and self.model is not None,
+            "model": self.model,
             "trained_features": list(self.trained_features),
             "results": {k: v for k, v in self.results.items() if k in _STEPS},
             "multiscale": getattr(self, "_multiscale_raw", None),
@@ -161,7 +157,7 @@ class SavedResultsMixin(QMainWindow):
         except (OSError, SyntaxError, UnicodeDecodeError) as exc:
             QMessageBox.critical(self, "Not a session script", str(exc))
             return
-        if "build_model" not in calls and "load_estimator" not in calls:
+        if "build_model" not in calls:
             QMessageBox.critical(
                 self,
                 "Not a session script",
@@ -219,7 +215,6 @@ class SavedResultsMixin(QMainWindow):
             "config": config,
             "df_prep": made.get("df_prep"),
             "model": made.get("model"),
-            "chronos": False,
             "trained_features": trained,
             "results": results,
             "multiscale": multiscale if isinstance(multiscale, dict) else None,
@@ -268,22 +263,12 @@ class SavedResultsMixin(QMainWindow):
             self._restoring = False
         self._sync_enabled()
         when = bundle.get("saved", "")
-        if bundle.get("chronos"):
-            self.backend_combo.setCurrentText(_chronos.BACKEND)
-            self.notify(
-                f"Session of {when} restored without its Chronos-2 model, which is not "
-                "saved: Load Chronos-2 again to go on.",
-                key="restored",
-                kind="warn",
-                actions=(("Load Chronos-2", self._run_train),),
-            )
-        else:
-            steps = [s for s in ("train", *_STEPS, "multiscale") if s in self.results]
-            self.notify(
-                f"Session of {when} restored: "
-                + (", ".join(steps) if steps else "the table and its settings")
-                + ".",
-                key="restored",
-            )
+        steps = [s for s in ("train", *_STEPS, "multiscale") if s in self.results]
+        self.notify(
+            f"Session of {when} restored: "
+            + (", ".join(steps) if steps else "the table and its settings")
+            + ".",
+            key="restored",
+        )
         if isinstance(df, pd.DataFrame):
             log.info("Session restored: %d rows, %d results", len(df), len(self.results))

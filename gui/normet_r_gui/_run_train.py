@@ -1,8 +1,7 @@
-"""Training, Chronos-2 loading and the Model tab.
+"""Training and the Model tab.
 
-Step 1's run handler, what it does when the task comes back, and the two
-renderers for the Model tab (one for a trained estimator, one for Chronos-2's
-zero-shot check).  Mixed into :class:`~.main_window.MainWindow`.
+Step 1's run handler, what it does when the task comes back, and the Model tab's
+renderer.  Mixed into :class:`~.main_window.MainWindow`.
 """
 
 from __future__ import annotations
@@ -14,7 +13,6 @@ from PySide6.QtWidgets import QMainWindow
 
 from .nm import style as S
 
-from . import _chronos
 from ._constants import MET_DEFAULTS, TIME_VARS
 from ._lists import _fill_checklist
 
@@ -35,9 +33,6 @@ class TrainRunMixin(QMainWindow):
         target = self.target_combo.currentText()
         features = self._selected_features()
         backend = self.backend_combo.currentText()
-        if backend == _chronos.BACKEND:
-            self._run_load_chronos(target, features)
-            return
         if backend == "h2o":
             model_config = {
                 "max_runtime_secs": self.budget_spin.value(),
@@ -71,92 +66,6 @@ class TrainRunMixin(QMainWindow):
             # reports its trials from R).
             self.task_clock.expect(self.budget_spin.value())
 
-    def _run_load_chronos(self, target: str, features: list[str]) -> None:
-        """Bring up the zero-shot estimator instead of training one.
-
-        The checkpoint load pulls ~500 MB on a cold cache, so it goes through
-        the same worker thread every other long task uses.
-        """
-        met = [f for f in features if f not in TIME_VARS]
-        if not met:
-            self.notify(
-                "Chronos-2 conditions on meteorology through its covariate channel. "
-                "Tick at least one meteorological feature — without any, the run is a "
-                "plain forecast, not a de-weathering.",
-                key="chronos-covariates",
-                kind="warn",
-                actions=(("Met only", self._check_met_only),),
-            )
-            return
-        self._pending_features = features
-        self.statusBar().showMessage("Loading Chronos-2 — first run downloads the checkpoint…")
-        self.runner.submit(
-            f"load ({_chronos.BACKEND})",
-            _chronos.load_estimator,
-            self._train_done,
-            self._show_error,
-            self.df_raw,
-            target,
-            features,
-            met,
-            self._selected_device(),
-        )
-
-    def _render_chronos_model_tab(self) -> None:
-        """Report what the checkpoint is and whether it actually reacts to weather.
-
-        There is no parity plot or feature importance to show: nothing was
-        fitted and there is no held-out set. The covariate-sensitivity
-        diagnostic answers the question those plots exist to answer — is this
-        model's output driven by meteorology, or is it autoregressing?
-        """
-        import matplotlib.pyplot as plt
-
-        est = self.model
-        met = [f for f in self.trained_features if f not in TIME_VARS]
-        try:
-            shift = _chronos.sensitivity(est, self.df_prep, met)
-            verdict = _chronos.verdict_for(shift)
-            self.chronos_check = (shift, verdict)
-            header = ["Diagnostic", "Value"]
-            rows = [
-                ["Mean absolute median shift", f"{shift['mean_abs_shift']:.3f}"],
-                ["Max absolute median shift", f"{shift['max_abs_shift']:.3f}"],
-                ["As % of prediction", f"{shift['pct_of_prediction']:.2f}%"],
-            ]
-        except Exception as exc:
-            self.chronos_check = None
-            log.exception("Chronos-2 covariate sensitivity failed")
-            verdict = ("warn", f"Could not run the covariate-sensitivity check: {exc}")
-            header, rows = None, None
-
-        fig, ax = plt.subplots(figsize=(8, 3))
-        ax.text(
-            0.5,
-            0.5,
-            "Chronos-2 is zero-shot — no training curve,\n"
-            "no held-out parity plot, no feature importance.\n\n"
-            "The table reports how far the forecast moves when the\n"
-            "future meteorology is shuffled.",
-            ha="center",
-            va="center",
-            color=S.NEUTRAL,
-        )
-        ax.axis("off")
-
-        self.tab_model.show_result(
-            fig,
-            verdict=verdict,
-            lines=[
-                f"Checkpoint: {est.model_name}   |   device: {est.device}   |   "
-                f"context: {est.context_length} h   |   horizon: {est.prediction_length} h",
-                f"Covariates: {len(met)} met + 6 calendar   |   rows: {len(self.df_prep):,}",
-            ],
-            header=header,
-            rows=rows,
-        )
-        self._log_history("load", f"chronos-2 on {est.device}")
-
     def _train_done(self, result: tuple[pd.DataFrame, object]) -> None:
         self.df_prep, self.model = result
         self.trained_features = list(self._pending_features)
@@ -178,10 +87,7 @@ class TrainRunMixin(QMainWindow):
             self.trained_features + list(TIME_VARS),
             met or set(self.trained_features),
         )
-        if self._is_chronos():
-            self._render_chronos_model_tab()
-        else:
-            self._render_model_tab()
+        self._render_model_tab()
         self._sync_enabled()
         self.tabs.setCurrentWidget(self.tab_model)
         self.statusBar().showMessage("Model trained — check its quality, then normalise.")
@@ -348,28 +254,3 @@ class TrainRunMixin(QMainWindow):
         except Exception:
             pass
         return None
-
-    def _run_finetune(self) -> None:
-        """Adapt the loaded Chronos-2 checkpoint to this site's record (on a worker)."""
-        if not self._check_model() or not self._is_chronos():
-            return
-        self.runner.submit(
-            f"fine-tune ({self.ft_mode.currentText()}, {self.ft_steps.value()} steps)",
-            _chronos.finetune,
-            self._finetune_done,
-            self._show_error,
-            self.model,
-            self.df_prep,
-            self.ft_mode.currentText(),
-            self.ft_steps.value(),
-        )
-
-    def _finetune_done(self, estimator: object) -> None:
-        self.model = estimator
-        self.results.pop("normalise", None)
-        self.results.pop("decompose", None)
-        self._render_chronos_model_tab()
-        self._sync_enabled()
-        self.tabs.setCurrentWidget(self.tab_model)
-        self.statusBar().showMessage("Fine-tuned — normalise again to use the tuned weights.")
-        log.info("Fine-tuning finished")
