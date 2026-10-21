@@ -204,17 +204,27 @@ nm_plot_pdp_grid <- function(pdp_df, cols = 3, sharey = FALSE, title = NULL,
 #' @param decomp_df Data frame indexed by date (or with a date column) with
 #'        an \code{observed} column and one column per feature contribution.
 #' @param observed_col Character. Observed series column. Default "observed".
-#' @param exclude Character vector. Columns to skip. Default excludes
-#'        observed, model_pred, residual, base.
+#' @param exclude Character vector. Columns to skip. Default \code{NULL}: observed,
+#'        model_pred, residual and base, and the total each of
+#'        \code{\link{nm_decompose}}'s outputs is the sum of -- \code{emi_total} of the
+#'        emission method's parts (\code{emi_base}, the time terms and \code{emi_noise}),
+#'        \code{met_total} of the meteorology method's -- so that a part is not stacked
+#'        twice.
 #' @param title Character. Optional title.
 #' @param ... Additional arguments passed to ggplot2.
 #'
 #' @return A ggplot2 object.
 #' @export
 nm_plot_decomposition_stack <- function(decomp_df, observed_col = "observed",
-                                        exclude = c("observed", "model_pred", "residual", "base"),
+                                        exclude = NULL,
                                         title = NULL, ...) {
   decomp_df <- as.data.frame(decomp_df)
+  if (is.null(exclude)) {
+    # A total is the sum of the parts beside it: the meteorology method's observed is
+    # emi_total plus met_total's parts, the emission method's emi_total its own parts.
+    total <- if ("met_total" %in% colnames(decomp_df)) "met_total" else "emi_total"
+    exclude <- c("observed", "model_pred", "residual", "base", total)
+  }
   if (!"date" %in% colnames(decomp_df)) {
     # Check if rownames are dates
     if (inherits(try(as.Date(rownames(decomp_df)), silent = TRUE), "Date")) {
@@ -445,6 +455,101 @@ nm_plot_normalise <- function(result_df, observed_col = "observed",
     .time_scale(df$date) +
     ggplot2::labs(title = title %||% .say("Observed vs. Normalised concentration"), x = NULL,
                   y = .fl(.say(ylabel)), colour = NULL) +
+    nm_theme_normet() +
+    ggplot2::theme(legend.position = "top", legend.justification = "right")
+}
+
+#' Rolling Normalisation Plot
+#'
+#' The mean of \code{\link{nm_rolling}}'s windows, with a band of one standard
+#' deviation across the windows where two or more overlap, over the observed series
+#' when it is given -- the figure the normet window draws for a rolling run.
+#'
+#' @param rolled Data frame. \code{nm_rolling}'s output: \code{date} and one column per
+#'        window (\code{window_01}, ...); an \code{observed} column, where it has one,
+#'        is drawn behind.
+#' @param data Optional data.frame with \code{date} and \code{value} (the table the
+#'        model was trained on, \code{df_prep}): its values drawn as the observed series.
+#' @param title Character. Optional title.
+#' @param ylabel Character. Y-axis label. Default "Concentration".
+#' @param ... Additional arguments passed to ggplot2.
+#'
+#' @return A ggplot2 object.
+#'
+#' @examples
+#' \donttest{
+#' if (requireNamespace("lightgbm", quietly = TRUE)) {
+#'   covariates <- c("ws", "wd", "temp", "RH", "blh", "ssrd")
+#'   predictors <- c(covariates, "date_unix", "day_julian", "weekday", "hour")
+#'   build <- nm_build_model(
+#'     my1[1:600, c("date", "NO2", covariates)],
+#'     target = "NO2", covariates = predictors,
+#'     model_config = list(n_trials = 1, cv_folds = 2, nrounds = 15,
+#'                          num_leaves_min = 5, num_leaves_max = 15),
+#'     seed = 42, verbose = FALSE
+#'   )
+#'   rolled <- nm_rolling(
+#'     build$df_prep, model = build$model, covariates = predictors,
+#'     resample_vars = covariates, window_days = 7, rolling_every = 3,
+#'     n_samples = 3, n_cores = 1, verbose = FALSE
+#'   )
+#'   nm_plot_rolling(rolled, data = build$df_prep)
+#' }
+#' }
+#'
+#' @export
+nm_plot_rolling <- function(rolled, data = NULL, title = NULL, ylabel = "Concentration", ...) {
+  nm_require("ggplot2")
+  rolled <- as.data.frame(rolled)
+  if (!"date" %in% colnames(rolled)) stop("No 'date' column in rolled.")
+  windows <- grep("^window_", colnames(rolled), value = TRUE)
+  if (length(windows) == 0) stop("No window columns (window_01, ...) in rolled.")
+  rolled$date <- .as_time(rolled$date)
+  if (!"observed" %in% colnames(rolled) && !is.null(data) &&
+      all(c("date", "value") %in% colnames(data))) {
+    data <- as.data.frame(data)
+    data$date <- .as_time(data$date)
+    observed <- data[!duplicated(data$date), c("date", "value")]
+    names(observed)[2] <- "observed"
+    rolled <- merge(observed, rolled, by = "date", all.x = TRUE)
+  }
+  rolled <- rolled[order(rolled$date), , drop = FALSE]
+  values <- as.matrix(rolled[windows])
+  overlap <- rowSums(!is.na(values))
+  rolled$rolling_mean <- ifelse(overlap > 0, rowMeans(values, na.rm = TRUE), NA_real_)
+  sd <- apply(values, 1, function(v) if (sum(!is.na(v)) >= 2) stats::sd(v, na.rm = TRUE) else NA_real_)
+  rolled$band_low <- rolled$rolling_mean - sd
+  rolled$band_high <- rolled$rolling_mean + sd
+
+  has_obs <- "observed" %in% colnames(rolled)
+  n <- nrow(rolled)
+  df <- .break_at_gaps(rolled, "date",
+                       c("rolling_mean", "band_low", "band_high", if (has_obs) "observed"))
+  col <- nm_colours
+  lab_obs <- .say("observed")
+  lab_mean <- .say("rolling mean")
+  lab_band <- .say("\u00b11 SD across overlapping windows")
+
+  p <- ggplot2::ggplot(df, ggplot2::aes(x = date))
+  if (has_obs) {
+    p <- p + ggplot2::geom_line(ggplot2::aes(y = observed, colour = lab_obs),
+                                linewidth = .series_width(n), alpha = 0.4, na.rm = TRUE)
+  }
+  if (any(!is.na(df$band_low))) {
+    p <- p + ggplot2::geom_ribbon(
+      ggplot2::aes(ymin = band_low, ymax = band_high, fill = lab_band), alpha = 0.18,
+      na.rm = TRUE # no band where fewer than two windows overlap
+    ) + ggplot2::scale_fill_manual(values = stats::setNames(col[["modelled"]], lab_band), name = NULL)
+  }
+  p + ggplot2::geom_line(ggplot2::aes(y = rolling_mean, colour = lab_mean),
+                         linewidth = .series_width(n, emphasis = TRUE), na.rm = TRUE) +
+    ggplot2::scale_colour_manual(values = stats::setNames(c(col[["neutral"]], col[["modelled"]]),
+                                                          c(lab_obs, lab_mean)),
+                                 breaks = c(if (has_obs) lab_obs, lab_mean)) +
+    .time_scale(df$date) +
+    ggplot2::labs(title = title %||% .say("Rolling normalisation \u2014 mean of {s0} windows",
+                                          length(windows)),
+                  x = NULL, y = .fl(.say(ylabel)), colour = NULL) +
     nm_theme_normet() +
     ggplot2::theme(legend.position = "top", legend.justification = "right")
 }
