@@ -8,7 +8,7 @@ import logging
 import threading
 
 from PySide6.QtCore import QObject, QTimer, Signal
-from PySide6.QtWidgets import QFileDialog, QLabel, QMainWindow, QMessageBox
+from PySide6.QtWidgets import QFileDialog, QLabel, QMainWindow
 
 from . import _rpc
 
@@ -109,10 +109,3 @@ class RShellMixin(QMainWindow):
         except Exception:  # noqa: BLE001 - the window is closing either way
             pass
         _rpc.cleanup()
-
-    def _r_failed(self, message: str) -> bool:
-        """An error R raised that says what to install: shown as a notice. True if it was."""
-        if "could not find function" in message or "there is no package called" in message:
-            QMessageBox.warning(self, "R", message + "\n\nInstall it in R with: " + INSTALL_HINT)
-            return True
-        return False
