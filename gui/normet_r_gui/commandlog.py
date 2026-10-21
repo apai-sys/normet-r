@@ -201,6 +201,27 @@ def load_example(example: Any = None) -> Entry:
     return Entry(f"Load example: {example.title}", example.code, imports=example.imports)
 
 
+def exclude(lines: Sequence[str]) -> Entry:
+    """The rows the Data tab's Exclude box leaves out of every step: the table as loaded
+    (``df``) without them, as ``df_kept`` -- which the steps after it read. Cleared, every
+    row is kept again."""
+    if not lines:
+        return Entry("Keep every row", "df_kept <- df", notes=("The Exclude box was cleared.",))
+    from ._data_tab import parse_exclusions
+
+    spans = parse_exclusions(lines)
+    conds = "\n  | ".join(
+        f'(df$date >= as.POSIXct({literal(str(a))}, tz = "UTC") & '
+        f'df$date <= as.POSIXct({literal(str(b))}, tz = "UTC"))'
+        for a, b in spans
+    )
+    return Entry(
+        "Leave rows out",
+        f"left_out <- (\n  {conds}\n)\ndf_kept <- df[!left_out, , drop = FALSE]",
+        notes=tuple(f"left out: {line}" for line in lines),
+    )
+
+
 def from_memory(label: str) -> Entry:
     """A table the window was handed in memory (the Data Studio's), which no call reads."""
     return Entry(
@@ -222,10 +243,6 @@ _KNOWN: dict[str, tuple[str, str, tuple[str, ...]]] = {
     "rolling": ("Rolling normalisation", "rolled", ()),
     "pdp": ("Partial dependence", "pd_values", ()),
 }
-
-#: R's names for normet-py's arguments, where they differ (the session script read
-#: back, ``._script``, turns them round).
-R_ARGS = {"variables_resample": "resample_vars"}
 
 
 def _r_calls(fn: Callable[..., Any], args: Sequence[Any], kwargs: dict[str, Any], *, all_calls: bool) -> list:

@@ -228,7 +228,6 @@ TEXTS: dict[str, str] = {
         "h2o = H2O AutoML（使用时间预算；需要 Java 和 h2o R 包）。"
     ),
     "AutoML search time (H2O backend: max_runtime_secs).": "AutoML 搜索时间（H2O 后端：max_runtime_secs）。",
-    "Algorithms": "算法",
     "H2O AutoML time per fit (max_runtime_secs). Placebo tests refit many times — keep this small.": (
         "每次拟合的 H2O AutoML 时间（max_runtime_secs）。安慰剂检验会多次重新拟合——请设小一些。"
     ),
@@ -236,8 +235,4 @@ TEXTS: dict[str, str] = {
         "每次拟合的 LightGBM 随机搜索次数。安慰剂检验会多次重新拟合——请设小一些。"
     ),
     "Bayesian simplex SCM (MCMC) — gives credible bands.": "贝叶斯单纯形 SCM（MCMC）——给出可信区间带。",
-    "Chronos-2 is normet-py's foundation model (PyTorch); the R package has none.": (
-        "Chronos-2 是 normet-py 的基础模型（PyTorch），R 包中没有。"
-    ),
-    "Use normet-py's window for it.": "请使用 normet-py 的窗口。",
 }

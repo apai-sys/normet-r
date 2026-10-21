@@ -7,9 +7,7 @@ and figure are drawn again exactly as the run drew them. After each step the ses
 also kept, off the GUI thread, as ``~/.normet/last_session.normet``, the safety net for a
 window closed or crashed before its results were saved.
 
-A Chronos-2 checkpoint is not written: it is the pretrained model, half a gigabyte, and
-is loaded again from its cache with *Load Chronos-2*. A file of this kind is a pickle:
-open only one you or the window wrote.
+A file of this kind is a pickle: open only one you or the window wrote.
 """
 
 from __future__ import annotations
@@ -17,13 +15,14 @@ from __future__ import annotations
 import datetime
 import logging
 import os
+import re
 import threading
 from typing import Any
 
 import pandas as pd
 from PySide6.QtWidgets import QFileDialog, QMainWindow, QMessageBox
 
-from . import _chronos, _settings
+from . import _settings
 
 log = logging.getLogger(__name__)
 
@@ -32,6 +31,20 @@ VERSION = 1
 SUFFIX = ".normet"
 #: The steps whose result is a table handed back to its handler, in the order they ran.
 _STEPS = ("normalise", "decompose", "rolling", "pdp")
+
+
+def _window_names(res: pd.DataFrame) -> pd.DataFrame:
+    """A rolling result with its windows named as :func:`normet.rolling` names them
+    now (``window_01``, ...): sessions saved before held them as ``rolling_0``, and so on."""
+    from .nm import window_column
+
+    old = {
+        int(c[8:]): c for c in res.columns if isinstance(c, str) and re.fullmatch(r"rolling_\d+", c)
+    }
+    if not old:
+        return res
+    total = max(old) + 1
+    return res.rename(columns={c: window_column(i + 1, total) for i, c in old.items()})
 
 
 def last_session_path() -> str:
@@ -45,16 +58,15 @@ class SavedResultsMixin(QMainWindow):
     # ------------------------------------------------------------- writing
     def session_bundle(self) -> dict[str, Any]:
         """What a saved session holds."""
-        chronos = self._is_chronos()
         return {
             "version": VERSION,
             "saved": datetime.datetime.now().isoformat(timespec="seconds"),
             "label": self.file_label.text().split("\n")[0] if self.df_raw is not None else "",
-            "df_raw": self.df_raw,
+            # Every row as loaded: the config's exclusions leave the same ones out again.
+            "df_raw": self.df_loaded if self.df_loaded is not None else self.df_raw,
             "config": self.get_config(),
             "df_prep": self.df_prep,
-            "model": None if chronos else self.model,
-            "chronos": chronos and self.model is not None,
+            "model": self.model,
             "trained_features": list(self.trained_features),
             "results": {k: v for k, v in self.results.items() if k in _STEPS},
             "multiscale": getattr(self, "_multiscale_raw", None),
@@ -161,7 +173,7 @@ class SavedResultsMixin(QMainWindow):
         except (OSError, SyntaxError, UnicodeDecodeError) as exc:
             QMessageBox.critical(self, "Not a session script", str(exc))
             return
-        if "build_model" not in calls and "load_estimator" not in calls:
+        if "build_model" not in calls:
             QMessageBox.critical(
                 self,
                 "Not a session script",
@@ -219,7 +231,6 @@ class SavedResultsMixin(QMainWindow):
             "config": config,
             "df_prep": made.get("df_prep"),
             "model": made.get("model"),
-            "chronos": False,
             "trained_features": trained,
             "results": results,
             "multiscale": multiscale if isinstance(multiscale, dict) else None,
@@ -251,6 +262,8 @@ class SavedResultsMixin(QMainWindow):
                     res = results.get(step)
                     if res is None:
                         continue
+                    if step == "rolling":
+                        res = _window_names(res)
                     if step == "decompose":
                         method = "meteorology" if "met_total" in res.columns else "emission"
                         # The other method's first, so the one last run is the one shown.
@@ -268,22 +281,12 @@ class SavedResultsMixin(QMainWindow):
             self._restoring = False
         self._sync_enabled()
         when = bundle.get("saved", "")
-        if bundle.get("chronos"):
-            self.backend_combo.setCurrentText(_chronos.BACKEND)
-            self.notify(
-                f"Session of {when} restored without its Chronos-2 model, which is not "
-                "saved: Load Chronos-2 again to go on.",
-                key="restored",
-                kind="warn",
-                actions=(("Load Chronos-2", self._run_train),),
-            )
-        else:
-            steps = [s for s in ("train", *_STEPS, "multiscale") if s in self.results]
-            self.notify(
-                f"Session of {when} restored: "
-                + (", ".join(steps) if steps else "the table and its settings")
-                + ".",
-                key="restored",
-            )
+        steps = [s for s in ("train", *_STEPS, "multiscale") if s in self.results]
+        self.notify(
+            f"Session of {when} restored: "
+            + (", ".join(steps) if steps else "the table and its settings")
+            + ".",
+            key="restored",
+        )
         if isinstance(df, pd.DataFrame):
             log.info("Session restored: %d rows, %d results", len(df), len(self.results))
