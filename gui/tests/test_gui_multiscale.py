@@ -1,6 +1,6 @@
 """Tests for normet_r_gui._multiscale (pure pandas, no Qt/matplotlib needed).
 
-`normet.rolling` is mocked (returning hand-built ``window_<i>`` columns, as R names them) so
+`normet.rolling` is mocked (returning hand-built ``window_<i>`` columns) so
 these verify the aggregation/differencing/gating logic in isolation, the
 same convention used by test_analysis_decomposition.py for `normalise`.
 """
@@ -12,6 +12,7 @@ import pandas as pd
 import pytest
 
 from normet_r_gui import nm as normet
+from normet_r_gui.nm import window_column
 from normet_r_gui import _multiscale as ms
 
 
@@ -26,8 +27,8 @@ def _rolling_result(dates: pd.DatetimeIndex, n_windows: int, level: float) -> pd
     *level*, regardless of window mechanics)."""
     result = pd.DataFrame(index=pd.DatetimeIndex(dates, name="date"))
     result["observed"] = 1.0
-    for i in range(n_windows):
-        result[f"window_{i + 1:02d}"] = level
+    for i in range(1, n_windows + 1):
+        result[window_column(i, n_windows)] = level
     return result
 
 

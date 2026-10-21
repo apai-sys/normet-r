@@ -140,8 +140,9 @@ nm_rolling <- function(df,
   }
 
   # --- Calculate Zero-Padding Width ---
-  # e.g., if 150 windows, width=3 -> window_001, window_010, ...
-  pad_width <- nchar(as.character(length(start_dates)))
+  # Two digits at least, as normet-py names them (window_01, ...); wider where the
+  # count needs it (150 windows: window_001, window_010, ...), so the names sort in order.
+  pad_width <- max(2L, nchar(as.character(length(start_dates))))
   # Create a dynamic format string like "window_%03d"
   id_fmt <- paste0("window_%0", pad_width, "d")
 
