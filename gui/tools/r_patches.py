@@ -517,30 +517,18 @@ patch(
     'assert f"Version {normet.__version__}" in',
     'assert f"Version {normet.__version__} (R)" in',
 )
-# A rolling run's windows keep R's names (window_01, from 1), not normet-py's rolling_0.
+# The window's normet is the nm package: its window names are there, not in normet.analysis.
 patch(
-    "_run_analyse.py",
-    "rolling: R's window names",
-    'rolling_cols = [c for c in result.columns if c.startswith("rolling_")]',
-    'rolling_cols = [c for c in result.columns if c.startswith("window_")]',
-)
-patch(
-    "_multiscale.py",
-    "rolling: R's window names",
-    'cols = [c for c in res.columns if c.startswith("rolling_")]',
-    'cols = [c for c in res.columns if c.startswith("window_")]',
+    "_saved.py",
+    "window names from nm",
+    "    from .nm.analysis.rolling import window_column",
+    "    from .nm import window_column",
 )
 patch(
     "tests/test_gui_multiscale.py",
-    "rolling: R's window names (doc)",
-    "returning hand-built ``rolling_<i>`` columns",
-    "returning hand-built ``window_<i>`` columns, as R names them",
-)
-patch(
-    "tests/test_gui_multiscale.py",
-    "rolling: R's window names",
-    'result[f"rolling_{i}"] = level',
-    'result[f"window_{i + 1:02d}"] = level',
+    "window names from nm",
+    "from normet_r_gui.nm.analysis.rolling import window_column",
+    "from normet_r_gui.nm import window_column",
 )
 skip(
     "tests/test_progress.py",
@@ -1146,7 +1134,7 @@ passage(
     "assistant.py",
     "chronos: reading",
     "def chronos_reading(win: MainWindow) -> str:",
-    "def unstamp(text: str) -> str:",
+    "#: The box written in before its first turn",
     "",
 )
 

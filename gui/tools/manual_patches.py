@@ -209,12 +209,6 @@ patch(EN, "seed", r"""\paragraph{Reproducibility.} The draws are seeded (\code{s
 patch(EN, "groups", r"""\paragraph{Groups.} \code{groups=\{"local": met\_cols, "transport": traj\_cols\}} gives one""",
       r"""\paragraph{Groups.} \code{groups = list(local = met\_cols, transport = traj\_cols)} gives one""")
 patch(EN, "rolling", r"""\code{rolling} normalises the record window by window:""", r"""\code{nm\_rolling} normalises the record window by window:""")
-patch(EN, "rolling columns", r"""The result
-has one column per window, \code{rolling\_0}, \code{rolling\_1}, \dots; the window shows
-their mean, with the spread across overlapping windows.""", r"""The result
-has one column per window, \code{window\_01}, \code{window\_02}, \dots{} (numbered from 1),
-named so in the window's table and its export too; the window shows their mean, with the
-spread across overlapping windows.""")
 passage(EN, "no Chronos-2", r"""\section{Zero-shot de-weathering with Chronos-2}\label{sec:chronos}""",
         r"""\section{Synthetic control}\label{sec:scmtheory}""", "")
 patch(EN, "mlscm", r"""  \item[\code{mlscm}] ML-augmented SCM (\emph{experimental}): an AutoML model maps donor""",
@@ -754,9 +748,6 @@ patch(ZH, "seed", r"""\paragraph{可重复性。}抽样带有种子（默认 \co
 patch(ZH, "groups", r"""\paragraph{分组。}\code{groups=\{"local": met\_cols, "transport": traj\_cols\}} 为每个分组""",
       r"""\paragraph{分组。}\code{groups = list(local = met\_cols, transport = traj\_cols)} 为每个分组""")
 patch(ZH, "rolling", r"""\code{rolling} 逐窗口地归一化记录""", r"""\code{nm\_rolling} 逐窗口地归一化记录""")
-patch(ZH, "rolling columns", r"""结果每个窗口一列，\code{rolling\_0}、\code{rolling\_1}、……；窗口中显示""",
-      r"""结果每个窗口一列，\code{window\_01}、\code{window\_02}、……（从 1 起编号），窗口的表格及其
-导出也用这些列名；窗口中显示""")
 passage(ZH, "no Chronos-2", r"""\section{用 Chronos-2 零样本去气象化}\label{sec:chronos}""",
         r"""\section{合成控制}\label{sec:scmtheory}""", "")
 patch(ZH, "mlscm", r"""  \item[\code{mlscm}] ML 增广 SCM（\emph{实验性}）：一个 AutoML 模型在干预前时段把供体的""",
