@@ -1,16 +1,31 @@
 """Synthetic Control (SCM) Studio — counterfactual analysis on panel data.
 
-Mirror of normet-py's SCM Studio; every estimator/inference call goes to the
-normet R package through the bridge.  Same design language: parameter panel
-on the left (Data → Columns → Design → Estimator → Inference), result tabs
-on the right with verdict banners.
+The synthetic-control workflow has genuinely different inputs from the
+normalisation workflow (a long panel of many units instead of one site's
+time series), so it lives in its own window, in the same design language
+as the main one: parameter panel on the left (Data → Columns → Design →
+Estimator → Inference), result tabs on the right with verdict banners.
+
+Tabs
+----
+Panel          — outcome by unit, treated highlighted; balance check.
+Fit            — observed vs. synthetic + effect path + donor weights
+                 (``scm_dashboard``) with ``scm_diagnostics`` verdict.
+Placebo Space  — each donor treated as a pseudo-treated unit; permutation
+                 p-value and placebo bands (``placebo_in_space``).
+Placebo Time   — fake earlier cutoffs; event-time bands (``placebo_in_time``).
+Uncertainty    — jackknife / bootstrap effect bands (``uncertainty_bands``).
+All Units      — ``scm_all`` batch: post-cutoff ATT of every unit ranked.
 """
 
 from __future__ import annotations
 
 import logging
 import os
+from collections.abc import Callable
+from typing import Any
 
+import numpy as np
 import pandas as pd
 from PySide6.QtCore import QDate, Qt
 from PySide6.QtWidgets import (
@@ -27,33 +42,108 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QProgressBar,
     QPushButton,
-    QScrollArea,
     QSplitter,
     QTabWidget,
     QVBoxLayout,
     QWidget,
 )
 
-from ._scm_plots import (
-    DONOR_COLOR,
-    TREATED_COLOR,
-    plot_effect_with_bands,
-    plot_uncertainty_bands,
-    scm_dashboard,
+from .nm import style as S
+from .nm.utils._time import to_datetime_coerced
+
+from ._clock import TaskClock
+from ._lists import ALL_TIP, _toggle_all
+from ._widgets import (
+    CanvasTab,
+    NoWheelComboBox,
+    NoWheelSpinBox,
+    hint_label,
+    run_button,
 )
-from ._widgets import CanvasTab, NoWheelComboBox, NoWheelSpinBox, hint_label, run_button
 from .workers import TaskRunner
 
 log = logging.getLogger(__name__)
 
+TREATED_COLOR = S.MODELLED
+DONOR_COLOR = S.NEUTRAL
+
 BACKEND_TIPS = {
     "scm": "Augmented SCM (ridge) — the recommended default.",
-    "mlscm": "ML-augmented SCM (LightGBM/H2O) — experimental, slower.",
+    "mlscm": "ML-augmented SCM (AutoML) — experimental, slower.",
     "abadie": "Classic Abadie SCM (simplex weights).",
     "did": "Difference-in-differences baseline.",
     "mcnnm": "Matrix-completion (MC-NNM) estimator.",
     "robust": "Robust SCM (de-noised donor matrix).",
+    "bayesian": "Bayesian simplex SCM (MCMC) — gives credible bands.",
 }
+
+
+#: A pre-cutoff R² a series unrelated to the donors can reach is no evidence: at or
+#: above the verdict's own "moderate" line, the fit is not read as a check.
+NO_CHECK_R2 = 0.5
+
+
+def shuffled_pre_r2(fit: Callable[..., Any], design: dict, seed: int = 7_654_321) -> float:
+    """The pre-cutoff R² *fit* gives the treated unit's pre-cutoff values shuffled in time.
+
+    Shuffled, the series keeps its level and spread but has no relation to the
+    donors left, so what R² the estimator still reaches is what this design gives
+    for nothing. It rises with the number of donors for the pre-cutoff dates, for
+    any estimator that weights donors to fit the pre-period, and fastest for
+    augmented SCM ("scm"): its ridge model is fitted on the units' pre-cutoff
+    values, the treated unit's own among them, and with as many donors as dates it
+    reproduces almost any pre-period -- 0.997 on the bundled ULEZ panel (53 donors,
+    27 months), against -0.05 with 5 donors.
+    """
+    from .nm.causal import scm_diagnostics
+
+    d = design["df"].copy()
+    outcome = design["outcome_col"]
+    pre = (d[design["unit_col"]] == design["treated_unit"]) & (
+        pd.to_datetime(d[design["date_col"]]) < pd.Timestamp(design["cutoff_date"])
+    )
+    pre &= d[outcome].notna()
+    d.loc[pre, outcome] = np.random.default_rng(seed).permutation(d.loc[pre, outcome].to_numpy())
+    result = fit(
+        df=d,
+        date_col=design["date_col"],
+        unit_col=design["unit_col"],
+        outcome_col=outcome,
+        treated_unit=design["treated_unit"],
+        donors=design["donors"],
+        cutoff_date=design["cutoff_date"],
+    )
+    return float(scm_diagnostics(result, cutoff_date=design["cutoff_date"])["pre_r2"])
+
+
+def fit_verdict(diagnostics: dict, shuffled_r2: float | None = None) -> tuple[str, str]:
+    """The Fit tab's verdict, from ``scm_diagnostics`` of a fit and, where it was
+    computed, :func:`shuffled_pre_r2` of the same design.
+
+    The pre-cutoff R² is read on the usual scale unless a shuffled series reaches
+    :data:`NO_CHECK_R2` too, in which case it is not read at all.
+    """
+    pre_r2 = diagnostics.get("pre_r2", float("nan"))
+    att = diagnostics.get("att", float("nan"))
+    if shuffled_r2 is not None and shuffled_r2 >= NO_CHECK_R2:
+        return (
+            "warn",
+            f"ATT = {att:+.2f}. The pre-treatment fit (R² = {pre_r2:.2f}) is no check on "
+            f"this design: with the treated unit's pre-cutoff values shuffled it still fits "
+            f"R² = {shuffled_r2:.2f}. Judge the effect by Placebo in space, and by whether "
+            "other estimators agree.",
+        )
+    if pre_r2 >= 0.8:
+        return ("ok", f"Good pre-treatment fit (R² = {pre_r2:.2f}) — ATT = {att:+.2f}.")
+    if pre_r2 >= 0.5:
+        return (
+            "warn",
+            f"Moderate pre-treatment fit (R² = {pre_r2:.2f}) — interpret ATT = {att:+.2f} with caution.",
+        )
+    return (
+        "error",
+        f"Poor pre-treatment fit (R² = {pre_r2:.2f}) — the counterfactual is unreliable.",
+    )
 
 
 def _checked(widget: QListWidget) -> list[str]:
@@ -64,18 +154,44 @@ def _checked(widget: QListWidget) -> list[str]:
     ]
 
 
+#: The SCM Studio's examples: key -> (title, what it is).
+SCM_EXAMPLES = {
+    "ulez": (
+        "London ULEZ, monthly NO₂ (2017–2020)",
+        "The normet paper's case study: London Marylebone Road against UK traffic sites, "
+        "the Ultra Low Emission Zone from April 2019.",
+    ),
+    "synthetic": (
+        "Synthetic weekly SO₂ panel (2015–2016)",
+        "A ~35 % step-down in the treated unit ('2+26 cities') from 2015-10-23 -- "
+        "reproduces the tutorial.",
+    ),
+}
+
+#: The fit's numbers (normet's SCM result keys), as the Fit tab's table names them.
+_FIT_WORDS = {
+    "pre_n": "Pre-period points",
+    "pre_rmse": "Pre-period RMSE",
+    "pre_mae": "Pre-period MAE",
+    "pre_r2": "Pre-period R²",
+    "post_n": "Post-period points",
+    "att": "Mean effect (ATT)",
+    "att_cum": "Cumulative effect",
+    "post_rmse": "Post-period RMSE",
+    "hhi": "Donor concentration (HHI)",
+    "effective_n_donors": "Effective number of donors",
+}
+
+
 class SCMWindow(QMainWindow):
-    def __init__(self, parent: QWidget | None = None, bridge_factory=None) -> None:
+    def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Normet — Synthetic Control Studio")
         self.resize(1340, 880)
 
-        from .rbridge import RBridge
-
-        self.bridge = (bridge_factory or RBridge)()
         self.df: pd.DataFrame | None = None
         self._main_df: pd.DataFrame | None = None
-        self.result: dict | None = None
+        self.result: dict | None = None  # {"synthetic": df, "weights": ...}
         self.diagnostics: dict | None = None
         self._tab_data: dict[int, pd.DataFrame] = {}
         self._updating = False
@@ -83,6 +199,7 @@ class SCMWindow(QMainWindow):
         self.runner = TaskRunner(self)
         self.runner.started.connect(self._task_started)
         self.runner.finished.connect(self._task_finished)
+        self.task_clock = TaskClock(self, self.runner)
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.addWidget(self._build_panel())
@@ -94,7 +211,8 @@ class SCMWindow(QMainWindow):
         splitter.addWidget(right)
         splitter.setStretchFactor(0, 0)
         splitter.setStretchFactor(1, 1)
-        splitter.setSizes([370, 970])
+        splitter.setCollapsible(0, False)
+        splitter.setSizes([self.panel.least_width, 970])  # no gap: see StepPanel.least_width
         self.setCentralWidget(splitter)
 
         self.progress = QProgressBar()
@@ -109,31 +227,39 @@ class SCMWindow(QMainWindow):
         self.cancel_btn.clicked.connect(self._abandon)
         self.statusBar().addPermanentWidget(self.cancel_btn)
         self.statusBar().addPermanentWidget(self.progress)
-        self.statusBar().showMessage("Load a long panel CSV (date, unit, outcome) or the example.")
+        self.statusBar().showMessage(
+            "Open a long panel (date, unit, outcome), or load an example from the File menu."
+        )
+        self._build_menu()
 
         self._sync_enabled()
 
+    def _build_menu(self) -> None:
+        """File: open a panel, the examples (as the main window's), close."""
+        fm = self.menuBar().addMenu("&File")
+        act = fm.addAction("&Open Data…", self._open_csv)
+        act.setShortcut("Ctrl+O")
+        ex_menu = fm.addMenu("Load &Example")
+        for key, (title, tip) in SCM_EXAMPLES.items():
+            act = ex_menu.addAction(title, lambda key=key: self.load_example(key))
+            act.setToolTip(tip)
+        ex_menu.setToolTipsVisible(True)
+        fm.addSeparator()
+        fm.addAction("&Close", self.close).setShortcut("Ctrl+W")
+
     # ------------------------------------------------------------- left panel
     def _build_panel(self) -> QWidget:
-        panel = QWidget()
-        v = QVBoxLayout(panel)
-
         # ---- Data
         data_box = QGroupBox("Panel data")
         dv = QVBoxLayout(data_box)
-        row = QHBoxLayout()
-        b_open = QPushButton("Open CSV…")
-        b_open.setToolTip("A long panel: one row per (date, unit) with the outcome in a column.")
-        b_open.clicked.connect(self._open_csv)
-        b_example = QPushButton("Load example")
-        b_example.setToolTip(
-            "Synthetic weekly SO₂ panel with a ~35 % step-down in the treated\n"
-            "unit ('2+26 cities') from 2015-10-23 — reproduces the tutorial."
+        b_open = QPushButton("Open Data…")
+        b_open.setToolTip(
+            "A long panel: one row per (date, unit) with the outcome in a column -- CSV or "
+            "other delimited text, Excel, Parquet, Feather or JSON. The examples are under "
+            "File → Load Example."
         )
-        b_example.clicked.connect(self.load_example)
-        row.addWidget(b_open)
-        row.addWidget(b_example)
-        dv.addLayout(row)
+        b_open.clicked.connect(self._open_csv)
+        dv.addWidget(b_open)
         self.use_main_btn = QPushButton("Use main-window data")
         self.use_main_btn.setEnabled(False)
         self.use_main_btn.setToolTip(
@@ -143,7 +269,6 @@ class SCMWindow(QMainWindow):
         dv.addWidget(self.use_main_btn)
         self.file_label = hint_label("No panel loaded", small=False)
         dv.addWidget(self.file_label)
-        v.addWidget(data_box)
 
         # ---- Columns
         col_box = QGroupBox("Columns")
@@ -163,7 +288,6 @@ class SCMWindow(QMainWindow):
         self.date_combo.currentTextChanged.connect(self._columns_changed)
         self.unit_combo.currentTextChanged.connect(self._columns_changed)
         self.outcome_combo.currentTextChanged.connect(self._redraw_panel_tab)
-        v.addWidget(col_box)
 
         # ---- Design
         design_box = QGroupBox("Design")
@@ -188,15 +312,38 @@ class SCMWindow(QMainWindow):
         self.donor_list.setMaximumHeight(170)
         self.donor_list.setToolTip("Untreated units used to build the synthetic counterfactual.")
         gf.addRow(self.donor_list)
-        dbrow = QHBoxLayout()
         b_all = QPushButton("All")
-        b_none = QPushButton("None")
-        b_all.clicked.connect(lambda: self._set_donors(True))
-        b_none.clicked.connect(lambda: self._set_donors(False))
-        dbrow.addWidget(b_all)
-        dbrow.addWidget(b_none)
-        gf.addRow(dbrow)
-        v.addWidget(design_box)
+        b_all.setToolTip(ALL_TIP)
+        b_all.clicked.connect(lambda: _toggle_all(self.donor_list))
+        gf.addRow(b_all)
+        from . import _chronos
+
+        chronos_ok, chronos_why = _chronos.chronos_availability()
+        self.sim_btn = QPushButton("Rank donors by similarity (Chronos-2)")
+        self.sim_btn.setToolTip(
+            "Embed every unit's outcome before the cutoff with Chronos-2 and rank the\n"
+            "others by how alike their dynamics are to the treated unit's (cosine).\n"
+            "Only the pre-period is read, so the effect cannot leak into the choice."
+            if chronos_ok
+            else f"Needs the foundation extra: {chronos_why}"
+        )
+        self.sim_btn.clicked.connect(self._run_similarity)
+        self._chronos_ok = chronos_ok
+        gf.addRow(self.sim_btn)
+        keep = QHBoxLayout()
+        self.sim_keep = NoWheelSpinBox()
+        self.sim_keep.setRange(2, 500)
+        self.sim_keep.setValue(10)
+        self.sim_keep.setPrefix("Tick the top ")
+        self.sim_tick_btn = QPushButton("Apply")
+        self.sim_tick_btn.setToolTip(
+            "Tick the most similar units as the donor pool, untick the rest."
+        )
+        self.sim_tick_btn.clicked.connect(self._tick_most_similar)
+        keep.addWidget(self.sim_keep, 1)
+        keep.addWidget(self.sim_tick_btn)
+        gf.addRow(keep)
+        self._similarity: pd.DataFrame | None = None
 
         # ---- Estimator
         est_box = QGroupBox("Estimator")
@@ -213,21 +360,29 @@ class SCMWindow(QMainWindow):
         ef.addRow("Backend", self.backend_combo)
         self.ml_backend_combo = NoWheelComboBox()
         self.ml_backend_combo.addItems(["lightgbm", "h2o"])
-        ef.addRow("ML backend", self.ml_backend_combo)
-        self.ml_trials = NoWheelSpinBox()
-        self.ml_trials.setRange(1, 500)
-        self.ml_trials.setValue(5)
-        self.ml_trials.setToolTip(
-            "Hyperparameter-search trials per fit (LightGBM). Placebo tests\nrefit many times — keep this small."
+        self.ml_backend_combo.setToolTip(
+            "lightgbm = LightGBM with random hyperparameter search (fast, default).\n"
+            "h2o = H2O AutoML (uses the time budget; needs Java and the h2o R package)."
         )
-        ef.addRow("Search trials", self.ml_trials)
+        ef.addRow("ML backend", self.ml_backend_combo)
+        self.ml_budget = NoWheelSpinBox()
+        self._ml_budget_label = QLabel()
+        self._ml_budget_values = {"lightgbm": 5, "h2o": 15}
+        self._ml_prev_backend: str | None = None  # the first switch keeps nothing
+        ef.addRow(self._ml_budget_label, self.ml_budget)
+        self.ml_backend_combo.currentTextChanged.connect(self._ml_backend_changed)
+        self._ml_backend_changed("lightgbm")
+        self.bayes_draws = NoWheelSpinBox()
+        self.bayes_draws.setRange(100, 10_000)
+        self.bayes_draws.setValue(1000)
+        self.bayes_draws.setToolTip("Posterior draws per chain (bayesian backend).")
+        ef.addRow("Draws", self.bayes_draws)
         self.fit_btn = run_button(
             "▶  Run synthetic control",
             "Fit the counterfactual for the treated unit and show\nobserved vs. synthetic, the effect path and donor weights.",
         )
         self.fit_btn.clicked.connect(self._run_fit)
         ef.addRow(self.fit_btn)
-        v.addWidget(est_box)
 
         # ---- Inference
         inf_box = QGroupBox("Inference")
@@ -281,9 +436,7 @@ class SCMWindow(QMainWindow):
         )
         self.all_btn.clicked.connect(self._run_all_units)
         inf.addRow(self.all_btn)
-        v.addWidget(inf_box)
 
-        v.addStretch(1)
         self._run_buttons = [
             self.fit_btn,
             self.placebo_space_btn,
@@ -294,12 +447,18 @@ class SCMWindow(QMainWindow):
 
         self._backend_changed(self.backend_combo.currentText())
 
-        scroll = QScrollArea()
-        scroll.setWidget(panel)
-        scroll.setWidgetResizable(True)
-        scroll.setFixedWidth(390)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        return scroll
+        # A page per step, as the main window's (._pages.StepPanel).
+        from ._pages import StepPanel
+
+        self.panel = StepPanel(
+            [
+                ("Data", (data_box, col_box)),
+                ("Design", (design_box,)),
+                ("Estimator", (est_box,)),
+                ("Inference", (inf_box,)),
+            ]
+        )
+        return self.panel
 
     def _build_action_bar(self) -> QWidget:
         bar = QWidget()
@@ -315,8 +474,11 @@ class SCMWindow(QMainWindow):
 
     def _build_tabs(self) -> QTabWidget:
         self.tabs = QTabWidget()
+        # Pages on the window's own ground, as the toolbars above their figures are: a
+        # framed pane drew them lighter, and each toolbar as a grey band across it.
+        self.tabs.setDocumentMode(True)
         self.tab_panel = CanvasTab("Load a panel CSV to preview the outcome by unit.")
-        self.tabs.addTab(self.tab_panel, "① Panel")
+        self.tabs.addTab(self.tab_panel, "Panel")
         self.tab_fit = CanvasTab("Run the synthetic control to see observed vs. synthetic here.")
         self.tabs.addTab(self.tab_fit, "Fit")
         self.tab_pspace = CanvasTab(
@@ -331,6 +493,10 @@ class SCMWindow(QMainWindow):
         self.tabs.addTab(self.tab_unc, "Uncertainty")
         self.tab_all = CanvasTab("Run 'All units' to rank every unit's pseudo-effect.")
         self.tabs.addTab(self.tab_all, "All Units")
+        self.tab_sim = CanvasTab(
+            "Rank donors by similarity (Chronos-2) to compare every unit's pre-period with the treated unit's."
+        )
+        self.tabs.addTab(self.tab_sim, "Similarity")
         self.tabs.currentChanged.connect(lambda i: self.exp_btn.setEnabled(i in self._tab_data))
         return self.tabs
 
@@ -342,6 +508,7 @@ class SCMWindow(QMainWindow):
 
     @staticmethod
     def _panel_candidate(df: pd.DataFrame) -> str | None:
+        """Return a plausible unit column (repeated categorical), else None."""
         for c in df.columns:
             if pd.api.types.is_numeric_dtype(df[c]) or c.lower() == "date":
                 continue
@@ -355,19 +522,25 @@ class SCMWindow(QMainWindow):
             self._ingest(self._main_df.copy(), "main-window data")
 
     def _open_csv(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(
-            self, "Open panel CSV", "", "CSV files (*.csv *.csv.gz)"
-        )
+        from .nm.io.tables import read_table
+
+        from ._panel_inputs import TABLE_FILTER
+
+        path, _ = QFileDialog.getOpenFileName(self, "Open panel data", "", TABLE_FILTER)
         if not path:
             return
         try:
-            df = pd.read_csv(path)
-        except Exception as exc:
-            QMessageBox.critical(self, "Failed to read CSV", str(exc))
+            df = read_table(path)
+        except Exception as exc:  # noqa: BLE001 - a file pandas cannot read, said as it is
+            QMessageBox.critical(self, "Failed to read the file", str(exc))
             return
         self._ingest(df, os.path.basename(path))
 
-    def load_example(self) -> None:
+    def load_example(self, key: str = "synthetic") -> None:
+        """An example panel (``SCM_EXAMPLES``), set up as its source sets it up."""
+        if key == "ulez":
+            self._load_ulez()
+            return
         from ._examples import (
             SCM_EXAMPLE_CUTOFF,
             SCM_EXAMPLE_OUTCOME,
@@ -376,11 +549,35 @@ class SCMWindow(QMainWindow):
         )
 
         self._ingest(make_scm_example(), "Example panel (synthetic weekly SO₂)")
+        # Reproduce the tutorial design out of the box.
         self.outcome_combo.setCurrentText(SCM_EXAMPLE_OUTCOME)
         self.treated_combo.setCurrentText(SCM_EXAMPLE_TREATED)
         self.cutoff_edit.setDate(QDate.fromString(SCM_EXAMPLE_CUTOFF, "yyyy-MM-dd"))
         self.statusBar().showMessage(
             "Example loaded — '2+26 cities' steps down ~35 % after 2015-10-23. Click ▶ Run synthetic control."
+        )
+
+    def _load_ulez(self) -> None:
+        """The normet paper's ULEZ design (its README's): monthly deweathered NO₂, January
+        2017 to February 2020 (before COVID-19), London Marylebone Road (MY1) treated from
+        April 2019, the traffic sites with a complete record as donors."""
+        from . import nm as nm
+
+        df = nm.datasets.load_scm().query("'2017-01-01' <= date < '2020-03-01'")
+        df = df[df["type"].str.contains("Traffic")]
+        counts = df.dropna(subset=["NO2_dw"]).groupby("code").size()
+        donors = [c for c in counts[counts == df["date"].nunique()].index if c != "MY1"]
+        df = df[df["code"].isin([*donors, "MY1"])].reset_index(drop=True)
+        self._ingest(df, SCM_EXAMPLES["ulez"][0])
+        self.unit_combo.setCurrentText("code")
+        self.outcome_combo.setCurrentText("NO2_dw")
+        self._columns_changed()
+        self.treated_combo.setCurrentText("MY1")
+        self.cutoff_edit.setDate(QDate(2019, 4, 1))
+        self._redraw_panel_tab()
+        self.statusBar().showMessage(
+            f"ULEZ design: MY1 against {len(donors)} traffic-site donors, cutoff April 2019. "
+            "Click ▶ Run synthetic control."
         )
 
     def _ingest(self, df: pd.DataFrame, label: str) -> None:
@@ -439,7 +636,7 @@ class SCMWindow(QMainWindow):
             self._rebuild_donors()
 
             if date_col in self.df.columns:
-                dates = pd.to_datetime(self.df[date_col], errors="coerce").dropna()
+                dates = to_datetime_coerced(self.df[date_col]).dropna()
                 if len(dates):
                     lo, hi = dates.min(), dates.max()
                     self.cutoff_edit.setDateRange(
@@ -472,15 +669,42 @@ class SCMWindow(QMainWindow):
             item.setCheckState(Qt.CheckState.Checked)
             self.donor_list.addItem(item)
 
-    def _set_donors(self, checked: bool) -> None:
-        state = Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked
-        for i in range(self.donor_list.count()):
-            self.donor_list.item(i).setCheckState(state)
+    def _ml_backend_changed(self, backend: str) -> None:
+        """The budget spin is LightGBM's search trials or H2O's time budget, each
+        keeping its own value."""
+        if self._ml_prev_backend is not None:
+            self._ml_budget_values[self._ml_prev_backend] = self.ml_budget.value()
+        self._ml_prev_backend = backend
+        if backend == "h2o":
+            self._ml_budget_label.setText("Time budget")
+            self.ml_budget.setRange(5, 3600)
+            self.ml_budget.setSuffix(" s")
+            self.ml_budget.setToolTip(
+                "H2O AutoML time per fit (max_runtime_secs). Placebo tests refit many\n"
+                "times — keep this small."
+            )
+        else:
+            self._ml_budget_label.setText("Search trials")
+            self.ml_budget.setRange(1, 100)
+            self.ml_budget.setSuffix("")
+            self.ml_budget.setToolTip(
+                "LightGBM random-search trials per fit. Placebo tests refit many\n"
+                "times — keep this small."
+            )
+        self.ml_budget.setValue(self._ml_budget_values[backend])
 
     def _backend_changed(self, backend: str) -> None:
         is_ml = backend == "mlscm"
+        is_bayes = backend == "bayesian"
         self.ml_backend_combo.setEnabled(is_ml)
-        self.ml_trials.setEnabled(is_ml)
+        self.ml_budget.setEnabled(is_ml)
+        self.bayes_draws.setEnabled(is_bayes)
+        for b in (self.placebo_space_btn, self.placebo_time_btn, self.unc_btn, self.all_btn):
+            b.setEnabled(not is_bayes and self.df is not None and not self.runner.busy)
+            if is_bayes:
+                b.setToolTip(
+                    "Placebo / batch inference is not available for the bayesian backend\n— it provides its own posterior credible bands."
+                )
 
     # ------------------------------------------------------------ panel tab
     def _redraw_panel_tab(self, *_args) -> None:
@@ -494,7 +718,7 @@ class SCMWindow(QMainWindow):
         import matplotlib.pyplot as plt
 
         d = self.df[[date_col, unit_col, outcome]].copy()
-        d[date_col] = pd.to_datetime(d[date_col], errors="coerce")
+        d[date_col] = to_datetime_coerced(d[date_col])
         d = d.dropna(subset=[date_col])
         try:
             wide = d.pivot_table(index=date_col, columns=unit_col, values=outcome, aggfunc="mean")
@@ -502,22 +726,23 @@ class SCMWindow(QMainWindow):
             return
         treated = self.treated_combo.currentText()
 
-        fig, ax = plt.subplots(figsize=(10, 4.6))
+        fig, ax = plt.subplots(figsize=(8, 3.4))
         cols = list(wide.columns)
         for c in cols:
             if str(c) == treated:
                 continue
-            ax.plot(wide.index, wide[c], color=DONOR_COLOR, lw=0.7, alpha=0.35)
+            ax.plot(wide.index, wide[c], color=DONOR_COLOR, lw=0.6, alpha=0.45)
         if treated in map(str, cols):
             tc = next(c for c in cols if str(c) == treated)
-            ax.plot(wide.index, wide[tc], color=TREATED_COLOR, lw=1.8, label=f"treated: {treated}")
-            ax.legend(loc="upper right", frameon=False)
+            ax.plot(wide.index, wide[tc], color=TREATED_COLOR, lw=1.4, label=f"treated: {treated}")
+            S.legend(ax, loc="upper right")
         cutoff = pd.Timestamp(self.cutoff_edit.date().toPython())
-        ax.axvline(cutoff, color="k", ls=":", lw=1)
-        ax.set_ylabel(outcome)
-        ax.set_title(f"{outcome} by unit ({wide.shape[1]} units)", fontsize=10, loc="left")
-        ax.grid(alpha=0.2)
-        fig.tight_layout()
+        S.cutoff_line(ax, cutoff)
+        ax.set_ylabel(S.formula(outcome))
+        ax.set_title(f"{S.formula(outcome)} by unit ({wide.shape[1]} units)")
+        S.format_time_axis(ax)
+        ax.margins(x=0)
+        S.grid(ax)
 
         n_cells = wide.shape[0] * wide.shape[1]
         missing = float(wide.isna().sum().sum()) / n_cells * 100 if n_cells else 0.0
@@ -561,43 +786,52 @@ class SCMWindow(QMainWindow):
             return None
         cutoff = self.cutoff_edit.date().toString("yyyy-MM-dd")
         d = self.df[[date_col, unit_col, outcome]].copy()
-        d[date_col] = pd.to_datetime(d[date_col], errors="coerce")
+        d[date_col] = to_datetime_coerced(d[date_col])
         d = d.dropna(subset=[date_col])
         d[unit_col] = d[unit_col].astype(str)
-        design = {
+        return {
+            "df": d,
             "date_col": date_col,
             "unit_col": unit_col,
             "outcome_col": outcome,
             "treated_unit": treated,
             "donors": donors,
             "cutoff_date": cutoff,
-            "scm_backend": self.backend_combo.currentText(),
         }
-        if design["scm_backend"] == "mlscm":
-            design["backend"] = self.ml_backend_combo.currentText()
-            design["n_trials"] = self.ml_trials.value()
-        return {"df": d, **design}
 
-    @staticmethod
-    def _bridge_design(design: dict) -> dict:
-        return {k: v for k, v in design.items() if k != "df"}
+    def _ml_kwargs(self) -> dict:
+        ml_backend = self.ml_backend_combo.currentText()
+        if ml_backend == "h2o":
+            model_config = {"max_runtime_secs": self.ml_budget.value(), "include_algos": ["GBM"]}
+        else:
+            model_config = {"n_trials": self.ml_budget.value(), "cv_folds": 3}
+        return {"backend": ml_backend, "model_config": model_config}
+
+    def _infer_kwargs(self) -> dict:
+        """kwargs forwarded to run_scm-based inference helpers."""
+        backend = self.backend_combo.currentText()
+        kw: dict = {"scm_backend": backend}
+        if backend == "mlscm":
+            kw.update(self._ml_kwargs())
+        return kw
 
     def _sync_enabled(self) -> None:
         busy = self.runner.busy
         has_df = self.df is not None
-        for b in self._run_buttons:
-            b.setEnabled(not busy and has_df)
+        self.fit_btn.setEnabled(not busy and has_df)
+        self.sim_btn.setEnabled(not busy and has_df and self._chronos_ok)
+        self.sim_tick_btn.setEnabled(not busy and self._similarity is not None)
+        is_bayes = self.backend_combo.currentText() == "bayesian"
+        for b in (self.placebo_space_btn, self.placebo_time_btn, self.unc_btn, self.all_btn):
+            b.setEnabled(not busy and has_df and not is_bayes)
         self.cancel_btn.setEnabled(busy)
 
     def _task_started(self, name: str) -> None:
-        self.progress.setRange(0, 0)
-        self.statusBar().showMessage(f"Running in R: {name}…")
         for b in self._run_buttons:
             b.setEnabled(False)
         self.cancel_btn.setEnabled(True)
 
     def _task_finished(self) -> None:
-        self.progress.setRange(0, 1)
         self._sync_enabled()
 
     def _abandon(self) -> None:
@@ -623,9 +857,9 @@ class SCMWindow(QMainWindow):
         if data is None:
             QMessageBox.information(self, "Nothing to export", "Run this tab's analysis first.")
             return
-        name = self.tabs.tabText(self.tabs.currentIndex()).strip("① ").lower().replace(" ", "_")
+        name = self.tabs.tabText(self.tabs.currentIndex()).strip("").lower().replace(" ", "_")
         path, _ = QFileDialog.getSaveFileName(
-            self, "Export data", f"normet_r_scm_{name}.csv", "CSV (*.csv)"
+            self, "Export data", f"normet_scm_{name}.csv", "CSV (*.csv)"
         )
         if path:
             data.to_csv(path)
@@ -638,51 +872,99 @@ class SCMWindow(QMainWindow):
         design = self._design()
         if design is None:
             return
-        self._last_design = design
-        self.runner.submit(
-            f"synthetic control ({design['scm_backend']})",
-            self.bridge.scm_fit,
-            self._fit_done,
-            self._show_error,
-            design["df"],
-            self._bridge_design(design),
-        )
+        backend = self.backend_combo.currentText()
+        ml_kwargs = self._ml_kwargs()
+        draws = self.bayes_draws.value()
 
-    def _fit_done(self, result: dict) -> None:
+        def job():
+            if backend == "mlscm":
+                from .nm.causal import mlscm
+
+                synth = mlscm(
+                    design["df"],
+                    date_col=design["date_col"],
+                    unit_col=design["unit_col"],
+                    outcome_col=design["outcome_col"],
+                    treated_unit=design["treated_unit"],
+                    donors=design["donors"],
+                    cutoff_date=design["cutoff_date"],
+                    **ml_kwargs,
+                )
+                return {"synthetic": synth, "weights": None}, None
+            if backend == "bayesian":
+                from .nm.causal import bayesian_scm
+
+                return bayesian_scm(
+                    design["df"],
+                    date_col=design["date_col"],
+                    unit_col=design["unit_col"],
+                    outcome_col=design["outcome_col"],
+                    treated_unit=design["treated_unit"],
+                    donors=design["donors"],
+                    cutoff_date=design["cutoff_date"],
+                    draws=draws,
+                ), None
+            from .nm.causal import BACKENDS
+
+            fit = BACKENDS[backend]
+            result = fit(
+                df=design["df"],
+                date_col=design["date_col"],
+                unit_col=design["unit_col"],
+                outcome_col=design["outcome_col"],
+                treated_unit=design["treated_unit"],
+                donors=design["donors"],
+                cutoff_date=design["cutoff_date"],
+            )
+            # One more fit, of a series the donors cannot explain: what pre-cutoff
+            # R² this design gives for nothing (see shuffled_pre_r2).
+            try:
+                shuffled = shuffled_pre_r2(fit, design)
+            except Exception:
+                log.exception("Shuffled pre-cutoff baseline failed")
+                shuffled = None
+            return result, shuffled
+
+        self._last_design = design
+        self.runner.submit(f"synthetic control ({backend})", job, self._fit_done, self._show_error)
+
+    def _fit_done(self, payload: tuple[dict, float | None]) -> None:
+        result, shuffled_r2 = payload
         self.result = result
         design = self._last_design
         cutoff = design["cutoff_date"]
-        backend = design["scm_backend"]
-        self.diagnostics = result.get("diagnostics")
+        backend = self.backend_combo.currentText()
 
-        synth = result["synthetic"]
-        fig = scm_dashboard(
-            synth,
-            result.get("weights"),
-            cutoff_date=cutoff,
-            diagnostics=self.diagnostics,
-            title=f"{design['treated_unit']} vs. synthetic ({backend})",
-        )
+        from .nm import scm_dashboard
+        from .nm.causal import scm_diagnostics
+
+        try:
+            self.diagnostics = scm_diagnostics(result, cutoff_date=cutoff)
+        except Exception:
+            log.exception("scm_diagnostics failed")
+            self.diagnostics = None
+
+        if backend == "bayesian":
+            from .nm import plot_bayesian_scm
+
+            fig = plot_bayesian_scm(
+                result, cutoff_date=cutoff, title=f"Bayesian SCM — {design['treated_unit']}"
+            )
+        else:
+            fig = scm_dashboard(
+                result,
+                cutoff_date=cutoff,
+                diagnostics=self.diagnostics,
+                title=f"{design['treated_unit']} vs. synthetic ({backend})",
+                ylabel=S.formula(design.get("outcome_col") or "Outcome"),
+            )
 
         verdict = None
-        lines: list[str] = []
+        lines = []
         header = rows = None
         if self.diagnostics:
             d = self.diagnostics
-            pre_r2 = float(d.get("pre_r2", float("nan")))
-            att = float(d.get("att", float("nan")))
-            if pre_r2 >= 0.8:
-                verdict = ("ok", f"Good pre-treatment fit (R² = {pre_r2:.2f}) — ATT = {att:+.2f}.")
-            elif pre_r2 >= 0.5:
-                verdict = (
-                    "warn",
-                    f"Moderate pre-treatment fit (R² = {pre_r2:.2f}) — interpret ATT = {att:+.2f} with caution.",
-                )
-            else:
-                verdict = (
-                    "error",
-                    f"Poor pre-treatment fit (R² = {pre_r2:.2f}) — the counterfactual is unreliable.",
-                )
+            verdict = fit_verdict(d, shuffled_r2)
             keys = [
                 "pre_n",
                 "pre_rmse",
@@ -695,18 +977,32 @@ class SCMWindow(QMainWindow):
                 "hhi",
                 "effective_n_donors",
             ]
-            header = ["metric", "value"]
+            header = ["Metric", "Value"]
             rows = [
-                [k, f"{d[k]:.3f}" if isinstance(d.get(k), float) else d.get(k)]
+                [_FIT_WORDS.get(k, k), f"{d[k]:.3f}" if isinstance(d.get(k), float) else d.get(k)]
                 for k in keys
                 if k in d
             ]
+            if shuffled_r2 is not None:
+                rows.append(["Pre-period R², donors shuffled", f"{shuffled_r2:.3f}"])
             lines = ["Next: run the Inference tools (left) to test significance."]
+            if backend == "scm":
+                lines.insert(
+                    0,
+                    "Its donor weights balance the ridge model's residuals only; they do not "
+                    "say which donors the synthetic unit is made of.",
+                )
 
-        self.tab_fit.show_result(fig, verdict=verdict, lines=lines, header=header, rows=rows)
-        self._show_tab(self.tab_fit, synth)
+        self.tab_fit.show_result(
+            fig, verdict=verdict, lines=lines, header=header, rows=rows, own_words=True
+        )
+        self._show_tab(self.tab_fit, result.get("synthetic"))
+        no_check = shuffled_r2 is not None and shuffled_r2 >= NO_CHECK_R2
         self.statusBar().showMessage(
-            "Fit done — check the pre-cutoff overlap, then run Placebo / Uncertainty for significance."
+            "Fit done — run Placebo in space: on this design the pre-cutoff overlap is no check."
+            if no_check
+            else "Fit done — check the pre-cutoff overlap, then run Placebo / Uncertainty "
+            "for significance."
         )
 
     # ------------------------------------------------------------- inference
@@ -714,39 +1010,55 @@ class SCMWindow(QMainWindow):
         design = self._design()
         if design is None:
             return
-        self._last_design = design
-        self.runner.submit(
-            "placebo in space",
-            self.bridge.placebo_space,
-            self._placebo_space_done,
-            self._show_error,
-            design["df"],
-            self._bridge_design(design),
-        )
+        kwargs = self._infer_kwargs()
 
-    def _placebo_space_done(self, out: dict) -> None:
+        def job():
+            from .nm.causal import effect_bands_space, placebo_in_space
+
+            out = placebo_in_space(
+                design["df"],
+                date_col=design["date_col"],
+                unit_col=design["unit_col"],
+                outcome_col=design["outcome_col"],
+                treated_unit=design["treated_unit"],
+                donors=design["donors"],
+                cutoff_date=design["cutoff_date"],
+                **kwargs,
+            )
+            bands = effect_bands_space(out, level=0.95, method="quantile")
+            return out, bands
+
+        self._last_design = design
+        self.runner.submit("placebo in space", job, self._placebo_space_done, self._show_error)
+
+    def _placebo_space_done(self, payload) -> None:
+        out, bands = payload
         design = self._last_design
         cutoff = pd.Timestamp(design["cutoff_date"])
         import matplotlib.pyplot as plt
 
-        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 7), sharex=True)
-        placebos = out["placebos"]
-        n_placebos = placebos["unit"].nunique() if len(placebos) else 0
-        for _unit, dfp in placebos.groupby("unit"):
-            ax1.plot(dfp["date"], dfp["effect"], color=DONOR_COLOR, lw=0.7, alpha=0.4)
-        tr = out["treated"]
-        ax1.plot(tr.index, tr["effect"], color=TREATED_COLOR, lw=1.8, label="treated")
-        ax1.axvline(cutoff, color="k", ls=":", lw=1)
-        ax1.axhline(0, color="k", lw=0.5)
-        ax1.set_title(f"Placebo effects ({n_placebos} donors)", fontsize=10, loc="left")
-        ax1.legend(loc="upper left", frameon=False)
-        ax1.grid(alpha=0.2)
-        plot_effect_with_bands(
-            out["bands"], cutoff_date=cutoff, title="Effect with 95 % placebo bands", ax=ax2
-        )
-        fig.tight_layout()
+        from .nm.causal import plot_effect_with_bands
 
-        p = out["p_value"]
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(8, 5), sharex=True)
+        placebos = out.get("placebos") or {}
+        for name, dfp in placebos.items():
+            eff = dfp["effect"] if "effect" in dfp.columns else dfp.iloc[:, 0]
+            ax1.plot(dfp.index, eff, color=DONOR_COLOR, lw=0.6, alpha=0.45)
+        tr = out["treated"]
+        ax1.plot(tr.index, tr["effect"], color=TREATED_COLOR, lw=1.4, label="treated")
+        S.cutoff_line(ax1, cutoff)
+        S.zero_line(ax1)
+        ax1.set_title(f"Placebo effects ({len(placebos)} donors)")
+        ax1.set_ylabel("Effect (observed − synthetic)")
+        S.legend(ax1, loc="upper left")
+        S.grid(ax1)
+        ax1.margins(x=0)
+        plot_effect_with_bands(
+            bands, cutoff_date=cutoff, title="Effect with 95 % placebo bands", ax=ax2
+        )
+        S.outer_ticks([ax1, ax2])
+
+        p = out.get("p_value", float("nan"))
         if p == p and p <= 0.05:
             verdict = (
                 "ok",
@@ -764,29 +1076,48 @@ class SCMWindow(QMainWindow):
             )
 
         self.tab_pspace.show_result(fig, verdict=verdict)
-        self._show_tab(self.tab_pspace, out["bands"])
+        self._show_tab(self.tab_pspace, bands)
         self.statusBar().showMessage("Placebo-in-space done.")
 
     def _run_placebo_time(self) -> None:
         design = self._design()
         if design is None:
             return
-        self._last_design = design
-        self.runner.submit(
-            "placebo in time",
-            self.bridge.placebo_time,
-            self._placebo_time_done,
-            self._show_error,
-            design["df"],
-            self._bridge_design(design),
-            min_pre_period=self.pt_min_pre.value(),
-            placebo_every=self.pt_every.value(),
-        )
+        kwargs = self._infer_kwargs()
+        min_pre = self.pt_min_pre.value()
+        every = self.pt_every.value()
 
-    def _placebo_time_done(self, out: dict) -> None:
+        def job():
+            from .nm.causal import effect_bands_time, placebo_in_time
+
+            out = placebo_in_time(
+                design["df"],
+                date_col=design["date_col"],
+                unit_col=design["unit_col"],
+                outcome_col=design["outcome_col"],
+                treated_unit=design["treated_unit"],
+                donors=design["donors"],
+                cutoff_date=design["cutoff_date"],
+                min_pre_period=min_pre,
+                placebo_every=every,
+                **kwargs,
+            )
+            if not out.get("placebos"):
+                return out, None
+            bands = effect_bands_time(out, level=0.95, method="quantile", return_segments=True)
+            return out, bands
+
+        self._last_design = design
+        self.runner.submit("placebo in time", job, self._placebo_time_done, self._show_error)
+
+    def _placebo_time_done(self, payload) -> None:
+        out, bands_dict = payload
         design = self._last_design
         cutoff = pd.Timestamp(design["cutoff_date"])
-        if out["n_placebos"] == 0 or out["bands"] is None:
+        if bands_dict is None:
+            # Each fake cutoff needs the full post-period to fit before the
+            # true cutoff, so it is only feasible when the cutoff sits late
+            # in the sample.
             tr = out["treated"]
             n_post = int((tr.index >= cutoff).sum())
             self.tab_ptime.show_result(
@@ -807,37 +1138,36 @@ class SCMWindow(QMainWindow):
             return
         import matplotlib.pyplot as plt
 
-        bands = out["bands"].copy()
+        from .nm.causal import plot_effect_with_bands
+
+        bands = bands_dict["bands"].copy()
         tr = out["treated"]
         post_eff = tr.loc[tr.index >= cutoff, "effect"].to_numpy()
         k = min(len(bands), len(post_eff))
         bands = bands.iloc[:k]
         bands["effect"] = post_eff[:k]
 
-        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 7))
-        seg = out.get("segments")
-        n_cutoffs = 0
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(8, 5))
+        seg = bands_dict.get("segments")
         if seg is not None:
-            n_cutoffs = seg.shape[1]
             for c in seg.columns:
-                ax1.plot(seg.index, seg[c], color=DONOR_COLOR, lw=0.7, alpha=0.4)
-        ax1.plot(bands.index, bands["effect"], color=TREATED_COLOR, lw=1.8, label="true cutoff")
-        ax1.axhline(0, color="k", lw=0.5)
+                ax1.plot(seg.index, seg[c], color=DONOR_COLOR, lw=0.6, alpha=0.45)
+        ax1.plot(bands.index, bands["effect"], color=TREATED_COLOR, lw=1.4, label="true cutoff")
+        S.zero_line(ax1)
         ax1.set_title(
-            f"Event-time effects: true cutoff vs. {n_cutoffs} fake cutoffs",
-            fontsize=10,
-            loc="left",
+            f"Event-time effects: true cutoff vs. {len(bands_dict.get('cutoffs', []))} fake cutoffs"
         )
         ax1.set_xlabel("Event time (steps after cutoff)")
-        ax1.legend(loc="upper left", frameon=False)
-        ax1.grid(alpha=0.2)
+        ax1.set_ylabel("Effect (observed − synthetic)")
+        S.legend(ax1, loc="upper left")
+        S.grid(ax1)
+        ax1.margins(x=0)
         plot_effect_with_bands(
             bands, cutoff_date=None, title="Effect with 95 % placebo-in-time bands", ax=ax2
         )
-        fig.tight_layout()
 
-        p = out["p_value"]
-        n_plc = out["n_placebos"]
+        p = out.get("p_value", float("nan"))
+        n_plc = len(out.get("placebos") or {})
         min_p = 1.0 / (n_plc + 1) if n_plc else float("nan")
         if p == p and p <= 0.05:
             verdict = ("ok", f"Post-cutoff effect is significant vs. fake cutoffs (p = {p:.3f}).")
@@ -863,23 +1193,35 @@ class SCMWindow(QMainWindow):
         design = self._design()
         if design is None:
             return
-        self._last_design = design
+        kwargs = self._infer_kwargs()
         method = self.unc_method.currentText()
+        n_b = self.unc_b.value()
+
+        def job():
+            from .nm.causal import uncertainty_bands
+
+            return uncertainty_bands(
+                design["df"],
+                date_col=design["date_col"],
+                unit_col=design["unit_col"],
+                outcome_col=design["outcome_col"],
+                treated_unit=design["treated_unit"],
+                donors=design["donors"],
+                cutoff_date=design["cutoff_date"],
+                method=method,
+                B=n_b,
+                **kwargs,
+            )
+
+        self._last_design = design
         self.runner.submit(
-            f"uncertainty bands ({method})",
-            self.bridge.uncertainty,
-            self._uncertainty_done,
-            self._show_error,
-            design["df"],
-            self._bridge_design(design),
-            method=method,
-            B=self.unc_b.value(),
+            f"uncertainty bands ({method})", job, self._uncertainty_done, self._show_error
         )
 
-    def _uncertainty_done(self, export: pd.DataFrame | None) -> None:
+    def _uncertainty_done(self, out: dict) -> None:
         design = self._last_design
         method = self.unc_method.currentText()
-        if export is None:
+        if out.get("low") is None:
             self.tab_unc.show_result(
                 None,
                 verdict=(
@@ -890,35 +1232,115 @@ class SCMWindow(QMainWindow):
             )
             self._show_tab(self.tab_unc)
             return
-        fig = plot_uncertainty_bands(
-            export, cutoff_date=design["cutoff_date"], title=f"Effect with {method} bands"
-        )
+        from .nm.causal import plot_uncertainty_bands
 
-        post = export.index >= pd.Timestamp(design["cutoff_date"])
-        eff = export.loc[post, "effect"]
-        sig = ((export.loc[post, "low"] > 0) | (export.loc[post, "high"] < 0)).mean() * 100
+        from ._widgets import as_figure
+
+        ret = plot_uncertainty_bands(
+            out, cutoff_date=design["cutoff_date"], title=f"Effect with {method} bands"
+        )
+        fig = as_figure(ret)
+
+        tr, low, high = out["treated"], out["low"], out["high"]
+        post = tr.index >= pd.Timestamp(design["cutoff_date"])
+        eff = tr.loc[post, "effect"]
+        sig = ((low[post] > 0) | (high[post] < 0)).mean() * 100
         verdict = (
             "ok" if sig >= 50 else "warn",
             f"Mean post-cutoff effect {eff.mean():+.2f}; bands exclude zero on "
             f"{sig:.0f} % of post-cutoff days ({method}).",
         )
+        export = pd.DataFrame({"effect": tr["effect"], "low": low, "high": high})
         self.tab_unc.show_result(fig, verdict=verdict)
         self._show_tab(self.tab_unc, export)
         self.statusBar().showMessage("Uncertainty bands done.")
+
+    def _run_similarity(self) -> None:
+        """Rank the other units by Chronos-2 similarity to the treated unit, pre-period only."""
+        if self.df is None:
+            return
+        from . import _chronos
+
+        treated = self.treated_combo.currentText()
+        if not treated:
+            QMessageBox.information(self, "No treated unit", "Pick the treated unit.")
+            return
+        args = (
+            self.df,
+            self.date_combo.currentText(),
+            self.unit_combo.currentText(),
+            self.outcome_combo.currentText(),
+            treated,
+            self.cutoff_edit.date().toString("yyyy-MM-dd"),
+        )
+        self.runner.submit(
+            "donor similarity (chronos-2)",
+            _chronos.donor_similarity,
+            self._similarity_done,
+            self._show_error,
+            *args,
+        )
+
+    def _similarity_done(self, sim: pd.DataFrame) -> None:
+        import matplotlib.pyplot as plt
+
+        self._similarity = sim
+        unit_col = sim.columns[0]
+        top = sim.head(25).iloc[::-1]
+        fig, ax = plt.subplots(figsize=(6, max(3.0, 0.2 * len(top))))
+        ax.barh(top[unit_col].astype(str), top["similarity"], color=S.COMPONENT, height=0.65)
+        ax.set_xlabel(
+            f"Similarity to {self.treated_combo.currentText()} before the cutoff (cosine)"
+        )
+        ax.set_title("Units ranked by Chronos-2 embedding similarity")
+        S.grid(ax, axis="x")
+        ax.tick_params(axis="y", length=0)
+        for side in ("top", "right"):
+            ax.spines[side].set_visible(False)
+        self.tab_sim.show_result(
+            fig,
+            lines=[
+                f"{len(sim)} units compared on the record before "
+                f"{self.cutoff_edit.date().toString('yyyy-MM-dd')} only. Similar dynamics, "
+                "not levels: the synthetic control still sets each donor's weight.",
+            ],
+            header=[str(unit_col), "Similarity"],
+            rows=[[u, f"{v:.3f}"] for u, v in sim.head(15).itertuples(index=False)],
+        )
+        self._show_tab(self.tab_sim, sim)
+        self._sync_enabled()
+
+    def _tick_most_similar(self) -> None:
+        if self._similarity is None:
+            return
+        keep = set(self._similarity.iloc[: self.sim_keep.value(), 0].astype(str))
+        for i in range(self.donor_list.count()):
+            item = self.donor_list.item(i)
+            item.setCheckState(
+                Qt.CheckState.Checked if item.text() in keep else Qt.CheckState.Unchecked
+            )
 
     def _run_all_units(self) -> None:
         design = self._design()
         if design is None:
             return
+        kwargs = self._infer_kwargs()
+
+        def job():
+            from .nm.causal import scm_all
+
+            return scm_all(
+                design["df"],
+                date_col=design["date_col"],
+                unit_col=design["unit_col"],
+                outcome_col=design["outcome_col"],
+                donors=None,  # every unit uses all others as donors
+                cutoff_date=design["cutoff_date"],
+                **kwargs,
+            )
+
         self._last_design = design
-        self.runner.submit(
-            "all units (batch)",
-            self.bridge.scm_all,
-            self._all_units_done,
-            self._show_error,
-            design["df"],
-            self._bridge_design(design),
-        )
+        self.runner.submit("all units (batch)", job, self._all_units_done, self._show_error)
 
     def _all_units_done(self, df_all: pd.DataFrame) -> None:
         design = self._last_design
@@ -930,13 +1352,18 @@ class SCMWindow(QMainWindow):
         post = df_all[pd.to_datetime(df_all[date_col]) >= cutoff]
         att = post.groupby(unit_col)["effect"].mean().sort_values()
 
-        fig, ax = plt.subplots(figsize=(9, max(3.5, 0.28 * len(att))))
+        fig, ax = plt.subplots(figsize=(6, max(3.0, 0.2 * len(att))))
         colors = [TREATED_COLOR if str(u) == treated else DONOR_COLOR for u in att.index]
-        ax.barh([str(u) for u in att.index], att.values, color=colors)
-        ax.axvline(0, color="k", lw=0.6)
+        ax.barh([str(u) for u in att.index], att.values, color=colors, height=0.65)
+        ax.axvline(0, color=S.REFERENCE, lw=0.6)
         ax.set_xlabel("Post-cutoff mean effect (observed − synthetic)")
-        ax.set_title("Pseudo-effects: every unit fitted as if treated", fontsize=10, loc="left")
-        fig.tight_layout()
+        ax.set_title("Pseudo-effects: every unit fitted as if treated")
+        S.grid(ax, axis="x")
+        ax.tick_params(axis="y", length=0)
+        if len(att) > 40:  # a long batch: one step below the tick labels, so each fits
+            ax.tick_params(axis="y", labelsize=S.SMALL_SIZE)
+        for side in ("top", "right"):
+            ax.spines[side].set_visible(False)
 
         rank = int((att.abs() >= abs(att.get(treated, float("nan")))).sum())
         n = len(att)
@@ -969,5 +1396,4 @@ class SCMWindow(QMainWindow):
     # ------------------------------------------------------------------ misc
     def closeEvent(self, event) -> None:  # noqa: N802
         self.runner.shutdown()
-        self.bridge.cleanup()
         super().closeEvent(event)

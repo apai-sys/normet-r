@@ -29,6 +29,34 @@ NULL
   list(panel = mat, donors = donors, dates = dates)
 }
 
+#' Weights summing to one that best reproduce y from X's columns
+#'
+#' \eqn{\min_w \|y - Xw\|^2} subject to \eqn{\sum w = 1} and, unless
+#' \code{allow_negative}, \eqn{w \ge 0}: a quadratic programme, solved exactly
+#' (normet-py's \code{solve_simplex_weights}). Uniform weights if it cannot be solved.
+#'
+#' @keywords internal
+#' @noRd
+.nm_simplex_weights <- function(X, y, allow_negative = FALSE) {
+  J <- ncol(X)
+  w0 <- rep(1 / J, J)
+  Dmat <- 2 * crossprod(X)
+  # More donors than pre-period rows leave crossprod(X) singular: a ridge scaled to
+  # it makes the programme strictly convex without moving the fit.
+  Dmat <- Dmat + 1e-8 * max(mean(diag(Dmat)), 1) * diag(J)
+  dvec <- 2 * as.numeric(crossprod(X, y))
+  Amat <- if (allow_negative) matrix(1, nrow = J, ncol = 1) else cbind(1, diag(J))
+  bvec <- if (allow_negative) 1 else c(1, rep(0, J))
+  w <- tryCatch(quadprog::solve.QP(Dmat, dvec, Amat, bvec, meq = 1)$solution,
+    error = function(e) w0)
+  if (!allow_negative) {
+    w <- pmax(w, 0)  # the solver's -1e-17s
+    s <- sum(w)
+    w <- if (s > 0) w / s else w0
+  }
+  w
+}
+
 #' Classic Abadie SCM
 #'
 #' Classic Abadie/Diamond/Hainmueller SCM with simplex (sum-to-one,
@@ -61,38 +89,7 @@ nm_scm_abadie <- function(df, date_col = "date", unit_col = "code",
   y_pre <- y_pre[complete]
   if (nrow(X_pre) < 2) stop("Not enough complete pre-treatment rows.")
 
-  J <- length(pd$donors)
-  Xm <- as.matrix(X_pre)
-  ym <- as.numeric(y_pre)
-
-  obj <- function(w) sum((ym - Xm %*% w)^2)
-  gr <- function(w) 2 * t(Xm) %*% (Xm %*% w - ym)
-
-  Aeq <- matrix(1, nrow = 1, ncol = J)
-  beq <- 1
-  if (allow_negative_weights) {
-    lo <- rep(-Inf, J)
-    hi <- rep(Inf, J)
-  } else {
-    lo <- rep(0, J)
-    hi <- rep(1, J)
-  }
-  w0 <- rep(1 / J, J)
-  res <- tryCatch(
-    optim(w0, obj, gr, method = "L-BFGS-B", lower = lo, upper = hi,
-      control = list(fnscale = 1, maxit = 1000)),
-    error = function(e) NULL
-  )
-  if (is.null(res) || !is.null(res$convergence) && res$convergence != 0) {
-    w <- w0
-  } else {
-    w <- res$par
-  }
-  if (!allow_negative_weights) {
-    w <- pmax(w, 0)
-    s <- sum(w)
-    w <- if (s > 0) w / s else w0
-  }
+  w <- .nm_simplex_weights(as.matrix(X_pre), as.numeric(y_pre), allow_negative_weights)
   names(w) <- pd$donors
 
   syn_full <- as.numeric(pd$panel[, pd$donors, drop = FALSE] %*% w)

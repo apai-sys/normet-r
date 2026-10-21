@@ -1,8 +1,8 @@
 # Cross-platform PyInstaller spec for the normet-r Qt GUI.
 #
 # This is a Qt front-end only: computation happens in R subprocesses via
-# bridge.R, executed by the *target machine's* Rscript (with the normet R
-# package installed) — R itself is not bundled, only the bridge script.
+# rpc.R, executed by the *target machine's* Rscript (with the normet R
+# package installed) — R itself is not bundled, only the rpc script.
 #
 #   macOS  : packaging/macos/build_dmg.sh (wraps this same launcher via CLI
 #            flags) is the primary path and also produces the .dmg; this spec
@@ -44,11 +44,21 @@ hiddenimports = [
     "PySide6.QtWidgets",
 ]
 hiddenimports += collect_submodules("normet_r_gui")
+# pandas reaches its table readers by name at run time (Open Data's Parquet, Feather,
+# Excel), which PyInstaller's import scan cannot see.
+hiddenimports += ["pyarrow", "openpyxl", "xlrd"]
 
 datas = [
-    (os.path.join(GUI_DIR, "normet_r_gui", "bridge.R"), "normet_r_gui"),
+    (os.path.join(GUI_DIR, "normet_r_gui", "rpc.R"), "normet_r_gui"),
+    # The app's icon, which About and every window show from the package.
+    (os.path.join(GUI_DIR, "normet_r_gui", "assets", "normet.png"), "normet_r_gui/assets"),
     (os.path.join(SPECPATH, "assets", "normet.png"), "packaging/assets"),  # noqa: F821
 ]
+# Help → User Manual opens the manual in the window's language, from the bundle.
+for _book in ("normet_manual.pdf", "normet_manual_zh.pdf"):
+    _path = os.path.join(GUI_DIR, "docs", "manual", _book)
+    if os.path.isfile(_path):
+        datas.append((_path, "docs/manual"))
 
 a = Analysis(
     [os.path.join(SPECPATH, "launcher.py")],  # noqa: F821
@@ -59,6 +69,8 @@ a = Analysis(
     excludes=[
         "tkinter", "IPython", "pytest",
         "PyQt5", "PyQt6", "PySide2",
+        # Chronos-2 has no R side; torch alone is ~300 MB should the build env have it.
+        "torch", "chronos",
     ],
     noarchive=False,
 )

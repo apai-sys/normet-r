@@ -1,3 +1,45 @@
+#' Ridge regressions sharing one design, each with its penalty by leave-one-out
+#'
+#' The columns of \code{B} are regressed on \code{X} (rows are samples) with an
+#' intercept, each with the penalty in \code{alphas} whose exact leave-one-out error
+#' is least, and \code{newx}'s rows predicted: scikit-learn's
+#' \code{RidgeCV(alphas, fit_intercept = TRUE)} per column, from one SVD
+#' (normet-py's \code{_ridge_augment}).
+#'
+#' @return \code{alpha} (one per column of \code{B}) and \code{pred}
+#'         (\code{nrow(newx)} x \code{ncol(B)}).
+#' @keywords internal
+#' @noRd
+.nm_ridge_loo <- function(X, B, alphas, newx) {
+  X_mean <- colMeans(X)
+  Xc <- sweep(X, 2, X_mean)
+  y_mean <- colMeans(B)
+  Bc <- sweep(B, 2, y_mean)
+  sv <- svd(Xc)
+  U <- sv$u
+  s2 <- sv$d^2
+  n <- nrow(X)
+  n_targets <- ncol(B)
+  UtB <- crossprod(U, Bc)
+  U2 <- U^2
+
+  # Leave-one-out error per penalty and target; the hat matrix's diagonal includes
+  # the intercept's 1/n (without it the smallest penalty is favoured).
+  loo <- matrix(NA_real_, nrow = n_targets, ncol = length(alphas))
+  for (ai in seq_along(alphas)) {
+    d <- s2 / (s2 + alphas[ai])
+    resid <- Bc - U %*% (d * UtB)
+    denom <- pmax(1 - 1 / n - as.numeric(U2 %*% d), .Machine$double.eps)
+    loo[, ai] <- colMeans((resid / denom)^2)
+  }
+  alpha_sel <- alphas[apply(loo, 1, which.min)]
+
+  shrink <- sv$d / (s2 + matrix(alpha_sel, nrow = length(s2), ncol = n_targets, byrow = TRUE))
+  G <- sweep(newx, 2, X_mean) %*% sv$v
+  pred <- G %*% (shrink * UtB) + matrix(y_mean, nrow = nrow(newx), ncol = n_targets, byrow = TRUE)
+  list(alpha = alpha_sel, pred = pred)
+}
+
 #' Augmented Synthetic Control Method (SCM)
 #'
 #' \code{nm_scm} implements the Augmented Synthetic Control Method for a single treated unit.
@@ -12,27 +54,19 @@
 #' @param cutoff_date The intervention cutoff date (character or Date).
 #' @param donors Optional character vector of donor unit identifiers. If NULL, uses all non-treated units.
 #' @param pre_covariates Optional character vector of pre-period covariate columns to augment features.
-#' @param alphas Optional numeric vector of ridge lambdas. If NULL, uses seq(0.1, 10, by = 0.1).
+#' @param alphas Optional numeric vector of ridge penalties; at each date the one
+#'        with the least exact leave-one-out error is used (as scikit-learn's
+#'        \code{RidgeCV}, which normet-py uses). If NULL, uses seq(0.1, 10, by = 0.1).
 #' @param allow_negative_weights Logical; if TRUE, donor weights may be negative. Default FALSE.
-#' @param n_cores Integer; number of CPU cores for fitting the per-timepoint ridge
-#'        bias-correction model (one \code{cv.glmnet} fit per date in the panel,
-#'        pre- and post-period). Default 1 (sequential). When > 1, fits are
-#'        dispatched in parallel via \pkg{foreach}/\pkg{doSNOW} (falls back to
-#'        sequential if those packages aren't installed). Leave at the default
-#'        when calling \code{nm_scm} from \code{\link{nm_placebo_in_time}},
-#'        \code{\link{nm_placebo_in_space}}, or \code{\link{nm_scm_all}} --
-#'        those already parallelise across cutoffs/units, and nesting another
-#'        parallel cluster inside each worker oversubscribes CPU cores rather
-#'        than helping. Most useful for a single standalone \code{nm_scm} call
-#'        on a panel with many timepoints.
+#' @param n_cores Unused; kept so existing calls still run. The ridge step is one SVD
+#'        shared by every date, which needs no workers.
 #' @param verbose Logical; if TRUE, prints log messages and shows a progress bar. Default TRUE.
 #'
 #' @return A list containing:
 #' \describe{
 #'   \item{synthetic}{A data frame with observed, synthetic, and effect time series.}
 #'   \item{weights}{A named vector of donor weights.}
-#'   \item{alpha}{A list mapping each timestamp to the chosen Ridge lambda
-#'         (named \code{alpha} for parity with the Python \code{scm()} return).}
+#'   \item{alpha}{A list mapping each timestamp to the chosen ridge penalty.}
 #' }
 #'
 #' @section Reading the pre-period fit:
@@ -40,9 +74,10 @@
 #' there are for the pre-period dates. The ridge features are the units'
 #' pre-period outcomes, so at a pre-period date the treated unit is predicted
 #' from, among others, its own value at that date; with as many donors as dates
-#' the ridge model can return that value. On the bundled \code{scm} panel, a
-#' treated series of pure noise is fitted with a pre-period R-squared of -0.44
-#' from 5 donors, 0.30 from 20 and 0.47 from all 103. Refit with the treated
+#' the ridge model can return that value. On the bundled \code{scm} panel's ULEZ
+#' design (traffic sites, 27 pre-period months), a treated series of pure noise is
+#' fitted with a pre-period R-squared of 0.06 from 5 donors, 0.81 from 20 and 0.999
+#' from 53. Refit with the treated
 #' pre-period shuffled to see what a design gives for nothing, and judge the
 #' effect with \code{\link{nm_placebo_in_space}} and against
 #' \code{\link{nm_scm_abadie}} or \code{\link{nm_scm_robust}}. The weights
@@ -92,166 +127,77 @@ nm_scm <- function(df, date_col = "date", unit_col = "code", outcome_col = "poll
     warning("Very short pre-period; results may be unstable.")
   }
 
-  # --- 3. Build Ridge Feature Matrices (Rows = Units, Cols = Pre-Period Times) ---
-  # Extract pre-period submatrix
-  Y_pre_full <- panel_mat[pre_mask, , drop = FALSE]
-
-  # We need complete cases for the transposition (Features must be non-NA)
-  # But in matrix form, NA handling is tricky.
-  # Strategy: We assume time-series are mostly complete.
-  # Features X = Transpose of Pre-period outcomes.
-  # X_donors: (N_donors x T_pre)
-  X_donors <- t(Y_pre_full[, donors, drop = FALSE])
-  X_treated <- t(Y_pre_full[, treated_unit, drop = FALSE])
-
-  # Filter out donors that have ANY missing values in the pre-period
-  # (Standard SCM requirement: donors must be complete in pre-period)
-  valid_donor_mask <- apply(X_donors, 1, function(row) !any(is.na(row)))
-  if (sum(valid_donor_mask) == 0) stop("No donors have complete pre-treatment data.")
-
-  donors <- donors[valid_donor_mask]
-  X_donors <- X_donors[valid_donor_mask, , drop = FALSE]
-
-  # Check treated unit completeness
-  if (any(is.na(X_treated))) stop("Treated unit has missing values in the pre-period.")
+  # --- 3. Ridge Features: the units' pre-period outcomes (Rows = Units, Cols = Pre Dates) ---
+  # Pre-period dates where a donor or the treated unit is missing are left out of the
+  # features (as normet-py's Y_pre.dropna()), so every unit keeps its row.
+  pre_features <- function(donors) {
+    Y_pre <- panel_mat[pre_mask, c(donors, treated_unit), drop = FALSE]
+    Y_pre <- Y_pre[stats::complete.cases(Y_pre), , drop = FALSE]
+    if (nrow(Y_pre) < 3) stop("Not enough complete pre-treatment rows after dropping NaNs.")
+    list(donors = t(Y_pre[, donors, drop = FALSE]), treated = t(Y_pre[, treated_unit, drop = FALSE]))
+  }
+  feats <- pre_features(donors)
+  X_donors <- feats$donors
+  X_treated <- feats$treated
 
   # --- 4. Optional Covariate Augmentation ---
   if (!is.null(pre_covariates)) {
-    # Filter data to pre-period
     df_pre <- df[df[[date_col]] < cutoff_ts, ]
-
-    # Base R aggregation: Calculate mean of each covariate by unit
-    # Formula interface: covariate ~ unit
-    # But for multiple covariates, aggregate(x, by, FUN) is cleaner
     cov_agg <- aggregate(df_pre[, pre_covariates, drop = FALSE],
       by = list(unit = df_pre[[unit_col]]),
       FUN = mean, na.rm = TRUE)
+    cov_agg <- cov_agg[stats::complete.cases(cov_agg), , drop = FALSE]
 
-    # Align covariates to X matrices
-    rownames(cov_agg) <- cov_agg$unit
+    if (!treated_unit %in% cov_agg$unit) stop("Treated unit missing covariate data.")
+    kept <- intersect(donors, cov_agg$unit)
+    if (length(kept) == 0) stop("No donors left after covariate merging.")
+    if (length(kept) < length(donors)) {
+      # Fewer donors: the complete pre-period dates are found again for those left.
+      donors <- kept
+      feats <- pre_features(donors)
+      X_donors <- feats$donors
+      X_treated <- feats$treated
+    }
 
-    # Check if we have covariates for treated and donors
-    common_units <- intersect(cov_agg$unit, c(treated_unit, donors))
-
-    if (!treated_unit %in% common_units) stop("Treated unit missing covariate data.")
-
-    # Update donors based on covariate availability
-    donors <- intersect(donors, common_units)
-    if (length(donors) == 0) stop("No donors left after covariate merging.")
-
-    # Re-subset X_donors
-    X_donors <- X_donors[donors, , drop = FALSE]
-
-    # Extract covariate matrices
     cov_donors <- as.matrix(cov_agg[match(donors, cov_agg$unit), pre_covariates, drop = FALSE])
     cov_treated <- as.matrix(cov_agg[match(treated_unit, cov_agg$unit), pre_covariates, drop = FALSE])
-
-    # Augment: bind covariates as extra columns (features)
     X_donors <- cbind(X_donors, cov_donors)
     X_treated <- cbind(X_treated, cov_treated)
   }
 
-  # --- 5. RidgeCV Predictions (Augmentation Step) ---
+  # --- 5. Ridge Predictions (Augmentation Step) ---
+  # At every date (pre and post) the donors' outcomes are regressed on their fixed
+  # pre-period features, the penalty chosen per date by exact leave-one-out over
+  # `alphas` -- scikit-learn's RidgeCV(fit_intercept = TRUE), as normet-py fits it --
+  # and the treated unit and the donors predicted. With every donor observed at every
+  # date all dates share one SVD; a date with donors missing is fitted on those observed.
   if (is.null(alphas)) alphas <- seq(0.1, 10, by = 0.1)
-  lambda_grid <- sort(as.numeric(alphas), decreasing = TRUE)
-
-  # Prepare placeholders
-  n_times <- nrow(panel_mat)
+  alphas <- as.numeric(alphas)
+  Y_don <- panel_mat[, donors, drop = FALSE]
+  n_times <- nrow(Y_don)
+  newx <- rbind(X_treated, X_donors)
+  alpha_t <- rep(NA_real_, n_times)
   m_treated <- rep(NA_real_, n_times)
-  m_donors <- matrix(NA_real_, nrow = n_times, ncol = length(donors))
-  colnames(m_donors) <- donors
-  alpha_map <- list()
+  m_donors <- matrix(NA_real_, nrow = n_times, ncol = length(donors), dimnames = list(NULL, donors))
 
-  # Loop through every time point t (Pre AND Post)
-  # We regress Outcome_t on Pre-Period Features to learn the bias structure.
-  # Each t is an independent cv.glmnet fit, so this is dispatched in parallel
-  # via foreach/doSNOW when n_cores > 1 (same pattern as nm_placebo_in_time /
-  # nm_placebo_in_space / nm_scm_all). Sequential by default (n_cores = 1) so
-  # callers that already parallelise at an outer level -- nm_placebo_in_time,
-  # nm_placebo_in_space, nm_scm_all, none of which pass n_cores through to
-  # nm_scm() -- don't end up nesting parallel clusters inside parallel workers.
-  fit_one_time <- function(t) {
-    y_t <- panel_mat[t, donors] # Vector of length N_donors
-
-    # Identify valid donors for this time point (outcome observed)
-    mask <- is.finite(y_t)
-
-    # Need sufficient data to fit ridge
-    if (sum(mask) < 3) return(NULL)
-
-    # glmnet requires samples in rows, features in cols
-    # X_donors is (N_donors x Features)
-    x_train <- X_donors[mask, , drop = FALSE]
-    y_train <- y_t[mask]
-
-    # Fit Ridge
-    cv_fit <- glmnet::cv.glmnet(
-      x = x_train,
-      y = y_train,
-      alpha = 0,
-      lambda = lambda_grid,
-      family = "gaussian",
-      standardize = TRUE
-    )
-
-    list(
-      t = t,
-      chosen_lambda = cv_fit$lambda.min,
-      # Predict bias component for Treated unit
-      m_treated_t = as.numeric(stats::predict(cv_fit, newx = X_treated, s = "lambda.min")),
-      # Predict bias component for All Donors (even those missing at time t, if possible)
-      # X_donors contains all valid pre-period donors
-      m_donors_row = as.numeric(stats::predict(cv_fit, newx = X_donors, s = "lambda.min"))
-    )
-  }
-
-  # Serial by default here (unlike the other entry points), so NULL stays 1; an
-  # explicit n_cores still goes through the resolver to pick up the task cap and
-  # the connection-table backstop. One timepoint per worker.
-  n_cores_eff <- if (is.null(n_cores)) 1L else .nm_resolve_cores(n_cores, n_tasks = n_times)
-  use_parallel <- n_cores_eff > 1 && n_times > 1 &&
-    requireNamespace("foreach", quietly = TRUE) && requireNamespace("doSNOW", quietly = TRUE)
-
-  if (use_parallel) {
-    if (verbose) message(sprintf("Fitting %d per-timepoint ridge models using %d parallel cores.", n_times, n_cores_eff))
-
-    cl <- parallel::makeCluster(n_cores_eff)
-    .nm_propagate_libpaths(cl)
-    doSNOW::registerDoSNOW(cl)
-    on.exit(parallel::stopCluster(cl), add = TRUE)
-
-    opts <- list()
-    if (verbose && requireNamespace("progress", quietly = TRUE)) {
-      pb <- progress::progress_bar$new(total = n_times, format = "  Ridge fits [:bar] :percent :eta", width = 60)
-      opts <- list(progress = function(n) pb$tick())
-    }
-
-    # `fit_one_time` is auto-detected and exported by foreach since it's
-    # referenced directly in the %dopar% expression below; listing it in
-    # `.export` too just produces a harmless "already exporting" warning.
-    fits <- foreach::foreach(
-      t = seq_len(n_times),
-      .packages = c("glmnet", "stats"),
-      .options.snow = opts
-    ) %dopar% fit_one_time(t)
+  if (all(is.finite(Y_don)) && length(donors) >= 3) {
+    fit <- .nm_ridge_loo(X_donors, t(Y_don), alphas, newx)
+    alpha_t <- fit$alpha
+    m_treated <- fit$pred[1, ]
+    m_donors[] <- t(fit$pred[-1, , drop = FALSE])
   } else {
-    pb <- NULL
-    if (verbose) pb <- utils::txtProgressBar(min = 0, max = n_times, style = 3)
-    fits <- vector("list", n_times)
     for (t in seq_len(n_times)) {
-      if (verbose) utils::setTxtProgressBar(pb, t)
-      fits[[t]] <- fit_one_time(t)
+      mask <- is.finite(Y_don[t, ])
+      if (sum(mask) < 3) next
+      fit <- .nm_ridge_loo(X_donors[mask, , drop = FALSE], matrix(Y_don[t, mask], ncol = 1),
+        alphas, newx)
+      alpha_t[t] <- fit$alpha
+      m_treated[t] <- fit$pred[1, 1]
+      m_donors[t, ] <- fit$pred[-1, 1]
     }
-    if (verbose && !is.null(pb)) close(pb)
   }
-
-  for (res in fits) {
-    if (is.null(res)) next
-    t <- res$t
-    alpha_map[[as.character(unique_dates[t])]] <- res$chosen_lambda
-    m_treated[t] <- res$m_treated_t
-    m_donors[t, ] <- res$m_donors_row
-  }
+  alpha_map <- as.list(stats::setNames(alpha_t, as.character(unique_dates)))
+  alpha_map <- alpha_map[is.finite(alpha_t)]
 
   # --- 6. Residual Construction (De-biasing) ---
   # Observed Donors Matrix - Bias Donors Matrix
@@ -707,6 +653,19 @@ nm_run_scm <- function(df,
 }
 
 
+#' Whether a synthetic-control run's models are H2O's
+#'
+#' ML-SCM trains with the backend its caller names (\code{backend}, passed on
+#' through \code{...}; LightGBM when none is named); only H2O's needs a cluster.
+#'
+#' @keywords internal
+#' @noRd
+.nm_scm_uses_h2o <- function(scm_backend, backend = NULL) {
+  identical(tolower(scm_backend), "mlscm") &&
+    identical(tolower(if (is.null(backend)) "lightgbm" else backend), "h2o")
+}
+
+
 #' Internal helper to run SCM safely with retries and parameter merging
 #'
 #' @description
@@ -845,6 +804,7 @@ nm_scm_all <- function(df,
   scm_backend <- tolower(scm_backend)
   units <- sort(unique(df[[unit_col]]))
   dots <- list(...)
+  uses_h2o <- .nm_scm_uses_h2o(scm_backend, dots$backend)
 
   cleanup_every <- if ("cleanup_every" %in% names(dots)) dots$cleanup_every else 10
 
@@ -873,7 +833,7 @@ nm_scm_all <- function(df,
 
     results <- foreach::foreach(
       code = units,
-      .packages = c("glmnet", "quadprog", "stats"), # Reduced package dependency
+      .packages = c("quadprog", "stats"), # Reduced package dependency
       .export = c("nm_run_scm", "nm_scm"),
       .options.snow = opts
     ) %dopar% {
@@ -908,39 +868,44 @@ nm_scm_all <- function(df,
     # === B. ML-SCM / H2O (Serial Loop, Auto-Recovery, Smart Lifecycle) ===
   } else if (scm_backend == "mlscm") {
 
-    if (verbose) log$info("Running ML-SCM on %d units via H2O.", length(units))
+    if (verbose) log$info("Running ML-SCM on %d units (backend: %s).", length(units),
+                          if (uses_h2o) "h2o" else "lightgbm")
 
-    # --- 1. Smart Initialization Strategy ---
-    # Check if H2O is ALREADY running
-    h2o_was_running <- tryCatch(h2o::h2o.clusterIsUp(), error = function(e) FALSE)
+    # H2O's cluster is set up only when the models are H2O's; LightGBM needs none.
+    if (uses_h2o) {
 
-    # Determine exit strategy
-    if (is.null(shutdown_on_exit)) {
-      # If it was running, keep it running. If we start it, shut it down.
-      shutdown_on_exit <- !h2o_was_running
+      # --- 1. Smart Initialization Strategy ---
+      # Check if H2O is ALREADY running
+      h2o_was_running <- tryCatch(h2o::h2o.clusterIsUp(), error = function(e) FALSE)
+
+      # Determine exit strategy
+      if (is.null(shutdown_on_exit)) {
+        # If it was running, keep it running. If we start it, shut it down.
+        shutdown_on_exit <- !h2o_was_running
+      }
+
+      # Initialize if needed
+      if (h2o_was_running) {
+        if (verbose) log$info("Active H2O cluster detected. Reusing existing connection.")
+      } else {
+        if (verbose) log$info("No active H2O cluster. Initializing new instance (Cores: %s)...", n_cores)
+        nm_init_h2o(n_cores = n_cores, max_mem_size = max_mem_size, verbose = verbose)
+      }
+
+      # Register Smart Exit Hook
+      if (shutdown_on_exit) {
+        on.exit(
+          {
+            if (verbose) log$info("Shutting down H2O cluster (shutdown_on_exit=TRUE)...")
+            try(nm_stop_h2o(quiet = TRUE), silent = TRUE)
+          },
+          add = TRUE)
+      } else {
+        if (verbose) log$info("H2O cluster kept alive for future runs (shutdown_on_exit=FALSE).")
+      }
+
+      h2o::h2o.no_progress()
     }
-
-    # Initialize if needed
-    if (h2o_was_running) {
-      if (verbose) log$info("Active H2O cluster detected. Reusing existing connection.")
-    } else {
-      if (verbose) log$info("No active H2O cluster. Initializing new instance (Cores: %s)...", n_cores)
-      nm_init_h2o(n_cores = n_cores, max_mem_size = max_mem_size, verbose = verbose)
-    }
-
-    # Register Smart Exit Hook
-    if (shutdown_on_exit) {
-      on.exit(
-        {
-          if (verbose) log$info("Shutting down H2O cluster (shutdown_on_exit=TRUE)...")
-          try(nm_stop_h2o(quiet = TRUE), silent = TRUE)
-        },
-        add = TRUE)
-    } else {
-      if (verbose) log$info("H2O cluster kept alive for future runs (shutdown_on_exit=FALSE).")
-    }
-
-    h2o::h2o.no_progress()
 
     # --- 2. Loop Execution ---
     if (!requireNamespace("progress", quietly = TRUE)) stop("Package 'progress' is required.")
@@ -953,7 +918,7 @@ nm_scm_all <- function(df,
       pb$tick()
 
       # [Robustness] Check H2O status & Auto-Recover
-      if (!h2o::h2o.clusterIsUp()) {
+      if (uses_h2o && !h2o::h2o.clusterIsUp()) {
         if (verbose) log$warn("H2O crashed. Restarting...")
         try(nm_init_h2o(n_cores = n_cores, max_mem_size = max_mem_size, verbose = FALSE), silent = TRUE)
         h2o::h2o.no_progress()
@@ -987,7 +952,7 @@ nm_scm_all <- function(df,
         error = function(e) {
           msg <- e$message
           # [Robustness] Handle H2O Crashes
-          if (grepl("connect", msg, ignore.case = TRUE) || grepl("empty reply", msg, ignore.case = TRUE)) {
+          if (uses_h2o && (grepl("connect", msg, ignore.case = TRUE) || grepl("empty reply", msg, ignore.case = TRUE))) {
             if (verbose) log$warn("H2O crashed on unit %s. Restarting...", u)
             # Kill zombie process to ensure fresh start next loop
             try(h2o::h2o.shutdown(prompt = FALSE), silent = TRUE)
@@ -997,7 +962,7 @@ nm_scm_all <- function(df,
         })
 
       counter <- counter + 1
-      if (counter %% cleanup_every == 0) {
+      if (uses_h2o && counter %% cleanup_every == 0) {
         if (h2o::h2o.clusterIsUp()) {
           try(
             {

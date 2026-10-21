@@ -107,6 +107,9 @@ nm_load_run <- function(path) {
 }
 
 .coerce_json_safe <- function(obj) {
+  # A version is a list whose elements are versions again: as text, not taken apart.
+  if (inherits(obj, "numeric_version")) return(as.character(obj))
+  if (inherits(obj, c("POSIXt", "Date"))) return(format(obj, tz = "UTC", usetz = TRUE))
   if (is.null(obj) || is.logical(obj) || is.numeric(obj) || is.character(obj)) return(obj)
   if (is.list(obj)) return(lapply(obj, .coerce_json_safe))
   if (is.data.frame(obj)) return(paste0(deparse(head(obj, 4)), collapse = "\n"))

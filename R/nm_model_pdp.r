@@ -120,10 +120,12 @@ nm_pdp_h2o <- function(df, model, var_list = NULL, training_only = TRUE, verbose
           plot = FALSE
         )
 
-        # Standardize output format
+        # Standardize output format: a factor's levels as their codes (weekday:
+        # 1 = Mon ... 7 = Sun), as the generic backend gives them
+        lv <- levels(df[[var]])
         out_df <- data.frame(
           variable = var,
-          value = as.character(fr[[var]]), # Convert to char to handle mixed types later
+          value = if (is.null(lv)) as.numeric(as.character(fr[[var]])) else match(as.character(fr[[var]]), lv),
           pdp_mean = fr$mean_response,
           pdp_std = fr$stddev_response
         )
@@ -206,15 +208,18 @@ nm_pdp_generic <- function(df, model, var_list = NULL, training_only = TRUE, n_c
     .packages = c("data.table", "lightgbm"),
     .options.snow = opts
   ) %dopar% {
-    # Create grid for the current variable
-    grid <- .create_pdp_grid(X_df[[var]], quantile_range, grid_points)
+    # Create grid for the current variable: a factor's (weekday's) every level, by its
+    # code (1 = Mon ... 7 = Sun), set back as that level; a number's quantile range
+    x <- X_df[[var]]
+    lv <- levels(x)
+    grid <- if (is.null(lv)) .create_pdp_grid(x, quantile_range, grid_points) else seq_along(lv)
     if (is.null(grid)) return(NULL)
 
     X_work <- X_df
 
     # Calculate marginal effects
     pdp_results <- sapply(grid, function(g) {
-      X_work[[var]] <- g
+      X_work[[var]] <- if (is.null(lv)) g else factor(lv[g], levels = lv)
       yhat <- nm_predict(model, X_work, verbose = FALSE)
       c(mean = mean(yhat, na.rm = TRUE), sd = sd(yhat, na.rm = TRUE))
     })

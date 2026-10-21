@@ -36,21 +36,14 @@ nm_scm(
 
 \item{pre_covariates}{Optional character vector of pre-period covariate columns to augment features.}
 
-\item{alphas}{Optional numeric vector of ridge lambdas. If NULL, uses seq(0.1, 10, by = 0.1).}
+\item{alphas}{Optional numeric vector of ridge penalties; at each date the one
+with the least exact leave-one-out error is used (as scikit-learn's
+\code{RidgeCV}, which normet-py uses). If NULL, uses seq(0.1, 10, by = 0.1).}
 
 \item{allow_negative_weights}{Logical; if TRUE, donor weights may be negative. Default FALSE.}
 
-\item{n_cores}{Integer; number of CPU cores for fitting the per-timepoint ridge
-bias-correction model (one \code{cv.glmnet} fit per date in the panel,
-pre- and post-period). Default 1 (sequential). When > 1, fits are
-dispatched in parallel via \pkg{foreach}/\pkg{doSNOW} (falls back to
-sequential if those packages aren't installed). Leave at the default
-when calling \code{nm_scm} from \code{\link{nm_placebo_in_time}},
-\code{\link{nm_placebo_in_space}}, or \code{\link{nm_scm_all}} --
-those already parallelise across cutoffs/units, and nesting another
-parallel cluster inside each worker oversubscribes CPU cores rather
-than helping. Most useful for a single standalone \code{nm_scm} call
-on a panel with many timepoints.}
+\item{n_cores}{Unused; kept so existing calls still run. The ridge step is one SVD
+shared by every date, which needs no workers.}
 
 \item{verbose}{Logical; if TRUE, prints log messages and shows a progress bar. Default TRUE.}
 }
@@ -59,8 +52,7 @@ A list containing:
 \describe{
 \item{synthetic}{A data frame with observed, synthetic, and effect time series.}
 \item{weights}{A named vector of donor weights.}
-\item{alpha}{A list mapping each timestamp to the chosen Ridge lambda
-(named \code{alpha} for parity with the Python \code{scm()} return).}
+\item{alpha}{A list mapping each timestamp to the chosen ridge penalty.}
 }
 }
 \description{
@@ -74,9 +66,10 @@ The pre-period fit flatters the counterfactual, the more so the more donors
 there are for the pre-period dates. The ridge features are the units'
 pre-period outcomes, so at a pre-period date the treated unit is predicted
 from, among others, its own value at that date; with as many donors as dates
-the ridge model can return that value. On the bundled \code{scm} panel, a
-treated series of pure noise is fitted with a pre-period R-squared of -0.44
-from 5 donors, 0.30 from 20 and 0.47 from all 103. Refit with the treated
+the ridge model can return that value. On the bundled \code{scm} panel's ULEZ
+design (traffic sites, 27 pre-period months), a treated series of pure noise is
+fitted with a pre-period R-squared of 0.06 from 5 donors, 0.81 from 20 and 0.999
+from 53. Refit with the treated
 pre-period shuffled to see what a design gives for nothing, and judge the
 effect with \code{\link{nm_placebo_in_space}} and against
 \code{\link{nm_scm_abadie}} or \code{\link{nm_scm_robust}}. The weights

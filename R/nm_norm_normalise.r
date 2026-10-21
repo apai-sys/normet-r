@@ -439,6 +439,7 @@ nm_normalise_h2o <- function(df, model, resample_vars = NULL,
   samples_processed_count <- 0
 
   for (i in seq_along(seed_chunks)) {
+    .nm_progress_report(i - 1, length(seed_chunks))
     current_seeds <- seed_chunks[[i]]
     if (verbose && exists("pb")) {
       samples_processed_count <- samples_processed_count + length(current_seeds)
@@ -677,6 +678,7 @@ nm_normalise_lgb <- function(df, model, resample_vars = NULL,
   if (store_in_ram) results_list <- vector("list", length(seed_chunks))
 
   for (i in seq_along(seed_chunks)) {
+    .nm_progress_report(i - 1, length(seed_chunks))
     current_seeds <- seed_chunks[[i]]
     if (verbose && exists("pb")) pb$tick()
 

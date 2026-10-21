@@ -42,6 +42,10 @@ jobs:
           w = MainWindow()
           print('MainWindow constructed OK')
           "
+      - name: GUI tests (the window in Chinese, the trajectory join)
+        run: |
+          pip install pytest
+          QT_QPA_PLATFORM=offscreen python -m pytest -q tests
 
   build:
     name: Build (${{ matrix.os }})
