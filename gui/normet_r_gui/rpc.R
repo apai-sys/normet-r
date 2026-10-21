@@ -191,6 +191,12 @@ if (length(.rpc_args) < 1) stop("usage: Rscript rpc.R <request.json>")
   as.data.frame(get(name, envir = asNamespace("normet")))
 }
 
+# A folder of the files normet ships (inst/extdata): the sample tdumps are "traj".
+.gui_extdata <- function(name) {
+  stopifnot(name %in% c("traj"))
+  system.file("extdata", name, package = "normet", mustWork = TRUE)
+}
+
 # The regions a vector file names.
 .gui_region_names <- function(path) names(nm_load_source_regions(path))
 
@@ -219,6 +225,71 @@ if (length(.rpc_args) < 1) stop("usage: Rscript rpc.R <request.json>")
   nm_run_back_trajectories(times, source_regions = .gui_regions(regions), ...)
 }
 
+# -- a session script (File -> Load Session Script) -----------------------------------
+
+# The normet calls a session script makes, read without running it: each one's
+# arguments named as its function names them (match.call), a literal's value kept and
+# anything else (a name: df, model) as NULL; the last call of each function. The
+# rolling runs a multi-scale entry writes (rolled_<days> <- nm_rolling(...)) are kept
+# apart, in order.
+.gui_read_calls <- function(path) {
+  literal <- function(e) {
+    if (is.null(e) || (is.atomic(e) && length(e) <= 1)) return(TRUE)
+    if (is.call(e) && is.symbol(e[[1]]) && as.character(e[[1]]) %in% c("c", "list", "-")) {
+      return(all(vapply(as.list(e)[-1], literal, logical(1))))
+    }
+    FALSE
+  }
+  value <- function(e) if (literal(e)) eval(e, baseenv()) else NULL
+  ns <- asNamespace("normet")
+  calls <- list()
+  multiscale <- list()
+  visit <- function(e, target = NULL) {
+    if (!is.call(e)) return(invisible())
+    head <- e[[1]]
+    if (is.symbol(head) && as.character(head) %in% c("<-", "=") && length(e) == 3) {
+      return(visit(e[[3]], if (is.symbol(e[[2]])) as.character(e[[2]]) else NULL))
+    }
+    fn <- if (is.symbol(head)) {
+      as.character(head)
+    } else if (is.call(head) && identical(head[[1]], as.name("::"))) {
+      as.character(head[[3]])
+    } else {
+      ""
+    }
+    if (startsWith(fn, "nm_") && exists(fn, envir = ns, inherits = FALSE)) {
+      m <- tryCatch(match.call(get(fn, envir = ns), e), error = function(err) NULL)
+      if (!is.null(m)) {
+        args <- lapply(as.list(m)[-1], value)
+        if (fn == "nm_rolling" && !is.null(target) && grepl("^rolled_[0-9]+$", target)) {
+          multiscale[[length(multiscale) + 1]] <<- args
+        } else {
+          calls[[fn]] <<- args
+        }
+      }
+    }
+    for (a in as.list(e)[-1]) visit(a)
+  }
+  for (e in parse(path, keep.source = FALSE)) visit(e)
+  list(calls = calls, multiscale = multiscale)
+}
+
+# A session script run in the folder it was saved in, workdir (so a CSV it reads by a
+# relative path is found); what it made, by the names the command log gives them, and its
+# multi-scale rolling runs by their names.
+.gui_run_script <- function(path, workdir = dirname(path)) {
+  path <- normalizePath(path)
+  env <- new.env(parent = globalenv())
+  old <- setwd(workdir)
+  on.exit(setwd(old), add = TRUE)
+  sys.source(path, envir = env, keep.source = FALSE)
+  keep <- c("df", "df_prep", "model", "normalised", "decomposition", "rolled", "pd_values")
+  made <- mget(intersect(keep, ls(env)), envir = env)
+  rolled <- grep("^rolled_[0-9]+$", ls(env), value = TRUE)
+  if (length(rolled)) made$multiscale <- mget(rolled, envir = env)
+  made
+}
+
 # -- the call -------------------------------------------------------------------------
 
 .rpc_response <- paste0(sub("\\.json$", "", .rpc_request_path), ".out.json")
@@ -234,7 +305,20 @@ if (length(.rpc_args) < 1) stop("usage: Rscript rpc.R <request.json>")
   }
   args <- lapply(req$args %||% list(), .rpc_decode)
   kwargs <- lapply(req$kwargs %||% list(), .rpc_decode)
-  value <- do.call(fn, c(args, kwargs))
+  # The share of the call done, as the package's loops report it, on a line of its own
+  # for the window's task clock (_rpc._forward); a package without the reports runs as is.
+  listening <- get0(".nm_progress_listening", envir = asNamespace("normet"), inherits = FALSE)
+  value <- if (is.null(listening)) {
+    do.call(fn, c(args, kwargs))
+  } else {
+    last <- -1
+    listening(function(share) {
+      if (share - last >= 0.001) {
+        last <<- share
+        message(sprintf("NM_PROGRESS %.4f", share))
+      }
+    }, do.call(fn, c(args, kwargs)))
+  }
   out <- list(value = .rpc_encode(value))
   writeLines(jsonlite::toJSON(out, auto_unbox = TRUE, null = "null", na = "null",
                               digits = NA, POSIXt = "ISO8601"),

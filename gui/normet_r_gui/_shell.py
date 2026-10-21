@@ -15,11 +15,10 @@ from PySide6.QtCore import Qt, QUrl
 from PySide6.QtGui import QActionGroup, QDesktopServices, QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
-    QDockWidget,
+    QDialog,
     QHBoxLayout,
     QLabel,
     QMainWindow,
-    QMessageBox,
     QPlainTextEdit,
     QProgressBar,
     QPushButton,
@@ -160,8 +159,8 @@ class ShellMixin(QMainWindow):
         act = vm.addAction("Collapse / Expand &Panel", lambda: self.toggle_panel())
         act.setShortcut("Ctrl+B")
         vm.addSeparator()
-        vm.addAction("&Log", lambda: self.show_log_page(0))
-        vm.addAction("Command &Log", lambda: self.show_log_page(1))
+        vm.addAction("&Log…", lambda: self.show_log_page(0))
+        vm.addAction("Command &Log…", lambda: self.show_log_page(1))
         act = self.assistant.toggleViewAction()
         act.setText("&Assistant")
         act.setShortcut("Ctrl+Shift+A")
@@ -255,6 +254,9 @@ class ShellMixin(QMainWindow):
 
     def _build_tabs(self) -> QTabWidget:
         self.tabs = QTabWidget()
+        # Pages on the window's own ground, as the toolbars above their figures are: a
+        # framed pane drew them lighter, and each toolbar as a grey band across it.
+        self.tabs.setDocumentMode(True)
 
         # Data preview tab: the welcome until a table is open, then its preview.
         data_tab = QWidget()
@@ -321,38 +323,24 @@ class ShellMixin(QMainWindow):
         self.welcome.setVisible(empty)
         self._data_parts.setVisible(not empty)
 
-    def _build_log_dock(self) -> None:
-        """The log and the command log: one dock at the foot, a page each, without a title
-        bar of its own -- its two tabs are on the status bar's line (``_log_tabs``)."""
-        from PySide6.QtWidgets import QStackedWidget, QTabBar
+    def _log_window(self, title: str, body: QWidget) -> QDialog:
+        """A window of the main window's own, opened from the View menu and left open
+        beside it as the analysis goes on."""
+        dlg = QDialog(self)
+        dlg.setWindowTitle(title)
+        dlg.setModal(False)
+        lay = QVBoxLayout(dlg)
+        lay.setContentsMargins(6, 6, 6, 6)
+        lay.addWidget(body)
+        dlg.resize(720, 420)
+        return dlg
 
-        dock = QDockWidget("Log", self)
-        dock.setObjectName("logDock")
-        dock.setFeatures(
-            QDockWidget.DockWidgetFeature.DockWidgetMovable
-            | QDockWidget.DockWidgetFeature.DockWidgetFloatable
-            | QDockWidget.DockWidgetFeature.DockWidgetClosable
-        )
-        dock.setTitleBarWidget(QWidget())  # the tabs name it, on the status bar
+    def _build_log(self) -> None:
+        """View → Log: what the analysis has said, in a window of its own."""
         self.log_view = QPlainTextEdit()
         self.log_view.setReadOnly(True)
         self.log_view.setMaximumBlockCount(5_000)
-        self._log_stack = QStackedWidget()
-        self._log_stack.addWidget(self.log_view)
-        dock.setWidget(self._log_stack)
-        dock.setMaximumHeight(180)
-        self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, dock)
-        self._log_dock = dock
-        tabs = QTabBar()
-        tabs.setDocumentMode(True)
-        tabs.setDrawBase(False)
-        tabs.setExpanding(False)
-        tabs.setStyleSheet("QTabBar::tab { padding: 2px 10px; }")
-        tabs.addTab("Log")
-        tabs.addTab("Command Log")
-        tabs.setToolTip("Show the log or the command log; click the open one to fold it away.")
-        tabs.tabBarClicked.connect(self._log_tab_clicked)
-        self._log_tabs = tabs
+        self._log_windows: list[QDialog] = [self._log_window("Log", self.log_view)]
 
         handler = QtLogHandler()
         handler.message.connect(self.log_view.appendPlainText)
@@ -362,13 +350,13 @@ class ShellMixin(QMainWindow):
         logging.getLogger("normet").setLevel(logging.INFO)
         self._log_handler = handler
 
-    def _build_command_log_dock(self) -> None:
+    def _build_command_log(self) -> None:
         """View → Command Log: the session as the normet calls that repeat it."""
         from PySide6.QtGui import QFontDatabase
 
         body = QWidget()
         v = QVBoxLayout(body)
-        v.setContentsMargins(4, 4, 4, 4)
+        v.setContentsMargins(0, 0, 0, 0)
         self.command_view = QPlainTextEdit()
         self.command_view.setReadOnly(True)
         self.command_view.setFont(QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont))
@@ -386,23 +374,15 @@ class ShellMixin(QMainWindow):
             row.addWidget(b)
         row.addStretch(1)
         v.addLayout(row)
-        self._log_stack.addWidget(body)
+        self._log_windows.append(self._log_window("Command Log", body))
         self._refresh_command_log()
 
     def show_log_page(self, index: int) -> None:
-        """The log (0) or the command log (1) in view, the dock opened if folded."""
-        self._log_stack.setCurrentIndex(index)
-        self._log_tabs.setCurrentIndex(index)
-        self._log_dock.show()
-
-    def _log_tab_clicked(self, index: int) -> None:
-        """A tab clicked: its page in view -- or, the page already open, the dock folded."""
-        if index < 0:
-            return
-        if self._log_dock.isVisible() and self._log_stack.currentIndex() == index:
-            self._log_dock.hide()
-        else:
-            self.show_log_page(index)
+        """The log (0) or the command log (1), its window opened and brought forward."""
+        dlg = self._log_windows[index]
+        dlg.show()
+        dlg.raise_()
+        dlg.activateWindow()
 
     def _refresh_command_log(self) -> None:
         self.command_view.setPlainText(self.command_log.text())
@@ -469,7 +449,6 @@ class ShellMixin(QMainWindow):
             lbl.setTextFormat(Qt.TextFormat.RichText)
             row.addWidget(lbl)
             self._step_lights[key] = lbl
-        self.statusBar().addPermanentWidget(self._log_tabs)
         self.statusBar().addPermanentWidget(lights)
         self.statusBar().addPermanentWidget(self.cancel_btn)
         self.statusBar().addPermanentWidget(self.progress)
@@ -550,16 +529,62 @@ class ShellMixin(QMainWindow):
         dlg.open()
 
     def _about(self) -> None:
+        """Help → About: the app's icon, its name and version, what it does, and where
+        its documentation is."""
+        from PySide6.QtGui import QPixmap
+        from PySide6.QtWidgets import QDialog
+
         from . import nm as normet
 
-        QMessageBox.about(
-            self,
-            "About Normet",
-            f"<b>normet {normet.__version__} (R)</b><br>"
+        from ._widgets import app_icon_path
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle("About Normet")
+        dlg.setMinimumWidth(380)
+        v = QVBoxLayout(dlg)
+        v.setContentsMargins(36, 30, 36, 30)
+        v.setSpacing(14)
+
+        icon = QLabel()
+        pix = QPixmap(app_icon_path())
+        if not pix.isNull():
+            ratio = dlg.devicePixelRatioF()  # sharp on a Retina screen
+            pix = pix.scaled(
+                round(96 * ratio),
+                round(96 * ratio),
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+            pix.setDevicePixelRatio(ratio)
+            icon.setPixmap(pix)
+        icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        v.addWidget(icon)
+
+        title = QLabel("Normet")
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        title.setStyleSheet("font-size: 15px; font-weight: 600;")
+        v.addWidget(title)
+
+        version = QLabel(f"Version {normet.__version__} (R)")
+        version.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        version.setStyleSheet("font-size: 11px; color: gray;")
+        v.addWidget(version)
+
+        what = QLabel(
             "Normalisation, decomposition and counterfactual modelling "
-            "for environmental time series, run on the normet R package.<br>"
-            f'<a href="{DOCS_URL}">{DOCS_URL.removeprefix("https://")}</a>',
+            "for environmental time series, run on the normet R package."
         )
+        what.setWordWrap(True)
+        what.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        v.addWidget(what)
+
+        link = QLabel(f'<a href="{DOCS_URL}">{DOCS_URL.removeprefix("https://")}</a>')
+        link.setOpenExternalLinks(True)
+        link.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        v.addWidget(link)
+
+        self._about_dialog = dlg
+        dlg.open()
 
     def _build_action_bar(self) -> QWidget:
         bar = QWidget()

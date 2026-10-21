@@ -7,7 +7,7 @@ from __future__ import annotations
 import logging
 import threading
 
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtCore import QObject, QTimer, Signal
 from PySide6.QtWidgets import QFileDialog, QLabel, QMainWindow, QMessageBox
 
 from . import _rpc
@@ -31,13 +31,18 @@ class RShellMixin(QMainWindow):
         self.statusBar().insertPermanentWidget(0, self.r_label)
         self._r_checked = _Checked(self)
         self._r_checked.done.connect(self._show_r_state)
+        # Asked as the window opens; the app's warm-up asks the same, and R answers once.
+        # The label as its context: a window closed before then is not asked about.
+        QTimer.singleShot(0, self.r_label, lambda: self._check_r(fresh=False))
 
-    def _check_r(self) -> None:
-        """Ask R, off the interface thread, which normet and which backends it has."""
+    def _check_r(self, fresh: bool = True) -> None:
+        """Ask R, off the interface thread, which normet and which backends it has;
+        *fresh* asks again rather than reading the answer already had."""
         from .nm import _r
 
         self.r_label.setText("R: checking…")
-        _r.r_check.cache_clear()
+        if fresh:
+            _r.r_check.cache_clear()
 
         def ask() -> None:
             try:
@@ -71,8 +76,11 @@ class RShellMixin(QMainWindow):
             return
         assert isinstance(state, dict)
         backends = [b for b in ("lightgbm", "h2o") if state.get(b)]
-        self.r_label.setText(f"R {state.get('r')} · normet {state.get('normet')}")
-        self.r_label.setToolTip("Backends: " + (", ".join(backends) or "none installed"))
+        # Short, as the status line's message has the room it has in normet-py's window.
+        self.r_label.setText(f"R {state.get('r')}")
+        self.r_label.setToolTip(
+            f"normet {state.get('normet')} · backends: " + (", ".join(backends) or "none installed")
+        )
         log.info("R environment: normet %s (backends: %s)", state.get("normet"), ", ".join(backends) or "none")
         if not backends:
             self.notify(

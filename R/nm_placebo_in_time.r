@@ -58,8 +58,12 @@ nm_placebo_in_time <- function(df, date_col = "date", unit_col = "code",
   post_len <- sum(df_true$date >= cutoff_ts)
   if (post_len == 0) stop("No post-period observations.")
 
+  # A fake cutoff has at least `min_pre_period` dates before it and a full post-period
+  # length after it, still before the true cutoff (normet-py's range(min_pre_period,
+  # n - post_len), from 1); none when the record is too short.
   placebo_candidates <- c()
-  for (i in seq(min_pre_period, length(treated_dates) - post_len)) {
+  n_candidates <- max(0L, length(treated_dates) - post_len - as.integer(min_pre_period))
+  for (i in seq.int(as.integer(min_pre_period) + 1L, length.out = n_candidates)) {
     pc <- treated_dates[i]
     if (pc >= cutoff_ts) break
     idx_end <- i + post_len - 1
@@ -140,7 +144,7 @@ nm_placebo_in_time <- function(df, date_col = "date", unit_col = "code",
 
     results <- foreach::foreach(
       pc = placebo_candidates,
-      .packages = c("glmnet", "quadprog", "stats"),
+      .packages = c("quadprog", "stats"),
       .export = c("nm_run_scm", "nm_scm", "run_one_placebo"),
       .options.snow = opts
     ) %dopar% run_one_placebo(pc)

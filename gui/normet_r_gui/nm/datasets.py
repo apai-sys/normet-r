@@ -4,6 +4,7 @@ the same tables normet-py ships."""
 from __future__ import annotations
 
 import functools
+from pathlib import Path
 
 import pandas as pd
 
@@ -33,3 +34,10 @@ def load_scm() -> pd.DataFrame:
 def load_traj_my1() -> pd.DataFrame:
     """HYSPLIT trajectory features at MY1, 6-hourly, Jan-Aug 2020."""
     return _load("traj_my1").copy()
+
+
+@functools.cache
+def example_traj_dir() -> Path:
+    """Eight 72-hour HYSPLIT back-trajectory ``tdump`` files at MY1, 2020-01-01 00 UTC to
+    2020-01-02 18 UTC, 6-hourly: the R package's ``inst/extdata/traj``."""
+    return Path(_rpc.call(".gui_extdata", "traj"))

@@ -1,0 +1,699 @@
+"""Offscreen smoke tests for the Qt GUI (skipped when PySide6 is absent).
+
+These deliberately avoid model training / SCM fits — they only exercise
+window construction, example-data ingestion and the selector logic, so the
+suite stays fast and dependency-light.
+"""
+
+from __future__ import annotations
+
+import os
+
+import pytest
+
+pytest.importorskip("PySide6")
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+
+@pytest.fixture(scope="module")
+def qapp():
+    from PySide6.QtWidgets import QApplication
+
+    app = QApplication.instance() or QApplication([])
+    yield app
+
+
+def test_main_window_example_flow(qapp):
+    from normet_r_gui.main_window import MainWindow
+
+    win = MainWindow()
+    try:
+        win.load_example()
+        assert win.df_raw is not None and len(win.df_raw) > 1000
+        assert win.target_combo.currentText() == "PM2.5"
+        feats = win._selected_features()
+        assert "t2m" in feats and "blh" in feats
+        assert win.target_combo.currentText() not in feats
+        # gating: analysis steps need a model, training only needs data
+        assert win.train_button.isEnabled()
+        assert not win.norm_button.isEnabled()
+        # config round-trip
+        cfg = win.get_config()
+        win.apply_config(cfg)
+        assert win.get_config() == cfg
+    finally:
+        win.close()
+
+
+def test_a_csv_of_zoned_dates_with_one_that_does_not_parse_loads(qapp, tmp_path):
+    # Dates in ...Z parse tz-aware; one that did not parse is NaT, and together
+    # they stopped the data preview -- and with it the whole load.
+    from normet_r_gui.main_window import MainWindow
+
+    path = tmp_path / "zoned.csv"
+    path.write_text(
+        "date,PM2.5,t2m\n"
+        "2020-01-01T00:00Z,1,5\n2020-01-01T01:00Z,2,5\nnot a date,3,5\n2020-01-01T03:00Z,4,5\n"
+    )
+    win = MainWindow()
+    try:
+        win.load_csv(str(path))
+        # put on the window's clock (UTC by default), as times without a zone of their own
+        assert win.df_raw["date"].dt.tz is None and win.df_raw["date"].isna().sum() == 1
+        (line,) = win.data_preview.canvas.figure.axes[0].get_lines()
+        assert list(line.get_ydata()) == [1, 2, 4]  # the row without a date left out
+        assert win.command_log.entries[-1].title == "Open data"  # the load went through
+    finally:
+        win.close()
+
+
+def test_train_backend_budget_row(qapp):
+    from normet_r_gui.main_window import MainWindow
+
+    win = MainWindow()
+    try:
+        assert win.backend_combo.currentText() == "lightgbm"
+        assert win._budget_label.text() == "Search trials"
+        assert win.estimator_list.isHidden()  # not applicable to LightGBM
+        win.budget_spin.setValue(7)
+        win.backend_combo.setCurrentText("h2o")
+        # H2O shows its algorithms, GBM alone by default, and a time budget.
+        assert win._budget_label.text() == "Time budget"
+        assert win.budget_spin.value() == 60  # h2o default remembered
+        assert not win.estimator_list.isHidden()
+        assert win._selected_estimators() == ["GBM"]
+        win.backend_combo.setCurrentText("lightgbm")
+        assert win.budget_spin.value() == 7  # lightgbm value remembered
+    finally:
+        win.close()
+
+
+def test_data_window_construction(qapp):
+    from normet_r_gui.data_window import DEFAULT_POLLUTANTS, NETWORKS, DataWindow
+
+    win = DataWindow()
+    try:
+        ticked = win._checked_pollutants()
+        assert set(ticked) == DEFAULT_POLLUTANTS
+        # no station chosen yet → fetch disabled, find enabled
+        assert win.find_btn.isEnabled()
+        assert not win.fetch_btn.isEnabled()
+        assert not win.save_btn.isEnabled()
+        # Network picker defaults to AURN and offers all six UK networks.
+        assert win._current_source() == "aurn"
+        assert win.net_combo.count() == len(NETWORKS) == 6
+    finally:
+        win.close()
+
+
+def test_data_window_network_change_clears_stations(qapp):
+    """A station list belongs to one network, so switching must drop it —
+    otherwise Fetch would run a code from network A against network B."""
+    import pandas as pd
+
+    from normet_r_gui.data_window import DataWindow
+
+    win = DataWindow()
+    try:
+        win.stations = pd.DataFrame(
+            [
+                {
+                    "site": "X",
+                    "code": "X1",
+                    "site_type": "Urban Traffic",
+                    "pollutants": "NO2",
+                    "n": 1,
+                    "from": "2018-01-01",
+                    "to": "2022-12-31",
+                    "lat": 53.0,
+                    "lon": -2.0,
+                }
+            ]
+        )
+        win._fill_station_table(win.stations)
+        win.net_combo.setCurrentIndex(1)
+        assert win.stations is None
+        assert win.station_table.rowCount() == 0
+        assert win._current_source() != "aurn"
+    finally:
+        win.close()
+
+
+def test_find_stations_aggregates_metadata_per_station(monkeypatch):
+    """One row per station, carrying its code, site type and the archive
+    coverage window.
+
+    Replaces an older test that exercised the DEFRA SOS path. That backend
+    stopped responding (2026-07-26) and the window now reads the openair
+    .RData archives through normet.io.ukaq, so a station's identity comes
+    from the network metadata rather than from parsing a timeseries label.
+    """
+    import pandas as pd
+
+    from normet_r_gui import data_window
+
+    meta = pd.DataFrame(
+        {
+            "code": ["MAN3", "MAN3", "GLAZ", "OLD1"],
+            "site": ["Manchester Piccadilly", "Manchester Piccadilly", "Glazebury", "Closed Site"],
+            "site_type": [
+                "Urban Background",
+                "Urban Background",
+                "Rural Background",
+                "Urban Traffic",
+            ],
+            "variable": ["PM2.5", "NO2", "PM2.5", "PM2.5"],
+            "latitude": [53.48, 53.48, 53.46, 51.0],
+            "longitude": [-2.24, -2.24, -2.47, -1.0],
+            "start_date": ["1995-12-18", "1995-12-18", "2004-01-26", "2001-01-01"],
+            # A blank end_date means the station is still open; a real one
+            # means it closed and must NOT be reported as running to today.
+            "end_date": [None, None, None, "2015-06-30"],
+        }
+    )
+    # _find_stations does `from normet import list_ukaq_stations` at call
+    # time, so the attribute on the normet package is the patch target.
+    # No qapp fixture here on purpose: this is a plain function, and gating
+    # it on Qt would have hidden it behind this environment's broken PySide6
+    # (libQt6Core Qt_6.6_PRIVATE_API) like the rest of this file.
+    monkeypatch.setattr("normet_r_gui.nm.list_ukaq_stations", lambda *a, **k: meta)
+
+    df = data_window._find_stations(["PM2.5", "NO2"], "aurn")
+
+    assert set(df["code"]) == {"MAN3", "GLAZ", "OLD1"}
+    man3 = df[df["code"] == "MAN3"].iloc[0]
+    # Both requested species collapse into one station row.
+    assert man3["n"] == 2
+    assert man3["pollutants"] == "PM2.5, NO2"
+    assert man3["site_type"] == "Urban Background"
+    assert man3["from"] == "1995-12-18"
+    # Still open -> coverage runs to today, not blank.
+    assert man3["to"] == pd.Timestamp.today().strftime("%Y-%m-%d")
+    closed = df[df["code"] == "OLD1"].iloc[0]
+    assert closed["to"] == "2015-06-30"
+
+
+def test_train_includes_time_features(qapp):
+    """The model must be trained on met + time features; resampling only met.
+
+    Regression test: without the time features the model is a pure f(met)
+    and the normalised series collapses to a flat mean.
+    """
+    from normet_r_gui.main_window import TIME_VARS, MainWindow
+
+    win = MainWindow()
+    try:
+        win.load_example()
+        captured = {}
+
+        def fake_submit(name, fn, on_result, on_error, *args, **kwargs):
+            captured.update(kwargs)
+            return True
+
+        win.runner.submit = fake_submit
+        win._run_train()
+        feats = captured["covariates"]
+        assert all(tv in feats for tv in TIME_VARS)
+        assert "t2m" in feats
+        # the resample-candidate list must NOT offer the time features
+        assert set(win._pending_features).isdisjoint(TIME_VARS)
+    finally:
+        win.close()
+
+
+def test_norm_vars_selector(qapp):
+    from normet_r_gui.main_window import MainWindow, _fill_checklist
+
+    win = MainWindow()
+    try:
+        # simulate the post-training fill: met subset checked by default
+        feats = ["t2m", "ws", "traffic_count"]
+        _fill_checklist(win.norm_vars, feats, {"t2m", "ws"})
+        assert win._selected_norm_vars() == ["t2m", "ws"]
+        win._set_norm_vars_met_only()
+        assert win._selected_norm_vars() == ["t2m", "ws"]  # traffic_count is not met
+    finally:
+        win.close()
+
+
+def test_all_ticks_every_one_then_unticks_every_one(qapp):
+    """One All button does what an All and a None did: it ticks every item, and once
+    every one is ticked, unticks every one."""
+    from PySide6.QtWidgets import QListWidget
+
+    from normet_r_gui._lists import _toggle_all
+    from normet_r_gui.main_window import _checked_items, _fill_checklist
+
+    lst = QListWidget()
+    _fill_checklist(lst, ["t2m", "ws", "blh"], {"t2m"})
+    _toggle_all(lst)
+    assert _checked_items(lst) == ["t2m", "ws", "blh"]
+    _toggle_all(lst)
+    assert _checked_items(lst) == []
+    _toggle_all(lst)
+    assert _checked_items(lst) == ["t2m", "ws", "blh"]
+
+
+def test_pdp_toggle_buttons(qapp):
+    """'Time variables' / 'Met only' in Step 5: click ticks the matching
+    subset, click again unticks it; the two subsets don't interfere."""
+    from normet_r_gui.main_window import TIME_VARS, MainWindow, _checked_items, _fill_checklist
+
+    win = MainWindow()
+    try:
+        # Simulate the post-Step-1 fill without a real training run.
+        feats = ["t2m", "ws", "traffic_count"] + list(TIME_VARS)
+        _fill_checklist(win.pdp_vars, feats, set())
+        assert not win.pdp_time_btn.isChecked()
+        assert not win.pdp_met_btn.isChecked()
+
+        win.pdp_time_btn.setChecked(True)
+        assert set(_checked_items(win.pdp_vars)) == set(TIME_VARS)
+        win.pdp_time_btn.setChecked(False)
+        assert _checked_items(win.pdp_vars) == []
+
+        win.pdp_met_btn.setChecked(True)
+        assert set(_checked_items(win.pdp_vars)) == {"t2m", "ws"}
+        win.pdp_met_btn.setChecked(False)
+        assert _checked_items(win.pdp_vars) == []
+
+        # Non-overlapping subsets: both pressed together is additive.
+        win.pdp_time_btn.setChecked(True)
+        win.pdp_met_btn.setChecked(True)
+        assert set(_checked_items(win.pdp_vars)) == {"t2m", "ws", *TIME_VARS}
+
+        # Refilling the list (Step 1 re-run) resets both toggles.
+        _fill_checklist(win.pdp_vars, feats, set())
+        win._reset_pdp_toggle_buttons()
+        assert not win.pdp_time_btn.isChecked()
+        assert not win.pdp_met_btn.isChecked()
+    finally:
+        win.close()
+
+
+def test_multiscale_button_gating_and_tab_mapping(qapp):
+    """The Multi-scale button needs both a trained model AND Step 2's Y_inf;
+    the Multi-scale tab must land at the 'multiscale' results key."""
+    import pandas as pd
+
+    from normet_r_gui.main_window import MainWindow
+
+    win = MainWindow()
+    try:
+        win.load_example()
+        assert not win.ms_button.isEnabled()  # no model yet
+
+        win.model = object()  # simulate a trained model without a real run
+        win.df_prep = win.df_raw
+        win._sync_enabled()
+        assert not win.ms_button.isEnabled(), "needs Step 2's Y_inf too"
+
+        win.results["normalise"] = pd.DataFrame({"normalised": [1.0, 2.0]})
+        win._sync_enabled()
+        assert win.ms_button.isEnabled()
+
+        assert win.tabs.tabText(5) == "Multi-scale"
+        assert win._TAB_KEYS[5] == "multiscale"
+        assert win.tabs.tabText(6) == "PDP"
+    finally:
+        win.close()
+
+
+def test_rolling_config_round_trip_defaults(qapp):
+    from normet_r_gui.main_window import MainWindow
+
+    win = MainWindow()
+    try:
+        cfg = win.get_config()
+        assert cfg["ms_fast"] == 14
+        assert cfg["ms_meso"] == 90
+        assert cfg["ms_slow"] == 365
+        win.ms_fast.setValue(21)
+        win.apply_config({"ms_fast": 30, "ms_meso": 120, "ms_slow": 400})
+        assert win.ms_fast.value() == 30
+        assert win.ms_meso.value() == 120
+        assert win.ms_slow.value() == 400
+    finally:
+        win.close()
+
+
+def test_scm_window_example_design(qapp):
+    from normet_r_gui.scm_window import SCMWindow
+
+    win = SCMWindow()
+    try:
+        win.load_example()
+        assert win.df is not None
+        assert win.treated_combo.currentText() == "2+26 cities"
+        assert win.outcome_combo.currentText() == "SO2wn"
+        assert win.cutoff_edit.date().toString("yyyy-MM-dd") == "2015-10-23"
+        # treated unit is excluded from the donor pool
+        donors = [win.donor_list.item(i).text() for i in range(win.donor_list.count())]
+        assert "2+26 cities" not in donors
+        assert len(donors) == 30
+        design = win._design()
+        assert design is not None
+        assert design["treated_unit"] == "2+26 cities"
+        assert len(design["donors"]) == 30
+        # bayesian backend disables run_scm-based inference
+        win.backend_combo.setCurrentText("bayesian")
+        assert not win.placebo_space_btn.isEnabled()
+        win.backend_combo.setCurrentText("scm")
+        assert win.placebo_space_btn.isEnabled()
+    finally:
+        win.close()
+
+
+@pytest.mark.skip(reason="Chronos-2 (normet-py's PyTorch foundation model) is not offered in R")
+def test_chronos_backend_hides_the_training_controls(qapp):
+    """Chronos-2 is zero-shot, so budget / search space / split must disappear.
+
+    Leaving them visible would imply the run honours them; it does not.
+    """
+    from normet_r_gui import _chronos
+    from normet_r_gui.main_window import MainWindow
+
+    win = MainWindow()
+    try:
+        win.load_example()
+        win.show_panel_page("Model")  # the panel shows one step's page at a time
+        assert win.backend_combo.currentText() == "flaml"
+        assert win.budget_spin.isVisibleTo(win)
+        assert win.split_combo.isVisibleTo(win)
+
+        win.backend_combo.setCurrentText(_chronos.BACKEND)
+        for widget in (
+            win.budget_spin,
+            win.estimator_list,
+            win.split_combo,
+            win.train_fraction_spin,
+            win.seed_spin,
+        ):
+            assert not widget.isVisibleTo(win)
+        assert win._chronos_hint.isVisibleTo(win)
+        assert "Chronos-2" in win.train_button.text()
+
+        # ...and come back when an AutoML backend is picked again.
+        win.backend_combo.setCurrentText("lightgbm")
+        assert win.budget_spin.isVisibleTo(win)
+        assert win.split_combo.isVisibleTo(win)
+        assert not win._chronos_hint.isVisibleTo(win)
+        assert "Train model" in win.train_button.text()
+    finally:
+        win.close()
+
+
+@pytest.mark.skip(reason="Chronos-2 (normet-py's PyTorch foundation model) is not offered in R")
+def test_chronos_backend_swaps_the_monte_carlo_sample_count(qapp):
+    """300 samples is right for a tree ensemble and ruinous for a transformer.
+
+    Each sample is one 2048-context forward pass under Chronos-2, so carrying the
+    AutoML default across would turn "Normalise" into a multi-day run. The value
+    the user set on the other side has to survive the round trip.
+    """
+    from normet_r_gui import _chronos
+    from normet_r_gui.main_window import MainWindow
+
+    win = MainWindow()
+    try:
+        win.load_example()
+        assert win.norm_samples.value() == 300
+
+        win.backend_combo.setCurrentText(_chronos.BACKEND)
+        assert win.norm_samples.value() == _chronos.DEFAULT_SAMPLES
+
+        # A count chosen while on chronos-2 is kept while on chronos-2...
+        win.norm_samples.setValue(4)
+        win.backend_combo.setCurrentText("lightgbm")
+        assert win.norm_samples.value() == 300
+        win.backend_combo.setCurrentText(_chronos.BACKEND)
+        assert win.norm_samples.value() == 4
+    finally:
+        win.close()
+
+
+@pytest.mark.skip(reason="Chronos-2 (normet-py's PyTorch foundation model) is not offered in R")
+def test_chronos_normalise_panel_declares_the_seeded_rows(qapp):
+    """The first context_length rows are observed values, not a result.
+
+    ``deweather`` seeds them because Chronos-2 has no history to condition on
+    yet, so the two curves coincide there by construction. Left unsaid, a short
+    record produces a plot that is mostly a copy of the input and a mean effect
+    diluted toward zero by rows that could never have differed.
+    """
+    import types
+
+    import numpy as np
+    import pandas as pd
+
+    from normet_r_gui import _chronos
+    from normet_r_gui.main_window import MainWindow
+
+    n, ctx = 300, 200
+    idx = pd.date_range("2024-01-01", periods=n, freq="h")
+    observed = pd.Series(np.linspace(10.0, 20.0, n), index=idx)
+    result = pd.DataFrame({"observed": observed, "normalised": observed.copy()}, index=idx)
+    result.index.name = "date"
+    # Only the projected tail differs -- a clean +4.0 there, 0.0 over the seed.
+    result.iloc[ctx:, result.columns.get_loc("normalised")] += 4.0
+
+    win = MainWindow()
+    try:
+        win.load_example()
+        win.backend_combo.setCurrentText(_chronos.BACKEND)
+        win.model = types.SimpleNamespace(context_length=ctx)
+        win._normalise_done(result)
+
+        from PySide6.QtWidgets import QLabel
+
+        text = " ".join(" ".join(lbl.text() for lbl in win.tab_norm.findChildren(QLabel)).split())
+        assert f"first {ctx:,} rows" in text.lower(), text
+        assert "67%" in text, text
+        # Averaged over the whole frame this would be +2.67; over the tail it is +4.
+        assert "+4.00" in text, text
+    finally:
+        win.close()
+
+
+@pytest.mark.skip(reason="Chronos-2 (normet-py's PyTorch foundation model) is not offered in R")
+def test_chronos_option_is_greyed_out_without_the_extra(qapp):
+    """The combo entry must be disabled, not raise ImportError when picked."""
+    import importlib.util
+
+    from normet_r_gui import _chronos
+    from normet_r_gui.main_window import MainWindow
+
+    have_extra = all(importlib.util.find_spec(p) is not None for p in ("chronos", "torch"))
+    win = MainWindow()
+    try:
+        index = win.backend_combo.findText(_chronos.BACKEND)
+        assert index >= 0
+        item = win.backend_combo.model().item(index)
+        assert item.isEnabled() is have_extra
+        if not have_extra:
+            assert "foundation" in item.toolTip()
+    finally:
+        win.close()
+
+
+@pytest.mark.skip(reason="Chronos-2 (normet-py's PyTorch foundation model) is not offered in R")
+def test_chronos_load_requires_a_met_covariate(qapp, monkeypatch):
+    """Without covariates a Chronos-2 run is a forecast, not a de-weathering."""
+    from normet_r_gui import _chronos
+    from normet_r_gui.main_window import MainWindow
+
+    win = MainWindow()
+    try:
+        win.load_example()
+        win.backend_combo.setCurrentText(_chronos.BACKEND)
+
+        submitted: list[str] = []
+        monkeypatch.setattr(win.runner, "submit", lambda name, *a, **k: submitted.append(name))
+
+        # Only time features ticked -> no meteorology for the covariate channel.
+        monkeypatch.setattr(win, "_selected_features", lambda: list(_time_vars()))
+        win._run_train()
+
+        # Said on a notice above the results, with the step that answers it.
+        bar = win.notices.get("chronos-covariates")
+        assert bar is not None and "covariate channel" in bar.label.text()
+        assert [b.text() for b in bar.buttons] == ["Met only"]
+        assert not submitted
+    finally:
+        win.close()
+
+
+def _time_vars() -> tuple[str, ...]:
+    from normet_r_gui.main_window import TIME_VARS
+
+    return TIME_VARS
+
+
+@pytest.mark.skip(reason="Chronos-2 (normet-py's PyTorch foundation model) is not offered in R")
+def test_chronos_backend_exposes_a_device_selector(qapp):
+    """CPU works everywhere but is slow; a Mac needs mps and a workstation cuda.
+
+    The selector only means anything for the zero-shot backend, so it appears
+    with it and not before.
+    """
+    from normet_r_gui import _chronos
+    from normet_r_gui.main_window import MainWindow
+
+    win = MainWindow()
+    try:
+        win.load_example()
+        win.show_panel_page("Model")  # the panel shows one step's page at a time
+        assert not win.device_combo.isVisibleTo(win)
+
+        win.backend_combo.setCurrentText(_chronos.BACKEND)
+        assert win.device_combo.isVisibleTo(win)
+        assert [win.device_combo.itemText(i) for i in range(win.device_combo.count())] == [
+            "auto",
+            "cpu",
+            "cuda",
+            "mps",
+        ]
+
+        # "auto" must reach the estimator as None, not as the string "auto".
+        assert win._selected_device() is None
+        win.device_combo.setCurrentText("mps")
+        assert win._selected_device() == "mps"
+
+        win.backend_combo.setCurrentText("flaml")
+        assert not win.device_combo.isVisibleTo(win)
+    finally:
+        win.close()
+
+
+def test_scm_fit_verdict_reads_the_pre_fit_only_when_a_shuffled_series_cannot_match_it(qapp):
+    from normet_r_gui.scm_window import fit_verdict
+
+    near_perfect = {"pre_r2": 0.999, "att": -18.14}
+    level, text = fit_verdict(near_perfect, shuffled_r2=0.997)
+    assert level == "warn"
+    assert "Good" not in text and "Placebo in space" in text and "-18.14" in text
+    assert fit_verdict(near_perfect, shuffled_r2=0.1)[0] == "ok"
+    assert fit_verdict(near_perfect)[0] == "ok"  # mlscm / bayesian: no baseline
+    assert fit_verdict({"pre_r2": 0.6, "att": -9.5}, shuffled_r2=0.2)[0] == "warn"
+    assert fit_verdict({"pre_r2": -0.2, "att": -20.7}, shuffled_r2=-0.2)[0] == "error"
+
+
+def test_shuffled_pre_r2_flags_a_design_with_more_donors_than_pre_cutoff_dates(qapp):
+    import numpy as np
+    import pandas as pd
+
+    from normet_r_gui.nm.causal import BACKENDS
+    from normet_r_gui.scm_window import NO_CHECK_R2, shuffled_pre_r2
+
+    def design(n_donors: int) -> dict:
+        # Donors on random walks over 12 pre-cutoff months; T is a mix of two.
+        rng = np.random.default_rng(3)
+        dates = pd.date_range("2020-01-01", periods=18, freq="MS")
+        frames = [
+            pd.DataFrame(
+                {"date": dates, "ID": f"D{j}", "value": 50 + np.cumsum(rng.normal(0, 3, 18))}
+            )
+            for j in range(n_donors)
+        ]
+        treated = 0.5 * frames[0]["value"] + 0.5 * frames[1]["value"]
+        frames.append(pd.DataFrame({"date": dates, "ID": "T", "value": treated}))
+        return {
+            "df": pd.concat(frames, ignore_index=True),
+            "date_col": "date",
+            "unit_col": "ID",
+            "outcome_col": "value",
+            "treated_unit": "T",
+            "donors": [f"D{j}" for j in range(n_donors)],
+            "cutoff_date": "2021-01-01",
+        }
+
+    assert shuffled_pre_r2(BACKENDS["scm"], design(40)) >= NO_CHECK_R2
+    assert shuffled_pre_r2(BACKENDS["scm"], design(4)) < NO_CHECK_R2
+
+
+def test_each_example_opens_set_up_as_its_source_sets_it(qapp):
+    """File → Load Example: each example with its own target and predictors,
+    and the Data box offers no example button of its own."""
+    from normet_r_gui._examples import EXAMPLES
+    from normet_r_gui.main_window import MainWindow, _checked_items
+
+    win = MainWindow()
+    try:
+        assert not hasattr(win, "example_btn")
+        win.load_example("my1")
+        assert win.target_combo.currentText() == "NO2"
+        assert set(_checked_items(win.feature_list)) == set(EXAMPLES["my1"].features)
+        assert win.command_log.entries[-1].text().endswith("df <- my1")
+        win.load_example()  # the synthetic site
+        assert win.target_combo.currentText() == "PM2.5"
+    finally:
+        win.close()
+
+
+def test_a_table_on_local_time_keeps_its_clock_and_a_new_clock_reads_it_again(qapp, tmp_path):
+    import pandas as pd
+
+    from normet_r_gui.main_window import MainWindow
+
+    path = tmp_path / "beijing.xlsx"
+    pytest.importorskip("openpyxl")
+    pd.DataFrame(
+        {"时间": ["2020年1月1日 8时", "2020年1月1日 9时"], "PM2.5": [10.0, 12.0], "t2m": [1.0, 2.0]}
+    ).to_excel(path, index=False)
+    win = MainWindow()
+    try:
+        win.zone_combo.setCurrentIndex(win.zone_combo.findData("Asia/Shanghai"))
+        win.load_csv(str(path))
+        assert win.df_raw["date"].dt.hour.tolist() == [8, 9]  # shown on Beijing's clock
+        assert "(Asia/Shanghai)" in win.data_summary.text()
+        assert 'zone = "Asia/Shanghai"' in win.command_log.entries[-1].text()
+        win.zone_combo.setCurrentIndex(win.zone_combo.findData("UTC"))
+        assert win.df_raw["date"].dt.hour.tolist() == [8, 9]  # written without an offset
+    finally:
+        win.zone_combo.setCurrentIndex(win.zone_combo.findData("UTC"))
+        win.close()
+
+
+def test_the_group_editor_suggests_groups_and_keeps_the_text_form(qapp):
+    """The decomposition's groups set in a table: Suggest groups puts each recognised
+    variable in its group, one left alone is a contribution of its own, and the text
+    form a config keeps goes both ways."""
+    from normet_r_gui._groups import GroupEditor
+
+    ed = GroupEditor()
+    ed.set_variables(["ws", "wd", "temp", "blh", "traffic"])
+    ed.suggest()
+    assert (
+        ed.text()
+        == "Wind: ws, wd; Temperature and humidity: temp; Boundary layer and pressure: blh"
+    )
+    assert ed.groups(["ws", "wd", "temp", "blh", "traffic"])["traffic"] == ["traffic"]
+    ed.clear()
+    assert ed.text() == "" and ed.groups(["ws"]) is None
+    ed.setText("local: temp, blh; wind: ws, wd")
+    assert ed.groups(["ws", "wd", "temp", "blh"]) == {
+        "local": ["temp", "blh"],
+        "wind": ["ws", "wd"],
+    }
+    with pytest.raises(ValueError, match="rain not among"):
+        ed.setText("wet: rain")
+        ed.groups(["ws"])
+
+
+def test_the_groups_show_only_for_the_meteorological_decomposition(qapp):
+    """Groups split a meteorological decomposition; the emission one has none, so the
+    table is there only when Method is meteorology."""
+    from normet_r_gui.main_window import MainWindow
+
+    win = MainWindow()
+    try:
+        assert win.decom_method.currentText() == "emission"
+        assert win.decom_groups.isHidden() and win._decom_groups_label.isHidden()
+        win.decom_method.setCurrentText("meteorology")
+        assert not win.decom_groups.isHidden() and not win._decom_groups_label.isHidden()
+        assert win.decom_attribution.isEnabled()
+        win.decom_method.setCurrentText("emission")
+        assert win.decom_groups.isHidden() and not win.decom_attribution.isEnabled()
+    finally:
+        win.close()

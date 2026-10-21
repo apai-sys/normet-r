@@ -28,9 +28,9 @@ app.processEvents()
 
 # The screen shows Chinese while the code reads back the English it set.
 tabs = w.tabs
-assert tabs.tabText(0) == "① Data", tabs.tabText(0)
+assert tabs.tabText(0) == "Data", tabs.tabText(0)
 shown = uilang._orig["QTabBar.tabText"](tabs.tabBar(), 0)
-assert shown == "① 数据", shown
+assert shown == "数据", shown
 assert w.train_button.text().strip().endswith("Train model"), w.train_button.text()
 assert "训练模型" in uilang._orig["QAbstractButton.text"](w.train_button)
 
@@ -51,9 +51,9 @@ for _ in range(5):
 
 # Back to English and to Chinese again: every text written again from its English.
 uilang.set_language("en")
-assert uilang._orig["QTabBar.tabText"](tabs.tabBar(), 0) == "① Data"
+assert uilang._orig["QTabBar.tabText"](tabs.tabBar(), 0) == "Data"
 uilang.set_language("zh")
-assert uilang._orig["QTabBar.tabText"](tabs.tabBar(), 0) == "① 数据"
+assert uilang._orig["QTabBar.tabText"](tabs.tabBar(), 0) == "数据"
 
 print("uilang smoke OK")
 w.close()

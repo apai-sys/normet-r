@@ -66,6 +66,10 @@ class TrainRunMixin(QMainWindow):
             seed=self.seed_spin.value(),
             verbose=True,
         )
+        if backend == "h2o":
+            # H2O searches for as long as it is given: its share done is the time (LightGBM
+            # reports its trials from R).
+            self.task_clock.expect(self.budget_spin.value())
 
     def _run_load_chronos(self, target: str, features: list[str]) -> None:
         """Bring up the zero-shot estimator instead of training one.

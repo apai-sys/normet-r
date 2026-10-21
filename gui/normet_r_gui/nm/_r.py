@@ -10,7 +10,6 @@ of each says which.
 
 from __future__ import annotations
 
-import functools
 import logging
 import threading
 from collections.abc import Iterable, Mapping
@@ -105,10 +104,20 @@ def _kept(kwargs: dict[str, Any], *names: str) -> dict[str, Any]:
 # -- the version -------------------------------------------------------------------------
 
 
-@functools.cache
+_checked: dict[str, Any] = {}
+_check_lock = threading.Lock()
+
+
 def r_check() -> dict[str, Any]:
-    """normet's and R's versions, and which backends load."""
-    return _rpc.call(".gui_check")
+    """normet's and R's versions, and which backends load: asked of R once (R → Check R
+    environment asks again, after ``r_check.cache_clear()``)."""
+    with _check_lock:  # the warm-up and the status bar ask together: R answers once
+        if "state" not in _checked:
+            _checked["state"] = _rpc.call(".gui_check")
+        return _checked["state"]
+
+
+r_check.cache_clear = _checked.clear  # type: ignore[attr-defined]
 
 
 def r_version() -> str:
@@ -296,7 +305,10 @@ def rolling(
     verbose: bool = False,
     **_ignored: Any,
 ) -> pd.DataFrame:
-    """``nm_rolling``: one ``rolling_<i>`` column per window, indexed by date."""
+    """``nm_rolling``: ``observed`` and one column per window, named as R names them
+    (``window_01``…, from 1), indexed by date over the whole record, as normet-py's
+    rolling(). R keeps only the dates some window covers; they are set on the record's
+    dates here."""
     out = _rpc.call(
         "nm_rolling",
         df,
@@ -310,7 +322,20 @@ def rolling(
         n_cores=n_cores,
         verbose=verbose,
     )
-    return _dated(out)
+    return rolling_shape(out, df)
+
+
+def rolling_shape(out: Any, df: Any) -> pd.DataFrame:
+    """``nm_rolling``'s table on *df*'s (df_prep's) dates, with ``observed``, as
+    normet-py's rolling() hands it back; the windows keep R's names (``window_01``…)."""
+    out = _dated(out)
+    if not isinstance(out, pd.DataFrame) or out.empty:
+        out = pd.DataFrame(index=pd.DatetimeIndex([], name="date"))
+    if isinstance(df, pd.DataFrame) and "date" in df.columns and "value" in df.columns:
+        record = _dated(df[["date", "value"]]).rename(columns={"value": "observed"})
+        record = record[~record.index.duplicated()]
+        out = record.join(out, how="left")
+    return out
 
 
 def pdp(

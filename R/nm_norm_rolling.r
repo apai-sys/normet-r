@@ -157,6 +157,7 @@ nm_rolling <- function(df,
   data.table::setkey(df, date)
 
   for (i in seq_along(start_dates)) {
+    .nm_progress_report(i - 1, length(start_dates))
     ds <- start_dates[i]
     de <- ds + lubridate::days(window_days)
 
@@ -168,7 +169,7 @@ nm_rolling <- function(df,
         {
           # Normalise
           # Note: Resource args are NOT passed here (handled internally)
-          dfar <- nm_normalise(
+          dfar <- .nm_progress_part(i - 1, length(start_dates), nm_normalise(
             df = dfa,
             model = model,
             resample_vars = resample_vars,
@@ -179,7 +180,7 @@ nm_rolling <- function(df,
             seed = seed + i,
             memory_save = memory_save,
             verbose = FALSE
-          )
+          ))
 
           res_dt <- data.table::as.data.table(dfar)
 

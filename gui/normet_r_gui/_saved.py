@@ -58,6 +58,12 @@ class SavedResultsMixin(QMainWindow):
             "trained_features": list(self.trained_features),
             "results": {k: v for k, v in self.results.items() if k in _STEPS},
             "multiscale": getattr(self, "_multiscale_raw", None),
+            # Both methods' decompositions where both ran on this model.
+            "decompositions": {
+                method: view[1]
+                for method, view in self._decom_views.items()
+                if self._decom_model is self.model
+            },
             "commands": list(self.command_log.entries),
             "ran": dict(self._ran),  # what the Methods paragraph is written from
         }
@@ -138,13 +144,13 @@ class SavedResultsMixin(QMainWindow):
 
     def load_session_script(self, path: str | None = None, *, ask: bool = True) -> None:
         r"""File -> Load Session Script: a script the command log wrote, run again and
-        its results brought into the window (.\_script). It is Python, run as written:
+        its results brought into the window (.\_script). It is R, run as written:
         the window asks first, unless told not to (``ask``)."""
         from . import _script
 
         if path is None:
             path, _ = QFileDialog.getOpenFileName(
-                self, "Load session script", "", "Python (*.py);;All files (*)"
+                self, "Load session script", "", "R script (*.R *.r);;All files (*)"
             )
         if not path:
             return
@@ -167,7 +173,7 @@ class SavedResultsMixin(QMainWindow):
             answer = QMessageBox.question(
                 self,
                 "Run this script?",
-                f"{os.path.basename(path)} is Python and runs as it is written, as running "
+                f"{os.path.basename(path)} is R and runs as it is written, as running "
                 "it yourself would. Run only a script you or the window wrote.",
             )
             if answer != QMessageBox.StandardButton.Yes:
@@ -246,9 +252,12 @@ class SavedResultsMixin(QMainWindow):
                     if res is None:
                         continue
                     if step == "decompose":
-                        self.decom_method.setCurrentText(
-                            "meteorology" if "met_total" in res.columns else "emission"
-                        )
+                        method = "meteorology" if "met_total" in res.columns else "emission"
+                        # The other method's first, so the one last run is the one shown.
+                        for other, earlier in (bundle.get("decompositions") or {}).items():
+                            if other != method:
+                                self._decompose_done(earlier)
+                        self.decom_method.setCurrentText(method)
                     getattr(self, f"_{step}_done")(res)
                 if bundle.get("multiscale") is not None:
                     self._multiscale_done(bundle["multiscale"])

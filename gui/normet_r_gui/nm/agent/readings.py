@@ -226,7 +226,7 @@ def model_reading(df_prep: pd.DataFrame, model: Any) -> str:
     order = {"testing": 0, "training": 1, "all": 2}
     stats = stats.sort_values("set", key=lambda s: s.map(order).fillna(9))
     lines = [
-        "Model fit (normet.modStats; 'testing' is the rows held out of training):",
+        "Model fit (nm_modStats; 'testing' is the rows held out of training):",
         "",
         table(["set", *cols], [[r["set"], *(r[c] for c in cols)] for _, r in stats.iterrows()]),
     ]

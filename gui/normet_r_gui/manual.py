@@ -1,8 +1,9 @@
 """Help -> User Manual: where the manual in a language is.
 
 The two books (docs/manual/normet_manual.pdf and normet_manual_zh.pdf) ship inside the
-installers (packaging/normet_gui.spec); a checkout of the repository has them in
-docs/manual. Where neither is found -- an install from PyPI -- the PDF on GitHub is
+installers (gui/packaging/normet_r_gui.spec); a checkout of the repository has them in
+gui/docs/manual (normet-py's book, rewritten for this window by
+gui/tools/manual_patches.py). Where neither is found -- an install from PyPI -- the PDF on GitHub is
 opened instead.
 """
 
@@ -15,7 +16,7 @@ from pathlib import Path
 from PySide6.QtCore import QUrl
 
 #: The manual on GitHub, when no copy is at hand.
-ONLINE = "https://github.com/apai-sys/normet-py/raw/main/docs/manual/{book}"
+ONLINE = "https://github.com/apai-sys/normet-r/raw/main/gui/docs/manual/{book}"
 
 
 def manual_name(lang: str) -> str:
@@ -31,7 +32,8 @@ def manual_path(lang: str) -> Path | None:
     bundle = getattr(sys, "_MEIPASS", None)
     if bundle:
         roots.append(Path(bundle))
-    roots.append(Path(__file__).resolve().parents[3])  # src/normet/gui -> the checkout
+    # gui/normet_r_gui -> gui/, whose docs/manual holds this window's own book.
+    roots.append(Path(__file__).resolve().parents[1])
     for root in roots:
         path = root / "docs" / "manual" / book
         if path.is_file():

@@ -63,7 +63,8 @@ def __getattr__(name: str) -> Any:
 
         return r_version()
     if name == "datasets":
-        from . import datasets
+        # Not ``from . import datasets``: its fromlist asks this function again.
+        import importlib
 
-        return datasets
+        return importlib.import_module(f"{__name__}.datasets")
     raise AttributeError(name)
