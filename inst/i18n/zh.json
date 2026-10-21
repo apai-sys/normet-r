@@ -38,7 +38,10 @@
     "Event time": "事件时间",
     "SCM dashboard": "合成控制概览",
     "Bayesian SCM": "贝叶斯合成控制",
-    "value": "数值"
+    "value": "数值",
+    "rolling mean": "滚动均值",
+    "±1 SD across overlapping windows": "重叠窗口间 ±1 标准差",
+    "Rolling normalisation — mean of {s0} windows": "滚动归一化——{s0} 个窗口的均值"
   },
   "report": {
     "Plot": "图",

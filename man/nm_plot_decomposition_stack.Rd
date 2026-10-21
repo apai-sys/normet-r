@@ -7,7 +7,7 @@
 nm_plot_decomposition_stack(
   decomp_df,
   observed_col = "observed",
-  exclude = c("observed", "model_pred", "residual", "base"),
+  exclude = NULL,
   title = NULL,
   ...
 )
@@ -18,8 +18,12 @@ an \code{observed} column and one column per feature contribution.}
 
 \item{observed_col}{Character. Observed series column. Default "observed".}
 
-\item{exclude}{Character vector. Columns to skip. Default excludes
-observed, model_pred, residual, base.}
+\item{exclude}{Character vector. Columns to skip. Default \code{NULL}: observed,
+model_pred, residual and base, and the total each of
+\code{\link{nm_decompose}}'s outputs is the sum of -- \code{emi_total} of the
+emission method's parts (\code{emi_base}, the time terms and \code{emi_noise}),
+\code{met_total} of the meteorology method's -- so that a part is not stacked
+twice.}
 
 \item{title}{Character. Optional title.}
 

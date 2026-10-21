@@ -74,6 +74,7 @@ reference:
   - nm_plot_pdp
   - nm_plot_pdp_grid
   - nm_plot_normalise
+  - nm_plot_rolling
   - nm_plot_scm_dashboard
   - nm_plot_effect_with_bands
   - nm_plot_uncertainty_bands

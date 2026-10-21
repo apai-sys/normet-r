@@ -245,6 +245,42 @@ _KNOWN: dict[str, tuple[str, str, tuple[str, ...]]] = {
 }
 
 
+#: Each result's figure, drawn with the R package's ggplot2 functions (the window draws
+#: its own with matplotlib): the R that makes it, and whether it takes the table the
+#: model was trained on (``data =``, for the observed series or each variable's deciles).
+_FIGURES: dict[str, tuple[str, str, bool]] = {
+    "normalise": ("fig_normalise", "nm_plot_normalise(normalised)", False),
+    "decompose": ("fig_decomposition", "nm_plot_decomposition_stack(decomposition)", False),
+    "rolling": ("fig_rolled", "nm_plot_rolling(rolled", True),
+    "pdp": ("fig_pd", "nm_plot_pdp_grid(pd_values", True),
+}
+
+
+def band(quantiles: Sequence[float] | None) -> str:
+    """``nm_plot_normalise``'s band from the widest of the quantiles asked for (R names
+    them ``q050``, ``q950``), as its arguments; empty for fewer than two."""
+    qs = sorted({float(q) for q in quantiles or ()})
+    if len(qs) < 2:
+        return ""
+    low, high = (f"q{round(q * 1000):03d}" for q in (qs[0], qs[-1]))
+    return f", ci_low = {literal(low)}, ci_high = {literal(high)}"
+
+
+def _figure(name: str, table: str, kwargs: Mapping[str, Any]) -> str:
+    """The lines that draw a result: its figure assigned, then printed where R is
+    interactive (the console, RStudio's source()) -- not under Rscript, which would
+    leave an Rplots.pdf, nor where the window runs the script back. *table* is the name
+    of the table the task ran on, given to the figures that take it (empty where it has
+    none); *kwargs* the R call's arguments."""
+    fig, code, takes_data = _FIGURES[name]
+    if takes_data:
+        code += f", data = {table})" if table else ")"
+    elif name == "normalise":
+        quantiles = kwargs.get("return_quantiles")
+        code = code[:-1] + band(quantiles if isinstance(quantiles, (list, tuple)) else ()) + ")"
+    return f"{fig} <- {code}\nif (interactive()) print({fig})"
+
+
 def _r_calls(fn: Callable[..., Any], args: Sequence[Any], kwargs: dict[str, Any], *, all_calls: bool) -> list:
     """The R calls ``fn(*args, **kwargs)`` makes, recorded and not made: the first only
     (the task stops there), or with *all_calls* every one, each answered with an empty
@@ -318,5 +354,10 @@ def task(
     calls = _r_calls(fn, args, kwargs, all_calls=False)
     if not calls or calls[0][0].startswith(".gui_"):
         return None
-    code = "\n".join([_code(calls[0], target, render), *after])
+    lines = [_code(calls[0], target, render), *after]
+    if name in _FIGURES:
+        positional = calls[0][1]
+        table = render(positional[0]) if positional else ""
+        lines.append(_figure(name, table if _SYNTACTIC.match(table) else "", calls[0][2]))
+    code = "\n".join(lines)
     return Entry(title, code, notes=tuple(dict.fromkeys(notes)))
