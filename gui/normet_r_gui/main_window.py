@@ -90,8 +90,6 @@ class MainWindow(
         self._ran: dict[str, dict] = {}
         #: A session script being run: its calls and its file's name (._saved).
         self._pending_script: tuple[dict, str] = ({}, "")
-        #: Chronos-2's covariate-sensitivity check of the model loaded: (numbers, verdict).
-        self.chronos_check: tuple[dict, tuple[str, str]] | None = None
         self._scm_window = None
         self._data_window = None
         self._transport_window = None
@@ -153,7 +151,6 @@ class MainWindow(
         )
         self._run_buttons = [
             self.train_button,
-            self.ft_button,
             self.norm_button,
             self.decom_button,
             self.roll_button,

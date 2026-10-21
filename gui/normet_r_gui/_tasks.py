@@ -18,21 +18,11 @@ class TaskMixin(QMainWindow):
         has_model = self.model is not None
         has_y_inf = "normalise" in self.results
         self.train_button.setEnabled(not busy and has_data)
-        self.ft_button.setEnabled(not busy and has_model and self._is_chronos())
         for b in (self.norm_button, self.decom_button, self.roll_button, self.pdp_button):
             b.setEnabled(not busy and has_model)
         if not has_model:
             tip = "Train a model first."
             for b in (self.norm_button, self.decom_button, self.roll_button, self.pdp_button):
-                b.setToolTip(tip)
-        elif self._is_chronos():
-            # Rolling and PDP call ml_predict() on a fitted scikit-learn-style
-            # estimator. Chronos-2 forecasts autoregressively from a context
-            # window instead, so there is nothing for them to call. The
-            # meteorological decomposition has its own zero-shot path.
-            tip = "Not available for chronos-2 — use flaml or lightgbm for this step."
-            for b in (self.roll_button, self.pdp_button):
-                b.setEnabled(False)
                 b.setToolTip(tip)
         self.ms_button.setEnabled(not busy and has_model and has_y_inf)
         self.ms_button.setToolTip(

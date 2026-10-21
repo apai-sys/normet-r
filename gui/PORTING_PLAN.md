@@ -37,7 +37,10 @@ The R GUI *is* normet-py's GUI code, vendored, with every analysis routed to R:
     status label, R cleanup on close.
   - `normet_r_gui/ui_zh_r.py`: Chinese texts only this window has.
 - Backends: lightgbm (default) and h2o; py's flaml ↔ R's h2o (time budget +
-  include_algos), Chronos-2 not offered (patched in `_chronos.py`).
+  include_algos). Chronos-2 is not in this window: `_chronos.py` is not vendored, and
+  `r_patches.py` takes out everything that read it (backend, device, fine-tuning,
+  seeded rows, Model tab, Methods sentence, the SCM Studio's similarity ranking,
+  its Chinese texts and tests; the manual's Chronos sections too).
 - R package fix made for this: `nm_feature_importance()` now handles LightGBM
   (`R/nm_utils_features.r`, test in `tests/testthat/test-lightgbm.r`).
 
@@ -103,7 +106,7 @@ The R GUI *is* normet-py's GUI code, vendored, with every analysis routed to R:
    A session (.normet) carries its R model folders inside it (`RObject` pickling).
 6. `rbridge.py`/`bridge.R` deleted; pyproject/spec/build_dmg ship `rpc.R`.
 7. normet-py's GUI tests vendored into `gui/tests/` by the same script (patches
-   under `tests/...` in `r_patches.py`; Chronos tests skipped); plus
+   under `tests/...` in `r_patches.py`; Chronos tests removed); plus
    `test_commandlog.py`, `test_trajjoin.py`, `test_uilang.py`. Whole suite:
    `python -m pytest gui/tests` → 105 passed, 6 skipped.
 
@@ -136,7 +139,7 @@ The R GUI *is* normet-py's GUI code, vendored, with every analysis routed to R:
 - Also: glmnet, declared but never called, dropped from DESCRIPTION Imports (R CMD
   check's only NOTE); `gui/` added to .Rbuildignore; the pkgdown `docs/` ignore
   anchored to the root (`/docs/`) so gui/docs/manual is tracked.
-- Tests: `gui/tests` all pass file by file (6 Chronos tests skipped); R testthat
+- Tests: `gui/tests` all pass file by file (the 6 Chronos tests removed); R testthat
   0 failures, 668 expectations.
 
 ## Sync with normet-py main at 7111b71 (PRs #30-#38)
@@ -149,7 +152,7 @@ The R GUI *is* normet-py's GUI code, vendored, with every analysis routed to R:
   Assistant" section; walk_gui.py grabs the Command Log window as make_figures.py does.
 - Packaging: the GUI declares pyarrow, openpyxl and xlrd (Open Data reads Parquet,
   Feather and Excel through pandas here too), the spec names them as hidden imports and
-  leaves torch/chronos out, build_dmg.sh checks for them. Not ported: py's
+  leaves torch/chronos out (build_dmg.sh too), build_dmg.sh checks for them. Not ported: py's
   collect_data_files (the examples come from the R package) and the NCCL exclusion
   (no xgboost here).
 

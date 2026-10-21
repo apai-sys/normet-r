@@ -127,8 +127,7 @@ CHAIN_TEXT = {
     "setup": "the target and predictors: propose_setup (applied at once)",
     "train": "the model: train, and say how well it fits the testing rows",
     "normalise": "the normalisation: normalise",
-    "decompose": "the decomposition: decompose (method='meteorology' on chronos-2, where "
-    "the emission one is not available)",
+    "decompose": "the decomposition: decompose",
 }
 #: How the panel names each step left, in its note.
 CHAIN_WORDS = {
@@ -334,8 +333,6 @@ class WindowTools:
         def read() -> str:
             if self.win.model is None or self.win.df_prep is None:
                 raise ValueError("no model is trained in the window yet")
-            if self.win._is_chronos():
-                return chronos_reading(self.win)
             return readings.model_reading(self.win.df_prep, self.win.model)
 
         return str(self._gui(read))
@@ -437,8 +434,6 @@ class WindowTools:
         return self._step(self.win._run_train, lambda: self.win.model, self._fit_now)
 
     def _fit_now(self) -> str:
-        if self.win._is_chronos():
-            return chronos_reading(self.win)
         return readings.model_reading(self.win.df_prep, self.win.model)
 
     def normalise(self, resample_vars: list[str] | None = None) -> str:
@@ -463,12 +458,6 @@ class WindowTools:
         meteorological variable. Returns the reading."""
         if method not in ("emission", "meteorology"):
             raise ValueError("method is 'emission' or 'meteorology'")
-        if method == "emission" and self._gui(self.win._is_chronos):
-            raise ValueError(
-                "the emission decomposition is not available on chronos-2: it reads the "
-                "calendar off the target's own history, so the time-scale components would "
-                "come back near zero. Use method='meteorology', or train with flaml or lightgbm."
-            )
 
         def start() -> None:
             self.win.decom_method.setCurrentText(method)
@@ -497,36 +486,6 @@ class WindowTools:
                 self.decompose,
             )
         ]
-
-
-def chronos_reading(win: MainWindow) -> str:
-    """Chronos-2's quality check as text: how far its forecast moves when the
-    future meteorology is shuffled -- the zero-shot stand-in for a model's fit."""
-    est = win.model
-    head = (
-        f"The model is Chronos-2 ({getattr(est, 'model_name', '?')}, on {getattr(est, 'device', '?')}), "
-        "zero-shot: nothing is fitted, so there is no held-out fit or feature importance. "
-        "Its check is covariate sensitivity -- how far the median forecast moves when the "
-        "future meteorology is shuffled. Near zero, the model is reading the series' own "
-        "history, not the weather, and its normalised series means little."
-    )
-    if win.chronos_check is None:
-        return head + "\nThe check could not be run on this record (see the Model tab)."
-    shift, (level, said) = win.chronos_check
-    rows = [
-        ["mean absolute median shift", shift.get("mean_abs_shift")],
-        ["max absolute median shift", shift.get("max_abs_shift")],
-        ["shift as % of the prediction", shift.get("pct_of_prediction")],
-    ]
-    return "\n".join(
-        [
-            head,
-            "",
-            readings.table(["", "value"], rows),
-            "",
-            f"The window's verdict ({level}): {said}",
-        ]
-    )
 
 
 def unstamp(text: str) -> str:

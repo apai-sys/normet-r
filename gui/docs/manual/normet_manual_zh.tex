@@ -218,9 +218,6 @@ normet-r-gui                         # or: normet-r-gui mydata.csv
 \end{lstlisting}
 它的扩展 \code{geo} 增加 Shapely 和 pyshp，供传输工作室从 GeoJSON 或 Shapefile 文件读取源区。
 
-normet-py 的窗口多一个后端：Chronos-2 基础模型（运行在 PyTorch 上）。R 包没有对应的模型，
-所以本窗口不提供它（第~\ref{sec:chronos}~节）。
-
 % ============================ 3. METHODOLOGY =================================
 \chapter{方法}\label{ch:theory}
 
@@ -400,12 +397,6 @@ $v(\text{all}) - v(\emptyset)$ 有两种分摊方式：
 再对预测取平均。\code{pdp\_mean} 就是这个平均，\code{pdp\_std} 是预测围绕它的离散度。曲线
 描述的是模型，而不是大气；相关的预测变量（比如温度和边界层高度）被一次只改变一个，会得到
 记录中可能从未出现过的组合。
-
-\section{用 Chronos-2 零样本去气象化}\label{sec:chronos}
-normet-py 还能用 Chronos-2——一个预训练的时间序列基础模型——不经训练地去气象化：气象通过模型的
-协变量通道输入，天气按方程~\eqref{eq:norm} 通过重采样边缘化。Chronos-2 运行在 PyTorch 上，
-R 包没有对应的模型，所以本窗口不提供它，也不提供 SCM 工作室中基于其嵌入的供体排序。需要时请
-使用 normet-py 的窗口。
 
 \section{合成控制}\label{sec:scmtheory}
 合成控制用一个在\emph{干预日期}前后都有观测的单元面板，估计一项干预对一个\emph{处理}单元
@@ -740,10 +731,6 @@ O3、SO2、CO、NOx），预测变量预设为被识别为气象的列：
 在用一般或差的模型做归一化之前，试试更多预测变量、更多搜索次数，或用 H2O。归一化序列会
 继承模型的误差。
 
-\section{Chronos-2}\label{sec:chronosui}
-normet-py 的窗口在这里有第三个后端 \code{chronos-2}，并有它自己的设备和微调步骤
-（第~\ref{sec:chronos}~节）。本窗口没有。
-
 % ============================ 7. NORMALISATION ================================
 \chapter{归一化}\label{ch:normalise}
 
@@ -867,7 +854,7 @@ $\sigma \approx 3.0$），其次是季节内和慢频带。}{fig:multiscale}
 \emph{SCM 工作室}、\tab{分析 $\rightarrow$ 合成控制（SCM）工作室}（Ctrl+Shift+S）或欢迎页
 的示例卡片打开。它的布局与主窗口相同：左侧是参数面板，各页从顶部的标签栏选择——
 \tab{数据}（面板数据及其列）、\tab{设计}、\tab{估计器}、\tab{推断}——右侧是结果标签页（\tab{面板}、\tab{拟合}、\tab{空间安慰剂}、\tab{时间安慰剂}、
-\tab{不确定性}、\tab{全部单元}、\tab{相似度}），上方是\emph{导出当前标签页数据}。方法见
+\tab{不确定性}、\tab{全部单元}），上方是\emph{导出当前标签页数据}。方法见
 第~\ref{sec:scmtheory}~节。
 
 本章的图重现了 \nm{} 论文中的 ULEZ 案例：伦敦超低排放区（ULEZ）于 2019 年 4 月 8 日启用，
@@ -899,8 +886,6 @@ write.csv(df, "ulez_panel.csv", row.names = FALSE)
         2019-04-01，即 ULEZ 启用的月份。
   \item[供体池] 其余每个单元，均已勾选。干预可能直接或通过溢出到达的单元请取消勾选——
         自己也受了处理的供体会把反事实拉向处理单元。
-  \item[按相似度排列供体] normet-py 按各供体的 Chronos-2 嵌入与处理单元的相似度排序；
-        本窗口中这个按钮呈灰色（第~\ref{sec:chronos}~节）。
 \end{description}
 \tab{面板}标签页画出每个单元的结果变量，处理单元为红色，并检查面板：日期 $\times$ 单元的
 格子缺失超过 10\,\% 或干预前日期少于 10 个时为琥珀色，否则为绿色。

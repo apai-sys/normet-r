@@ -66,11 +66,10 @@ def methods_paragraph(info: dict[str, Any], lang: str = "en") -> str | None:
     ``info``: ``version``; ``rows``, ``start``, ``end``, ``step`` (the record's time step
     in words: "hourly", "daily"...); ``target``; ``ran`` -- each step's call as it ran,
     by function name, its keyword arguments and ``args`` its positional ones; ``test`` --
-    the held-out ``r2``, ``rmse`` and ``n``; ``chronos_pct`` -- the forecast's shift, as a
-    share of the prediction, when the weather is shuffled (Chronos-2)."""
+    the held-out ``r2``, ``rmse`` and ``n``."""
     ran: dict[str, dict[str, Any]] = info.get("ran") or {}
     zh = lang == "zh"
-    if "build_model" not in ran and "load_estimator" not in ran:
+    if "build_model" not in ran:
         return None
     target = info.get("target", "the target")
     out: list[str] = []
@@ -144,29 +143,6 @@ def methods_paragraph(info: dict[str, Any], lang: str = "en") -> str | None:
                     else "."
                 )
             )
-    else:
-        call = ran["load_estimator"]
-        args = call.get("args") or []
-        met = list(args[3]) if len(args) > 3 else []
-        pct = info.get("chronos_pct")
-        if zh:
-            out.append(
-                f"未训练模型，而是以预训练时间序列基础模型 Chronos-2 零样本使用，"
-                f"气象变量（{_names(met, 'zh')}）经其协变量通道输入"
-                + (f"；打乱未来天气使预测中位数平均偏移预测值的 {pct:.1f}%。" if pct else "。")
-            )
-        else:
-            out.append(
-                "No model was trained: the pretrained Chronos-2 time-series foundation model "
-                f"was used zero-shot, the meteorology ({_names(met, 'en')}) entering through "
-                "its covariate channel"
-                + (
-                    f"; shuffling the future weather moved its median forecast by "
-                    f"{pct:.1f}% of the prediction."
-                    if pct
-                    else "."
-                )
-            )
 
     # -- normalisation ---------------------------------------------------------------
     if "normalise" in ran:
@@ -192,16 +168,6 @@ def methods_paragraph(info: dict[str, Any], lang: str = "en") -> str | None:
                     if q
                     else "."
                 )
-            )
-    elif "deweather" in ran:
-        args = ran["deweather"].get("args") or []
-        n = args[4] if len(args) > 4 else None
-        if zh:
-            out.append(f"归一化序列为 {n} 次对气象重采样后 Chronos-2 预测的平均。")
-        else:
-            out.append(
-                f"The normalised series was the mean of {n} Chronos-2 forecasts, each with "
-                "the meteorology resampled from the record."
             )
 
     # -- decomposition ---------------------------------------------------------------
@@ -282,7 +248,7 @@ def methods_paragraph(info: dict[str, Any], lang: str = "en") -> str | None:
             )
 
     refs = sorted(set(cites)) + (
-        REFERENCES["en"] if any(k in ran for k in ("normalise", "deweather")) else []
+        REFERENCES["en"] if "normalise" in ran else []
     )
     head = "参考文献" if zh else "References"
     return " ".join(out) + ("\n\n" + head + "\n" + "\n".join(refs) if refs else "")
