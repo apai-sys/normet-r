@@ -23,25 +23,15 @@ VERSION="$("$PY" -c 'import importlib.metadata as m; print(m.version("normet-r-g
 echo "==> Building $APP_NAME $VERSION with $("$PY" --version 2>&1)"
 cd "$GUI_DIR"
 
-"$PY" -m PyInstaller "$GUI_DIR/packaging/launcher.py" \
-    --name "$APP_NAME" \
-    --windowed \
+# The spec every platform builds from: one list of what the app reaches only by name
+# (the backends Figure for Print saves with, pandas' readers), its data and the
+# manuals. Flags of its own here had drifted from it -- Save stopped for want of
+# matplotlib's PDF backend, which the spec named.
+"$PY" -m PyInstaller "$GUI_DIR/packaging/normet_r_gui.spec" \
     --noconfirm \
     --clean \
     --distpath "$DIST" \
-    --workpath "$GUI_DIR/build/pyinstaller" \
-    --specpath "$GUI_DIR/build/pyinstaller" \
-    --icon "$GUI_DIR/packaging/assets/normet.icns" \
-    --osx-bundle-identifier "org.apai-sys.normet-r" \
-    --collect-submodules normet_r_gui \
-    --add-data "$GUI_DIR/normet_r_gui/rpc.R:normet_r_gui" \
-    --add-data "$GUI_DIR/normet_r_gui/assets/normet.png:normet_r_gui/assets" \
-    --add-data "$GUI_DIR/packaging/assets/normet.png:packaging/assets" \
-    --exclude-module tkinter \
-    --exclude-module torch \
-    --exclude-module chronos \
-    --exclude-module IPython \
-    --exclude-module pytest
+    --workpath "$GUI_DIR/build/pyinstaller"
 
 APP="$DIST/$APP_NAME.app"
 [ -d "$APP" ] || { echo "ERROR: $APP not produced"; exit 1; }
