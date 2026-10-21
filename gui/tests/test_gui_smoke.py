@@ -365,207 +365,6 @@ def test_scm_window_example_design(qapp):
         win.close()
 
 
-@pytest.mark.skip(reason="Chronos-2 (normet-py's PyTorch foundation model) is not offered in R")
-def test_chronos_backend_hides_the_training_controls(qapp):
-    """Chronos-2 is zero-shot, so budget / search space / split must disappear.
-
-    Leaving them visible would imply the run honours them; it does not.
-    """
-    from normet_r_gui import _chronos
-    from normet_r_gui.main_window import MainWindow
-
-    win = MainWindow()
-    try:
-        win.load_example()
-        win.show_panel_page("Model")  # the panel shows one step's page at a time
-        assert win.backend_combo.currentText() == "flaml"
-        assert win.budget_spin.isVisibleTo(win)
-        assert win.split_combo.isVisibleTo(win)
-
-        win.backend_combo.setCurrentText(_chronos.BACKEND)
-        for widget in (
-            win.budget_spin,
-            win.estimator_list,
-            win.split_combo,
-            win.train_fraction_spin,
-            win.seed_spin,
-        ):
-            assert not widget.isVisibleTo(win)
-        assert win._chronos_hint.isVisibleTo(win)
-        assert "Chronos-2" in win.train_button.text()
-
-        # ...and come back when an AutoML backend is picked again.
-        win.backend_combo.setCurrentText("lightgbm")
-        assert win.budget_spin.isVisibleTo(win)
-        assert win.split_combo.isVisibleTo(win)
-        assert not win._chronos_hint.isVisibleTo(win)
-        assert "Train model" in win.train_button.text()
-    finally:
-        win.close()
-
-
-@pytest.mark.skip(reason="Chronos-2 (normet-py's PyTorch foundation model) is not offered in R")
-def test_chronos_backend_swaps_the_monte_carlo_sample_count(qapp):
-    """300 samples is right for a tree ensemble and ruinous for a transformer.
-
-    Each sample is one 2048-context forward pass under Chronos-2, so carrying the
-    AutoML default across would turn "Normalise" into a multi-day run. The value
-    the user set on the other side has to survive the round trip.
-    """
-    from normet_r_gui import _chronos
-    from normet_r_gui.main_window import MainWindow
-
-    win = MainWindow()
-    try:
-        win.load_example()
-        assert win.norm_samples.value() == 300
-
-        win.backend_combo.setCurrentText(_chronos.BACKEND)
-        assert win.norm_samples.value() == _chronos.DEFAULT_SAMPLES
-
-        # A count chosen while on chronos-2 is kept while on chronos-2...
-        win.norm_samples.setValue(4)
-        win.backend_combo.setCurrentText("lightgbm")
-        assert win.norm_samples.value() == 300
-        win.backend_combo.setCurrentText(_chronos.BACKEND)
-        assert win.norm_samples.value() == 4
-    finally:
-        win.close()
-
-
-@pytest.mark.skip(reason="Chronos-2 (normet-py's PyTorch foundation model) is not offered in R")
-def test_chronos_normalise_panel_declares_the_seeded_rows(qapp):
-    """The first context_length rows are observed values, not a result.
-
-    ``deweather`` seeds them because Chronos-2 has no history to condition on
-    yet, so the two curves coincide there by construction. Left unsaid, a short
-    record produces a plot that is mostly a copy of the input and a mean effect
-    diluted toward zero by rows that could never have differed.
-    """
-    import types
-
-    import numpy as np
-    import pandas as pd
-
-    from normet_r_gui import _chronos
-    from normet_r_gui.main_window import MainWindow
-
-    n, ctx = 300, 200
-    idx = pd.date_range("2024-01-01", periods=n, freq="h")
-    observed = pd.Series(np.linspace(10.0, 20.0, n), index=idx)
-    result = pd.DataFrame({"observed": observed, "normalised": observed.copy()}, index=idx)
-    result.index.name = "date"
-    # Only the projected tail differs -- a clean +4.0 there, 0.0 over the seed.
-    result.iloc[ctx:, result.columns.get_loc("normalised")] += 4.0
-
-    win = MainWindow()
-    try:
-        win.load_example()
-        win.backend_combo.setCurrentText(_chronos.BACKEND)
-        win.model = types.SimpleNamespace(context_length=ctx)
-        win._normalise_done(result)
-
-        from PySide6.QtWidgets import QLabel
-
-        text = " ".join(" ".join(lbl.text() for lbl in win.tab_norm.findChildren(QLabel)).split())
-        assert f"first {ctx:,} rows" in text.lower(), text
-        assert "67%" in text, text
-        # Averaged over the whole frame this would be +2.67; over the tail it is +4.
-        assert "+4.00" in text, text
-    finally:
-        win.close()
-
-
-@pytest.mark.skip(reason="Chronos-2 (normet-py's PyTorch foundation model) is not offered in R")
-def test_chronos_option_is_greyed_out_without_the_extra(qapp):
-    """The combo entry must be disabled, not raise ImportError when picked."""
-    import importlib.util
-
-    from normet_r_gui import _chronos
-    from normet_r_gui.main_window import MainWindow
-
-    have_extra = all(importlib.util.find_spec(p) is not None for p in ("chronos", "torch"))
-    win = MainWindow()
-    try:
-        index = win.backend_combo.findText(_chronos.BACKEND)
-        assert index >= 0
-        item = win.backend_combo.model().item(index)
-        assert item.isEnabled() is have_extra
-        if not have_extra:
-            assert "foundation" in item.toolTip()
-    finally:
-        win.close()
-
-
-@pytest.mark.skip(reason="Chronos-2 (normet-py's PyTorch foundation model) is not offered in R")
-def test_chronos_load_requires_a_met_covariate(qapp, monkeypatch):
-    """Without covariates a Chronos-2 run is a forecast, not a de-weathering."""
-    from normet_r_gui import _chronos
-    from normet_r_gui.main_window import MainWindow
-
-    win = MainWindow()
-    try:
-        win.load_example()
-        win.backend_combo.setCurrentText(_chronos.BACKEND)
-
-        submitted: list[str] = []
-        monkeypatch.setattr(win.runner, "submit", lambda name, *a, **k: submitted.append(name))
-
-        # Only time features ticked -> no meteorology for the covariate channel.
-        monkeypatch.setattr(win, "_selected_features", lambda: list(_time_vars()))
-        win._run_train()
-
-        # Said on a notice above the results, with the step that answers it.
-        bar = win.notices.get("chronos-covariates")
-        assert bar is not None and "covariate channel" in bar.label.text()
-        assert [b.text() for b in bar.buttons] == ["Met only"]
-        assert not submitted
-    finally:
-        win.close()
-
-
-def _time_vars() -> tuple[str, ...]:
-    from normet_r_gui.main_window import TIME_VARS
-
-    return TIME_VARS
-
-
-@pytest.mark.skip(reason="Chronos-2 (normet-py's PyTorch foundation model) is not offered in R")
-def test_chronos_backend_exposes_a_device_selector(qapp):
-    """CPU works everywhere but is slow; a Mac needs mps and a workstation cuda.
-
-    The selector only means anything for the zero-shot backend, so it appears
-    with it and not before.
-    """
-    from normet_r_gui import _chronos
-    from normet_r_gui.main_window import MainWindow
-
-    win = MainWindow()
-    try:
-        win.load_example()
-        win.show_panel_page("Model")  # the panel shows one step's page at a time
-        assert not win.device_combo.isVisibleTo(win)
-
-        win.backend_combo.setCurrentText(_chronos.BACKEND)
-        assert win.device_combo.isVisibleTo(win)
-        assert [win.device_combo.itemText(i) for i in range(win.device_combo.count())] == [
-            "auto",
-            "cpu",
-            "cuda",
-            "mps",
-        ]
-
-        # "auto" must reach the estimator as None, not as the string "auto".
-        assert win._selected_device() is None
-        win.device_combo.setCurrentText("mps")
-        assert win._selected_device() == "mps"
-
-        win.backend_combo.setCurrentText("flaml")
-        assert not win.device_combo.isVisibleTo(win)
-    finally:
-        win.close()
-
-
 def test_scm_fit_verdict_reads_the_pre_fit_only_when_a_shuffled_series_cannot_match_it(qapp):
     from normet_r_gui.scm_window import fit_verdict
 
@@ -697,3 +496,95 @@ def test_the_groups_show_only_for_the_meteorological_decomposition(qapp):
         assert win.decom_groups.isHidden() and not win.decom_attribution.isEnabled()
     finally:
         win.close()
+
+
+@pytest.mark.parametrize("method", ["meteorology", "emission"])
+def test_the_groups_names_are_not_cut_short(qapp, method):
+    """The longest group's name fits its cell beside the variables' names: the panel
+    widens to the table once a model's variables are in it, whether the groups show
+    then or later; a name still too long (typed in) reads from its start."""
+    from PySide6.QtWidgets import QApplication, QComboBox
+
+    from normet_r_gui._groups import PRESETS
+    from normet_r_gui.main_window import MainWindow
+
+    def settle():
+        for _ in range(6):
+            QApplication.sendPostedEvents()
+            qapp.processEvents()
+
+    win = MainWindow()
+    try:
+        win.resize(1320, 860)
+        win.show()
+        win.decom_method.setCurrentText(method)
+        ed = win.decom_groups
+        ed.set_variables(["ws", "wd", "temp", "RH", "atmos_pres", "blh", "tcc", "tp", "ssrd"])
+        ed.suggest()
+        win.param_panel.refit()  # as training does
+        win.show_panel_page("Decompose")
+        win.decom_method.setCurrentText("meteorology")
+        settle()
+        probe = QComboBox()
+        probe.setEditable(True)
+        probe.addItems(list(PRESETS))
+        probe.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
+        assert ed.table.columnWidth(1) >= probe.sizeHint().width()
+        assert ed.table.columnWidth(0) >= ed.table.sizeHintForColumn(0)
+        box = ed._box(5)  # blh
+        assert box.currentText() == "Boundary layer and pressure"
+        assert box.toolTip() == "Boundary layer and pressure"
+        box.setCurrentText("Boundary layer, pressure and everything above the canopy")
+        assert box.lineEdit().cursorPosition() == 0
+    finally:
+        win.close()
+
+
+def test_the_report_language_is_chosen_where_the_report_is_exported(qapp, monkeypatch, tmp_path):
+    """As cume's: File > Export HTML Report and the HTML report button each list the
+    languages, named in themselves and none ticked; the one chosen writes the report and is
+    kept for the next. A Chinese window names English as English."""
+    import pandas as pd
+    from PySide6.QtCore import QSettings
+    from PySide6.QtWidgets import QFileDialog
+
+    from normet_r_gui import nm as normet
+    from normet_r_gui import uilang
+    from normet_r_gui._shell import report_language
+    from normet_r_gui.main_window import MainWindow
+
+    prefs = QSettings("apai-sys", "normet-r-gui")
+    kept = prefs.value("report_language")
+    win = MainWindow()
+    try:
+        menu = win._report_action.menu()
+        assert [a.text() for a in menu.actions()] == list(uilang.LANGUAGES.values())
+        assert not any(a.isCheckable() for a in menu.actions())
+        assert [a.text() for a in win.exp_html.menu().actions()] == list(uilang.LANGUAGES.values())
+        assert uilang.tr("English", "zh") == "English" and uilang.tr("中文", "en") == "中文"
+
+        written = []
+        path = str(tmp_path / "r.html")
+        monkeypatch.setattr(win, "_current_result", lambda: ("normalise", pd.DataFrame({"a": [1]})))
+        monkeypatch.setattr(
+            QFileDialog, "getSaveFileName", staticmethod(lambda *a, **k: (path, ""))
+        )
+        monkeypatch.setattr(normet, "make_run", lambda *a, **k: "run")
+        monkeypatch.setattr(
+            normet, "generate_html_report", lambda run, p, lang: written.append((p, lang))
+        )
+        menu.actions()[list(uilang.LANGUAGES).index("zh")].trigger()
+        assert written == [(path, "zh")] and report_language() == "zh"
+        menu.actions()[list(uilang.LANGUAGES).index("en")].trigger()
+        assert written[-1] == (path, "en") and report_language() == "en"
+
+        # A cancelled save changes nothing.
+        monkeypatch.setattr(QFileDialog, "getSaveFileName", staticmethod(lambda *a, **k: ("", "")))
+        menu.actions()[list(uilang.LANGUAGES).index("zh")].trigger()
+        assert len(written) == 2 and report_language() == "en"
+    finally:
+        win.close()
+        if kept is None:
+            prefs.remove("report_language")
+        else:
+            prefs.setValue("report_language", kept)

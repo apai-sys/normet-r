@@ -290,6 +290,93 @@ if (length(.rpc_args) < 1) stop("usage: Rscript rpc.R <request.json>")
   made
 }
 
+# The Assistant's carry_out (normet_r_gui/_code.py): R code run on the window's table --
+# df, and df_prep and model where a model is trained -- as R's console runs it (a value
+# left visible printed), and what it gave, as text: its output, its messages and
+# warnings, each data.frame it made (its size and head), or its error.
+.gui_run_code <- function(path, df = NULL, df_prep = NULL, model = NULL) {
+  env <- new.env(parent = globalenv())
+  assign("df", df, envir = env)
+  assign("df_prep", df_prep, envir = env)
+  assign("model", model, envir = env)
+  said <- character(0)
+  failed <- NULL
+  printed <- utils::capture.output({
+    failed <- tryCatch(
+      withCallingHandlers({
+        for (e in parse(path, keep.source = FALSE)) {
+          v <- withVisible(eval(e, env))
+          if (v$visible) print(v$value)
+        }
+        NULL
+      },
+      message = function(m) {
+        said <<- c(said, trimws(conditionMessage(m)))
+        invokeRestart("muffleMessage")
+      },
+      warning = function(w) {
+        said <<- c(said, paste("Warning:", conditionMessage(w)))
+        invokeRestart("muffleWarning")
+      }),
+      error = function(e) conditionMessage(e))
+  })
+  tables <- character(0)
+  for (n in sort(ls(env))) {
+    x <- get(n, envir = env)
+    if (!is.data.frame(x) || n == "df_prep" || (n == "df" && identical(x, df))) next
+    tables <- c(tables, sprintf("%s: %s rows x %d columns", n, format(nrow(x), big.mark = ","),
+                                ncol(x)),
+                utils::capture.output(print(utils::head(x, 8))), "")
+  }
+  parts <- character(0)
+  out <- c(printed, said)
+  if (length(out)) parts <- c(parts, "Output:", out, "")
+  if (length(tables)) parts <- c(parts, "Tables made:", tables)
+  if (!is.null(failed)) parts <- c(parts, "Error:", failed)
+  if (!length(parts)) return("It ran, and printed and made nothing.")
+  paste(trimws(paste(parts, collapse = "\n"), "right"), collapse = "\n")
+}
+
+# normet's API for the Assistant's api_help: with no name its exported functions, a line
+# each (their help page's title); with one (nm_ may be left off) its arguments and help
+# page as text.
+.gui_api_help <- function(name = "") {
+  exports <- getNamespaceExports("normet")
+  fns <- sort(exports[vapply(exports, function(n) is.function(getExportedValue("normet", n)),
+                             logical(1))])
+  db <- tryCatch(tools::Rd_db("normet"), error = function(e) list())
+  meta <- function(rd, what) {
+    tryCatch(tools:::.Rd_get_metadata(rd, what), error = function(e) character(0))
+  }
+  page_of <- function(n) {
+    for (rd in db) if (n %in% meta(rd, "alias")) return(rd)
+    NULL
+  }
+  if (!nzchar(trimws(name))) {
+    titles <- vapply(fns, function(n) {
+      rd <- page_of(n)
+      if (is.null(rd)) "" else paste(meta(rd, "title"), collapse = " ")
+    }, character(1))
+    return(paste(c("normet's API (api_help(name) shows a call in full):",
+                   sprintf("- %s: %s", fns, titles)), collapse = "\n"))
+  }
+  name <- sub("^normet::", "", trimws(name))
+  if (!name %in% fns && paste0("nm_", name) %in% fns) name <- paste0("nm_", name)
+  if (!name %in% fns) {
+    close <- fns[agrepl(name, fns, ignore.case = TRUE, max.distance = 0.2)]
+    stop(sprintf("normet has no %s%s api_help('') lists the calls.", sQuote(name, FALSE),
+                 if (length(close)) paste0("; did you mean ", paste(head(close, 5), collapse = ", "),
+                                           "?") else ""), call. = FALSE)
+  }
+  sig <- deparse(args(getExportedValue("normet", name)))
+  sig <- paste(trimws(head(sig, -1)), collapse = " ")
+  rd <- page_of(name)
+  page <- if (is.null(rd)) "(no help page)" else
+    paste(utils::capture.output(tools::Rd2txt(rd, options = list(underline_titles = FALSE))),
+          collapse = "\n")
+  paste0(sub("^function ", name, sig), "\n\n", page)
+}
+
 # -- the call -------------------------------------------------------------------------
 
 .rpc_response <- paste0(sub("\\.json$", "", .rpc_request_path), ".out.json")

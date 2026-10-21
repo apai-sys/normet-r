@@ -19,6 +19,7 @@ backend and features.
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from . import figstyle, style  # noqa: F401 - the window imports them from here
@@ -51,9 +52,25 @@ from .plotting import (  # noqa: F401
     pdp_grid,
     plot_bayesian_scm,
     polar_plot,
+    pollution_rose,
     scm_dashboard,
     time_series_plot,
+    wind_rose,
 )
+
+#: A rolling result's window columns: window_01, window_02, ... (R's names, normet-py's).
+_WINDOW_COLUMN = re.compile(r"window_\d+")
+
+
+def window_column(i: int, total: int) -> str:
+    """The column of window *i* (counted from 1) of *total*, as nm_rolling names it:
+    ``window_01``, ..., padded to the width of *total* (two digits at least)."""
+    return f"window_{i:0{max(2, len(str(total)))}d}"
+
+
+def window_columns(df: Any) -> list[str]:
+    """The window columns of a rolling result, in the windows' order."""
+    return [c for c in df.columns if isinstance(c, str) and _WINDOW_COLUMN.fullmatch(c)]
 
 
 def __getattr__(name: str) -> Any:

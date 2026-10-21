@@ -257,10 +257,6 @@ normet-r-gui                         # or: normet-r-gui mydata.csv
 Its extra \code{geo} adds Shapely and pyshp, for source regions read from GeoJSON or
 Shapefile files in the Transport Studio.
 
-normet-py's window has one backend more, the Chronos-2 foundation model (it runs on
-PyTorch). The R package has no counterpart, so this window does not offer it
-(Section~\ref{sec:chronos}).
-
 % ============================ 3. METHODOLOGY =================================
 \chapter{Methodology}\label{ch:theory}
 
@@ -456,9 +452,10 @@ days (14 by default), started every \code{rolling\_every} days (7), each normali
 its weather drawn \emph{from that window only}. A short window therefore removes only the
 weather that varies within it --- synoptic variability for a fortnight --- and keeps the
 slower meteorological variation that a full-record normalisation would remove. The result
-has one column per window, \code{window\_01}, \code{window\_02}, \dots{} (numbered from 1),
-named so in the window's table and its export too; the window shows their mean, with the
-spread across overlapping windows.
+has one column per window, counted from 1: \code{window\_01}, \code{window\_02}, \dots\
+(padded to three digits past 99 windows, so the names sort in the windows' order);
+\code{window\_columns(rolled)} lists them. The window shows their mean, with the spread
+across overlapping windows.
 
 \section{Multi-scale decomposition}\label{sec:multiscale}
 Write $Y_W$ for the mean of the rolling-normalised series at window width $W$, and
@@ -483,13 +480,6 @@ that value and the predictions are averaged. \code{pdp\_mean} is that average an
 \code{pdp\_std} the spread of the predictions about it. A curve describes the model, not
 the atmosphere; correlated predictors (temperature and boundary-layer height, say) are
 varied one at a time, into combinations the record may never contain.
-
-\section{Zero-shot de-weathering with Chronos-2}\label{sec:chronos}
-normet-py also de-weathers with Chronos-2, a pretrained time-series foundation model, with
-nothing trained: the meteorology enters through the model's covariate channel and is
-marginalised by resampling as in Equation~\eqref{eq:norm}. Chronos-2 runs on PyTorch,
-and the R package has no counterpart, so this window does not offer it, nor the donor
-ranking built on its embeddings in the SCM Studio. Use normet-py's window for either.
 
 \section{Synthetic control}\label{sec:scmtheory}
 A synthetic control estimates the effect of an intervention on one \emph{treated} unit
@@ -694,7 +684,7 @@ read from the \tab{File} menu (Section~\ref{sec:config}).
 \toprule
 Tab & Shows & Filled by \\
 \midrule
-Data        & a preview of the target, the table, its size, span and missing values & loading \\
+Data        & overview, cycles, wind and pollution roses, statistics; rows left out & loading \\
 Model       & verdict, statistics table, parity plot, feature importance & Train model \\
 Normalise   & observed and normalised series, the quantile band, their cycles & Run normalisation \\
 Decompose   & the emission or meteorological components, the cycles & Run decomposition \\
@@ -789,8 +779,7 @@ File     & Open Data\ldots                      & Ctrl+O \\
          & Load Session Script\ldots            & \\
          & Methods Paragraph\ldots              & \\
          & Export Current Result\ldots          & Ctrl+E \\
-         & Export HTML Report\ldots             & \\
-         & Report Language: As the Window, English, Chinese & \\
+         & Export HTML Report: English, Chinese & \\
          & Save Session as Script\ldots         & \\
          & Save Config\ldots{} / Load Config\ldots & \\
          & Run History\ldots                    & \\
@@ -839,8 +828,10 @@ and the Assistant's conversation stay as they were written. What the system draw
 itself stays in the system's language whichever the window is written in: the
 open and save panels, their titles too, and, on a Mac, the items macOS adds to the menus
 (\emph{AutoFill}, \emph{Start Dictation}, \emph{Emoji \& Symbols}). An HTML
-report (Section~\ref{sec:commandlog}) is written in the window's language too, or in the
-one \tab{File $\rightarrow$ Report Language} chooses: its headings, labels and figure.
+report (Section~\ref{sec:commandlog}) is written in the language picked as it is exported
+--- \tab{File $\rightarrow$ Export HTML Report}, or the \emph{HTML report} button, lists
+each language named in itself --- its headings, labels and figure; the language is kept
+for the next report, and is the system's until one is picked.
 
 % ============================ 6. COLUMNS AND TRAINING =========================
 \chapter{Training a model}\label{ch:train}
@@ -865,8 +856,22 @@ hand --- in MY1, \code{atmos\_pres}. The same applies to the \tab{Normalise} pag
 \screenshot{ui_data.png}{MY1 opened from \tab{File $\rightarrow$ Load Example}: 5,793
 hourly rows of 11 columns from 2020-01-01 to 2020-08-31, with no missing values. The
 example sets the paper's target, \NOtwo{}, and its nine meteorological predictors
-(\code{atmos\_pres} among them, a name the window does not recognise). The tab previews the
-target series and lists the table.}{fig:data}
+(\code{atmos\_pres} among them, a name the window does not recognise). The \tab{Overview}
+page draws every column as a heatmap, each scaled to its own range, above the series
+picked (here \NOtwo{}, daily).}{fig:data}
+
+The \tab{Data} tab has four pages. \tab{Overview} shows the record at a glance: drag across
+the series to pick a span, and its rows are listed below the plot; a drag with Shift held
+(or Ctrl, or Cmd) adds another span, and Escape clears them. \emph{Exclude picked}
+leaves them all out, \emph{Restore picked} takes them back, and the \emph{Exclude} box takes
+spans typed one to a line (\code{2020-03-23 .. 2020-04-05}, or a single date). Rows left out
+are shaded on the plot and are left out of every step after: training, normalisation,
+decomposition and the rest. The Command Log writes them as \code{left\_out} and
+\code{df\_kept}, and the session keeps them. \tab{Cycles} draws a column's diurnal, weekly and
+seasonal cycles; \tab{Wind}, when the table has wind speed and direction, the wind rose,
+a pollutant's pollution rose and its polar plot; \tab{Statistics} each column's values,
+missing share, mean, standard deviation, minimum, quartiles and maximum. All four read
+the rows kept.
 
 \section{Settings}
 \begin{description}\nosep
@@ -901,10 +906,6 @@ A fit on the training rows much better than on the held-out rows is expected of 
 trees and is not by itself a problem; a poor held-out fit is. Before normalising with a
 moderate or poor model, try more predictors, more search trials, or H2O. The
 normalised series inherits the model's errors.
-
-\section{Chronos-2}\label{sec:chronosui}
-normet-py's window has a third backend here, \code{chronos-2}, with a device and a
-fine-tuning step of its own (Section~\ref{sec:chronos}). This window does not.
 
 % ============================ 7. NORMALISATION ================================
 \chapter{Normalising}\label{ch:normalise}
@@ -1067,7 +1068,7 @@ welcome's example card. It is laid out as the main window is: the panel on the l
 its pages chosen from a bar --- \tab{Data} (the panel data and its columns),
 \tab{Design}, \tab{Estimator}, \tab{Inference} --- result tabs on the right
 (\tab{Panel}, \tab{Fit}, \tab{Placebo Space}, \tab{Placebo Time}, \tab{Uncertainty},
-\tab{All Units}, \tab{Similarity}), and \emph{Export current tab data} above them. The
+\tab{All Units}), and \emph{Export current tab data} above them. The
 method is described in Section~\ref{sec:scmtheory}.
 
 This chapter's figures reproduce the ULEZ case study of the \nm{} paper: the London Ultra
@@ -1104,9 +1105,6 @@ of the paper's tables), else the first numeric one. Check all three.
   \item[Donor pool] Every other unit, ticked. Untick any unit the intervention could
         have reached, directly or by spill-over --- a donor that was itself treated
         biases the counterfactual towards the treated unit.
-  \item[Rank donors by similarity] normet-py ranks the donors by the similarity of
-        their Chronos-2 embeddings to the treated unit's; here the button is greyed out
-        (Section~\ref{sec:chronos}).
 \end{description}
 The \tab{Panel} tab plots the outcome of every unit with the treated one in red, and
 checks the panel: amber when more than 10\,\% of the date $\times$ unit cells are missing
@@ -1342,7 +1340,8 @@ north-east.}{fig:polar}
         \tab{Data}, the statistics on \tab{Model}, the normalised series with its
         quantiles, the decomposition, every rolling window, the multi-scale series, the
         partial-dependence values.
-  \item[HTML report] The current tab's result as one self-contained HTML file --- figures
+  \item[HTML report] (File $\rightarrow$ Export HTML Report, or the button; pick the
+        report's language from its menu.) The current tab's result as one self-contained HTML file --- figures
         embedded, no scripts or external links --- with a summary of the model and the
         result, and its provenance: \nm{}'s version, the time, the platform and R
         version, the host and user names, the shape and hash of the data, the panel's
@@ -1446,7 +1445,7 @@ on another side of its panel; drag the legend or a colour bar where it reads bes
 \emph{Save\ldots} writes the formats the journal takes --- PDF, EPS or SVG with the text
 kept as editable text and the fonts embedded, TIFF or PNG at the resolution chosen --- at
 exactly the size shown, on a white page. While the dialog is open the figure is in the
-report's language (File $\rightarrow$ Report Language). When it closes the figure goes back
+report's language (the one last picked under File $\rightarrow$ Export HTML Report). When it closes the figure goes back
 to its tab as it was; the journal, width, panel labels, formulas and resolution are kept
 for the next figure. Check the journal's current guide before submitting.
 

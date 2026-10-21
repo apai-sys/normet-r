@@ -37,7 +37,10 @@ The R GUI *is* normet-py's GUI code, vendored, with every analysis routed to R:
     status label, R cleanup on close.
   - `normet_r_gui/ui_zh_r.py`: Chinese texts only this window has.
 - Backends: lightgbm (default) and h2o; py's flaml ↔ R's h2o (time budget +
-  include_algos), Chronos-2 not offered (patched in `_chronos.py`).
+  include_algos). Chronos-2 is not in this window: `_chronos.py` is not vendored, and
+  `r_patches.py` takes out everything that read it (backend, device, fine-tuning,
+  seeded rows, Model tab, Methods sentence, the SCM Studio's similarity ranking,
+  its Chinese texts and tests; the manual's Chronos sections too).
 - R package fix made for this: `nm_feature_importance()` now handles LightGBM
   (`R/nm_utils_features.r`, test in `tests/testthat/test-lightgbm.r`).
 
@@ -103,7 +106,7 @@ The R GUI *is* normet-py's GUI code, vendored, with every analysis routed to R:
    A session (.normet) carries its R model folders inside it (`RObject` pickling).
 6. `rbridge.py`/`bridge.R` deleted; pyproject/spec/build_dmg ship `rpc.R`.
 7. normet-py's GUI tests vendored into `gui/tests/` by the same script (patches
-   under `tests/...` in `r_patches.py`; Chronos tests skipped); plus
+   under `tests/...` in `r_patches.py`; Chronos tests removed); plus
    `test_commandlog.py`, `test_trajjoin.py`, `test_uilang.py`. Whole suite:
    `python -m pytest gui/tests` → 105 passed, 6 skipped.
 
@@ -136,7 +139,7 @@ The R GUI *is* normet-py's GUI code, vendored, with every analysis routed to R:
 - Also: glmnet, declared but never called, dropped from DESCRIPTION Imports (R CMD
   check's only NOTE); `gui/` added to .Rbuildignore; the pkgdown `docs/` ignore
   anchored to the root (`/docs/`) so gui/docs/manual is tracked.
-- Tests: `gui/tests` all pass file by file (6 Chronos tests skipped); R testthat
+- Tests: `gui/tests` all pass file by file (the 6 Chronos tests removed); R testthat
   0 failures, 668 expectations.
 
 ## Sync with normet-py main at 7111b71 (PRs #30-#38)
@@ -149,7 +152,7 @@ The R GUI *is* normet-py's GUI code, vendored, with every analysis routed to R:
   Assistant" section; walk_gui.py grabs the Command Log window as make_figures.py does.
 - Packaging: the GUI declares pyarrow, openpyxl and xlrd (Open Data reads Parquet,
   Feather and Excel through pandas here too), the spec names them as hidden imports and
-  leaves torch/chronos out, build_dmg.sh checks for them. Not ported: py's
+  leaves torch/chronos out (build_dmg.sh too), build_dmg.sh checks for them. Not ported: py's
   collect_data_files (the examples come from the R package) and the NCCL exclusion
   (no xgboost here).
 
@@ -176,6 +179,28 @@ The R GUI *is* normet-py's GUI code, vendored, with every analysis routed to R:
   `_multiscale.py`) and the multi-scale test are patched to match.
 - Then normet-py main at aeff5f3 (#43, #36): the task clock ignores a time budget given
   with no task running (vendored with its test); #36 is py's own figures and PDFs.
+
+## Sync with normet-py gui/assistant-like-cume (#48) and gui/data-overview
+- The Assistant as cume's (next message on Tab, Apply that trains, copies, find, the
+  status line, the whole API as tools, cume's harness) comes over as it is. Its
+  carry_out and api_help run R here: `normet_r_gui/_code.py` is this window's own
+  (SKIP_GUI), calling rpc.R's `.gui_run_code` (the code in an env with df, df_prep,
+  model) and `.gui_api_help` (the package's Rd pages). Test: tests/test_r_assistant.py.
+- normet-py #44-#47 adopted R's window names: the window-name patches are gone;
+  `nm.window_column(s)` stand in for normet.analysis.rolling's; nm_rolling pads to two
+  digits at least, as normet-py does.
+- Start-up: `packaging/launcher.py` is normet-py's (a kept font cache, a splash):
+  21.5 s to the window before, 3.0 s after (measured on the DMG).
+- The Data tab (overview with rows picked and left out, cycles, wind, statistics) is
+  vendored; the rows left out are written by this window's own `commandlog.exclude`
+  as R (`df_kept <- df[!left_out, , drop = FALSE]`).
+- Bilingual as cume's (normet-py #49): the report's language is picked under File →
+  Export HTML Report or the HTML report button (kept in this window's settings,
+  `normet-r-gui`); uilang's label heads and multi-line texts; a Chinese walk of the
+  window leaves only names and codes in English. ui_data.png grabbed from this window
+  (both languages).
+- workers.py: a task's thread that ended after its window was gone raised "Signal
+  source has been deleted" (the end of the transport tests); fixed in normet-py.
 
 ## Local setup used here
 - R 4.3 + normet installed from this repo (`R CMD INSTALL .`), lightgbm R package

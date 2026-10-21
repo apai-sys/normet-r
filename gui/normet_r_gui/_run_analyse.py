@@ -14,7 +14,6 @@ from PySide6.QtWidgets import QMainWindow, QMessageBox
 
 from .nm import style as S
 
-from . import _chronos
 from ._constants import TIME_VARS
 from ._lists import _checked_items
 
@@ -30,19 +29,6 @@ class AnalyseRunMixin(QMainWindow):
             self.notify(
                 "Tick at least one variable to resample under Normalise (usually the meteorological ones).",
                 key="need-resample-vars",
-            )
-            return
-        if self._is_chronos():
-            self.runner.submit(
-                "de-weather (chronos-2)",
-                _chronos.deweather,
-                self._normalise_done,
-                self._show_error,
-                self.model,
-                self.df_prep,
-                [v for v in resample_vars if v not in TIME_VARS],
-                self.norm_quantiles.isChecked(),
-                self.norm_samples.value(),
             )
             return
 
@@ -70,14 +56,7 @@ class AnalyseRunMixin(QMainWindow):
 
         qcols = sorted(c for c in result.columns if c.startswith("q") and c[1:].isdigit())
         target = self.target_combo.currentText()
-        # Chronos-2 has no history to condition on for the first context_length
-        # rows, so deweather() seeds them with the observed values: normalised
-        # equals observed there by construction, not by result. Averaging across
-        # them drags the reported effect toward zero, and on a record not much
-        # longer than the context that is most of the series -- so say how many
-        # rows are seeded and take the mean over the rest.
-        seeded = min(int(self.model.context_length), len(result)) if self._is_chronos() else 0
-        projected = result.iloc[seeded:]
+        projected = result
 
         from .nm.plotting import profile_axes, usable_cycles
 
@@ -117,16 +96,6 @@ class AnalyseRunMixin(QMainWindow):
                 )
                 if j == 0:
                     axc.set_ylabel(S.formula(target))
-            if seeded:
-                ax.axvspan(
-                    result.index[0],
-                    result.index[seeded - 1],
-                    color="#E5E5EA",
-                    lw=0,
-                    zorder=0,
-                    label="seeded (= observed)",
-                )
-                S.legend(ax, loc="upper right", ncols=4)
             return fig
 
         n_rv = len(self._selected_norm_vars())
@@ -141,19 +110,6 @@ class AnalyseRunMixin(QMainWindow):
             lines.append(
                 f"{len(result):,} timestamps, {self.norm_samples.value()} Monte-Carlo samples, "
                 f"{n_rv} resampled variables"
-            )
-        if seeded:
-            pct = 100.0 * seeded / len(result)
-            lines.append(
-                f"⚠ The first {seeded:,} rows ({pct:.0f}% of the record) are seeded with the "
-                f"observed values — Chronos-2 needs that much history before it can project, "
-                f"so the curves coincide there by construction."
-                + (
-                    f" The mean above is over the remaining {len(projected):,} rows."
-                    if len(projected)
-                    else " Nothing was projected: load a record longer than "
-                    f"{self.model.context_length:,} rows."
-                )
             )
         self.tab_norm.show_timeseries(render, result, lines=lines)
         self._sync_enabled()
@@ -182,13 +138,7 @@ class AnalyseRunMixin(QMainWindow):
                 options["groups"] = groups
             if self.decom_attribution.currentText() != "auto":
                 options["attribution"] = self.decom_attribution.currentText()
-        if self._is_chronos():
-            # The zero-shot path: each coalition is a de-weathering of the
-            # estimator's own, over the meteorology it was loaded with.
-            options.update(target="value", backend=_chronos.BACKEND)
-            covariates = [f for f in self.trained_features if f not in TIME_VARS]
-        else:
-            covariates = self.trained_features + list(TIME_VARS)
+        covariates = self.trained_features + list(TIME_VARS)
         self.runner.submit(
             f"decompose ({method})",
             decompose,
@@ -280,7 +230,9 @@ class AnalyseRunMixin(QMainWindow):
 
     def _rolling_done(self, result: pd.DataFrame) -> None:
         self.results["rolling"] = result
-        rolling_cols = [c for c in result.columns if c.startswith("window_")]
+        from .nm import window_columns
+
+        rolling_cols = window_columns(result)
         window, step = self.roll_window.value(), self.roll_step.value()
 
         def render(d: pd.DataFrame):

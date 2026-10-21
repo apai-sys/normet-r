@@ -170,10 +170,6 @@ normet-r-gui                         # or: normet-r-gui mydata.csv
 Its extra \code{geo} adds Shapely and pyshp, for source regions read from GeoJSON or
 Shapefile files in the Transport Studio.
 
-normet-py's window has one backend more, the Chronos-2 foundation model (it runs on
-PyTorch). The R package has no counterpart, so this window does not offer it
-(Section~\ref{sec:chronos}).
-
 """)
 
 # -- methodology: R's functions -------------------------------------------------------------
@@ -213,21 +209,8 @@ patch(EN, "seed", r"""\paragraph{Reproducibility.} The draws are seeded (\code{s
 patch(EN, "groups", r"""\paragraph{Groups.} \code{groups=\{"local": met\_cols, "transport": traj\_cols\}} gives one""",
       r"""\paragraph{Groups.} \code{groups = list(local = met\_cols, transport = traj\_cols)} gives one""")
 patch(EN, "rolling", r"""\code{rolling} normalises the record window by window:""", r"""\code{nm\_rolling} normalises the record window by window:""")
-patch(EN, "rolling columns", r"""The result
-has one column per window, \code{rolling\_0}, \code{rolling\_1}, \dots; the window shows
-their mean, with the spread across overlapping windows.""", r"""The result
-has one column per window, \code{window\_01}, \code{window\_02}, \dots{} (numbered from 1),
-named so in the window's table and its export too; the window shows their mean, with the
-spread across overlapping windows.""")
 passage(EN, "no Chronos-2", r"""\section{Zero-shot de-weathering with Chronos-2}\label{sec:chronos}""",
-        r"""\section{Synthetic control}\label{sec:scmtheory}""", r"""\section{Zero-shot de-weathering with Chronos-2}\label{sec:chronos}
-normet-py also de-weathers with Chronos-2, a pretrained time-series foundation model, with
-nothing trained: the meteorology enters through the model's covariate channel and is
-marginalised by resampling as in Equation~\eqref{eq:norm}. Chronos-2 runs on PyTorch,
-and the R package has no counterpart, so this window does not offer it, nor the donor
-ranking built on its embeddings in the SCM Studio. Use normet-py's window for either.
-
-""")
+        r"""\section{Synthetic control}\label{sec:scmtheory}""", "")
 patch(EN, "mlscm", r"""  \item[\code{mlscm}] ML-augmented SCM (\emph{experimental}): an AutoML model maps donor""",
       r"""  \item[\code{mlscm}] ML-augmented SCM (\emph{experimental}): a LightGBM or H2O model maps donor""")
 patch(EN, "bayesian", r"""  \item[\code{bayesian}] Bayesian simplex SCM (PyMC): a Dirichlet prior on the weights,
@@ -340,11 +323,7 @@ and the hour --- and the wind direction carry the most gain.}{fig:model}"""))
 patch(EN, "a poor fit", r"""moderate or poor model, try more predictors, a longer budget or more estimators.""",
       r"""moderate or poor model, try more predictors, more search trials, or H2O.""")
 passage(EN, "no Chronos-2 settings", r"""\section{Chronos-2}\label{sec:chronosui}""",
-        r"""% ============================ 7. NORMALISATION ================================""", r"""\section{Chronos-2}\label{sec:chronosui}
-normet-py's window has a third backend here, \code{chronos-2}, with a device and a
-fine-tuning step of its own (Section~\ref{sec:chronos}). This window does not.
-
-""")
+        r"""% ============================ 7. NORMALISATION ================================""", "")
 
 # -- normalising, decomposing, rolling ---------------------------------------------------------
 patch(EN, "samples", r"""  \item[Samples] Monte-Carlo draws, 300 by default (8 on Chronos-2;
@@ -411,10 +390,8 @@ write.csv(df, "ulez_panel.csv", row.names = FALSE)
 patch(EN, "similarity", r"""  \item[Rank donors by similarity] (needs the \code{foundation} extra) Embeds every
         unit's pre-cutoff record with Chronos-2 and ranks the others by the cosine
         similarity of their dynamics to the treated unit's, on the \tab{Similarity} tab;
-        \emph{Tick the top N} and \emph{Apply} make those the pool.""",
-      r"""  \item[Rank donors by similarity] normet-py ranks the donors by the similarity of
-        their Chronos-2 embeddings to the treated unit's; here the button is greyed out
-        (Section~\ref{sec:chronos}).""")
+        \emph{Tick the top N} and \emph{Apply} make those the pool.
+""", "")
 patch(EN, "ML backend", r"""\emph{Backend} chooses the estimator (Section~\ref{sec:scmtheory}); \emph{ML backend} and
 \emph{Time budget} (15~s) apply to \code{mlscm}, \emph{Draws} (1000) to
 \code{bayesian}.""", r"""\emph{Backend} chooses the estimator (Section~\ref{sec:scmtheory}); \emph{ML backend}
@@ -739,9 +716,6 @@ normet-r-gui                         # or: normet-r-gui mydata.csv
 \end{lstlisting}
 它的扩展 \code{geo} 增加 Shapely 和 pyshp，供传输工作室从 GeoJSON 或 Shapefile 文件读取源区。
 
-normet-py 的窗口多一个后端：Chronos-2 基础模型（运行在 PyTorch 上）。R 包没有对应的模型，
-所以本窗口不提供它（第~\ref{sec:chronos}~节）。
-
 """)
 
 patch(ZH, "prepare", r"""训练模型之前，表格按以下顺序经过 \code{prepare\_data}：""", r"""训练模型之前，表格按以下顺序经过 \code{nm\_prepare\_data}：""")
@@ -774,17 +748,8 @@ patch(ZH, "seed", r"""\paragraph{可重复性。}抽样带有种子（默认 \co
 patch(ZH, "groups", r"""\paragraph{分组。}\code{groups=\{"local": met\_cols, "transport": traj\_cols\}} 为每个分组""",
       r"""\paragraph{分组。}\code{groups = list(local = met\_cols, transport = traj\_cols)} 为每个分组""")
 patch(ZH, "rolling", r"""\code{rolling} 逐窗口地归一化记录""", r"""\code{nm\_rolling} 逐窗口地归一化记录""")
-patch(ZH, "rolling columns", r"""结果每个窗口一列，\code{rolling\_0}、\code{rolling\_1}、……；窗口中显示""",
-      r"""结果每个窗口一列，\code{window\_01}、\code{window\_02}、……（从 1 起编号），窗口的表格及其
-导出也用这些列名；窗口中显示""")
 passage(ZH, "no Chronos-2", r"""\section{用 Chronos-2 零样本去气象化}\label{sec:chronos}""",
-        r"""\section{合成控制}\label{sec:scmtheory}""", r"""\section{用 Chronos-2 零样本去气象化}\label{sec:chronos}
-normet-py 还能用 Chronos-2——一个预训练的时间序列基础模型——不经训练地去气象化：气象通过模型的
-协变量通道输入，天气按方程~\eqref{eq:norm} 通过重采样边缘化。Chronos-2 运行在 PyTorch 上，
-R 包没有对应的模型，所以本窗口不提供它，也不提供 SCM 工作室中基于其嵌入的供体排序。需要时请
-使用 normet-py 的窗口。
-
-""")
+        r"""\section{合成控制}\label{sec:scmtheory}""", "")
 patch(ZH, "mlscm", r"""  \item[\code{mlscm}] ML 增广 SCM（\emph{实验性}）：一个 AutoML 模型在干预前时段把供体的""",
       r"""  \item[\code{mlscm}] ML 增广 SCM（\emph{实验性}）：一个 LightGBM 或 H2O 模型在干预前时段把供体的""")
 patch(ZH, "bayesian", r"""  \item[\code{bayesian}] 贝叶斯单纯形 SCM（PyMC）：权重取 Dirichlet 先验，直接给出后验
@@ -878,11 +843,7 @@ patch(ZH, "model caption", r"""\screenshot{ui_model.png}{用 FLAML（LightGBM，
 日历——一年中的第几天、趋势和小时——以及风向承担了最多的增益。}{fig:model}"""))
 patch(ZH, "a poor fit", r"""试试更多预测变量、更长的预算或更多估计器。""", r"""试试更多预测变量、更多搜索次数，或用 H2O。""")
 passage(ZH, "no Chronos-2 settings", r"""\section{Chronos-2}\label{sec:chronosui}""",
-        r"""% ============================ 7. NORMALISATION ================================""", r"""\section{Chronos-2}\label{sec:chronosui}
-normet-py 的窗口在这里有第三个后端 \code{chronos-2}，并有它自己的设备和微调步骤
-（第~\ref{sec:chronos}~节）。本窗口没有。
-
-""")
+        r"""% ============================ 7. NORMALISATION ================================""", "")
 
 patch(ZH, "samples", r"""  \item[样本数] 蒙特卡洛抽样次数，默认 300（Chronos-2 为 8；多少次才够见
         第~\ref{sec:normalise}~节）。""", r"""  \item[样本数] 蒙特卡洛抽样次数，默认 300（多少次才够见第~\ref{sec:normalise}~节）。""")
@@ -935,8 +896,8 @@ write.csv(df, "ulez_panel.csv", row.names = FALSE)
 \end{lstlisting}""")
 patch(ZH, "similarity", r"""  \item[按相似度排列供体]（需要 \code{foundation} 扩展）用 Chronos-2 嵌入每个单元干预前的
         记录，按其动态与处理单元的余弦相似度对其他单元排序，显示在\tab{相似度}标签页上；
-        \emph{勾选前 N 个}和\emph{应用}把它们设为供体池。""", r"""  \item[按相似度排列供体] normet-py 按各供体的 Chronos-2 嵌入与处理单元的相似度排序；
-        本窗口中这个按钮呈灰色（第~\ref{sec:chronos}~节）。""")
+        \emph{勾选前 N 个}和\emph{应用}把它们设为供体池。
+""", "")
 patch(ZH, "ML backend", r"""\emph{后端}选择估计器（第~\ref{sec:scmtheory}~节）；\emph{机器学习后端}和\emph{时间预算}
 （15~s）用于 \code{mlscm}，\emph{抽样次数}（1000）用于 \code{bayesian}。""",
       r"""\emph{后端}选择估计器（第~\ref{sec:scmtheory}~节）；\emph{机器学习后端}（\code{lightgbm} 或
@@ -1150,3 +1111,7 @@ patch("docs/manual/build.sh", "figures", r"""# The figures are screenshots of th
       r"""# The figures are screenshots of the real window, run on R; make them first (from gui/) with
 #     QT_QPA_PLATFORM=offscreen python tools/walk_gui.py
 #     NORMET_UI_LANGUAGE=zh QT_QPA_PLATFORM=offscreen python tools/walk_gui.py""")
+
+# The SCM Studio has no Similarity tab: its ranking of donors was Chronos-2's.
+patch(EN, "SCM tabs: no Similarity", r"""\tab{All Units}, \tab{Similarity}), and""", r"""\tab{All Units}), and""")
+patch(ZH, "SCM tabs: no Similarity", r"""\tab{全部单元}、\tab{相似度}），""", r"""\tab{全部单元}），""")

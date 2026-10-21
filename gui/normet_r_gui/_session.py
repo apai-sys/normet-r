@@ -25,7 +25,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from . import _chronos, _settings, commandlog
+from . import _settings, commandlog
 from ._lists import _checked_items
 
 log = logging.getLogger(__name__)
@@ -79,7 +79,13 @@ class SessionMixin(QMainWindow):
         added to the log once it has succeeded -- and its arguments kept by the step's
         name, for the Methods paragraph (.methods), which says what ran."""
         normalised = self.results.get("normalise")
-        names = [(self.df_raw, "df"), (self.df_prep, "df_prep"), (self.model, "model")]
+        # The rows kept where some are left out (the log's df_kept, ._data_tab), else df.
+        names = [
+            (self.df_raw, "df_kept" if self.exclusions else "df"),
+            (self.df_loaded, "df"),
+            (self.df_prep, "df_prep"),
+            (self.model, "model"),
+        ]
         if normalised is not None and "normalised" in normalised:
             names.append((normalised["normalised"], "normalised['normalised']"))
         entry = commandlog.task(fn, args, kwargs, [(o, n) for o, n in names if o is not None])
@@ -87,7 +93,7 @@ class SessionMixin(QMainWindow):
         step = getattr(fn, "__name__", "")
 
         def commit() -> None:
-            if step == "build_model" or step == "load_estimator":
+            if step == "build_model":
                 self._ran.clear()  # a new model: what ran before was on the old one
             self._ran[step] = call
             if entry is not None:
@@ -123,8 +129,6 @@ class SessionMixin(QMainWindow):
             if len(row):
                 r = row.iloc[0]
                 info["test"] = {"r2": float(r["R2"]), "rmse": float(r["RMSE"]), "n": int(r["n"])}
-        if self.chronos_check is not None:
-            info["chronos_pct"] = float(self.chronos_check[0].get("pct_of_prediction", 0.0))
         return info
 
     def show_methods_paragraph(self) -> None:
@@ -201,6 +205,7 @@ class SessionMixin(QMainWindow):
             "norm_vars": self._selected_norm_vars(),
             "norm_samples": self.norm_samples.value(),
             "norm_cores": self.norm_cores.value(),
+            "exclude": list(self.exclusions),
             "norm_quantiles": self.norm_quantiles.isChecked(),
             "decom_method": self.decom_method.currentText(),
             "decom_samples": self.decom_samples.value(),
@@ -245,13 +250,10 @@ class SessionMixin(QMainWindow):
                 item.setCheckState(
                     Qt.CheckState.Checked if item.text() in nvars else Qt.CheckState.Unchecked
                 )
-        # An explicit saved count wins; the fallback follows the restored backend,
-        # so a config written before chronos-2 existed does not push 300 forward
-        # passes onto it.
-        self.norm_samples.setValue(
-            c.get("norm_samples", _chronos.DEFAULT_SAMPLES if self._is_chronos() else 300)
-        )
+        self.norm_samples.setValue(c.get("norm_samples", 300))
         self.norm_cores.setValue(c.get("norm_cores", 0))
+        if "exclude" in c:  # the rows left out (the Data tab's Exclude box)
+            self._set_exclusions(list(c.get("exclude") or []))
         self.norm_quantiles.setChecked(c.get("norm_quantiles", False))
         self.decom_method.setCurrentText(c.get("decom_method", "emission"))
         self.decom_samples.setValue(c.get("decom_samples", 300))
@@ -346,7 +348,9 @@ class SessionMixin(QMainWindow):
             self.statusBar().showMessage(f"Saved {os.path.basename(path)}")
             log.info("Exported %s result to %s", key, path)
 
-    def _export_html(self) -> None:
+    def _export_html(self, lang: str | None = None) -> None:
+        """The current tab's result as an HTML report in *lang* (the one last chosen when
+        None), and *lang* kept for the next one. A cancelled save changes nothing."""
         key, result = self._current_result()
         if result is None or key == "data":
             self.notify(
@@ -371,9 +375,13 @@ class SessionMixin(QMainWindow):
                 model=self.model,
                 seed=self.seed_spin.value(),
             )
-            from ._shell import report_language
+            from ._shell import report_language, set_report_language
 
-            generate_html_report(run, path, lang=report_language())
+            if lang is None:
+                lang = report_language()
+            else:
+                set_report_language(lang)
+            generate_html_report(run, path, lang=lang)
             self.statusBar().showMessage(f"Saved {os.path.basename(path)}")
             log.info("HTML report written to %s", path)
         except Exception as exc:

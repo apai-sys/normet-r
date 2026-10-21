@@ -35,7 +35,11 @@ cd "$GUI_DIR"
     --osx-bundle-identifier "org.apai-sys.normet-r" \
     --collect-submodules normet_r_gui \
     --add-data "$GUI_DIR/normet_r_gui/rpc.R:normet_r_gui" \
+    --add-data "$GUI_DIR/normet_r_gui/assets/normet.png:normet_r_gui/assets" \
+    --add-data "$GUI_DIR/packaging/assets/normet.png:packaging/assets" \
     --exclude-module tkinter \
+    --exclude-module torch \
+    --exclude-module chronos \
     --exclude-module IPython \
     --exclude-module pytest
 

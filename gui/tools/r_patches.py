@@ -29,23 +29,6 @@ patch(
         return build_catalogue(texts, ui_zh.INNER, ui_zh.DATE_PARTS, sentences=False)""",
 )
 
-# -- Chronos-2: not offered ----------------------------------------------------------------
-patch(
-    "_chronos.py",
-    "availability",
-    '''    missing = [p for p in ("chronos", "torch") if importlib.util.find_spec(p) is None]
-    if missing:
-        return False, (
-            f"Chronos-2 needs the 'foundation' extra ({', '.join(missing)} not installed).\\n"
-            "Install with:  pip install normet[foundation]"
-        )
-    return True, ""''',
-    '''    return False, (
-        "Chronos-2 is normet-py's foundation model (PyTorch); the R package has none.\\n"
-        "Use normet-py's window for it."
-    )''',
-)
-
 # -- Step 1: the R package's backends, lightgbm (default) and H2O AutoML -----------------------
 patch(
     "_panel_train.py",
@@ -528,46 +511,38 @@ def skip(file: str, test: str, reason: str) -> None:
     patch(file, f"skip {test}", f"def {test}(", f"@pytest.mark.skip(reason={reason!r})\ndef {test}(")
 
 
-NO_CHRONOS = "Chronos-2 (normet-py's PyTorch foundation model) is not offered in R"
-for _test in (
-    "test_chronos_backend_hides_the_training_controls",
-    "test_chronos_backend_swaps_the_monte_carlo_sample_count",
-    "test_chronos_normalise_panel_declares_the_seeded_rows",
-    "test_chronos_option_is_greyed_out_without_the_extra",
-    "test_chronos_load_requires_a_met_covariate",
-    "test_chronos_backend_exposes_a_device_selector",
-):
-    skip("tests/test_gui_smoke.py", _test, NO_CHRONOS)
 patch(
     "tests/test_gui_methods.py",
     "about: (R)",
     'assert f"Version {normet.__version__}" in',
     'assert f"Version {normet.__version__} (R)" in',
 )
-# A rolling run's windows keep R's names (window_01, from 1), not normet-py's rolling_0.
+# The window's normet is the nm package: its window names are there, not in normet.analysis.
 patch(
-    "_run_analyse.py",
-    "rolling: R's window names",
-    'rolling_cols = [c for c in result.columns if c.startswith("rolling_")]',
-    'rolling_cols = [c for c in result.columns if c.startswith("window_")]',
-)
-patch(
-    "_multiscale.py",
-    "rolling: R's window names",
-    'cols = [c for c in res.columns if c.startswith("rolling_")]',
-    'cols = [c for c in res.columns if c.startswith("window_")]',
+    "_saved.py",
+    "window names from nm",
+    "    from .nm.analysis.rolling import window_column",
+    "    from .nm import window_column",
 )
 patch(
     "tests/test_gui_multiscale.py",
-    "rolling: R's window names (doc)",
-    "returning hand-built ``rolling_<i>`` columns",
-    "returning hand-built ``window_<i>`` columns, as R names them",
+    "window names from nm",
+    "from normet_r_gui.nm.analysis.rolling import window_column",
+    "from normet_r_gui.nm import window_column",
 )
+# The rows left out are written in R.
 patch(
-    "tests/test_gui_multiscale.py",
-    "rolling: R's window names",
-    'result[f"rolling_{i}"] = level',
-    'result[f"window_{i + 1:02d}"] = level',
+    "tests/test_gui_data_tab.py",
+    "left out in R",
+    'assert "df_kept = df[~left_out]" in',
+    'assert "df_kept <- df[!left_out" in',
+)
+# The report's language is kept in this window's settings, which the test puts back.
+patch(
+    "tests/test_gui_smoke.py",
+    "the R window's settings",
+    'prefs = QSettings("apai-sys", "normet-gui")',
+    'prefs = QSettings("apai-sys", "normet-r-gui")',
 )
 skip(
     "tests/test_progress.py",
@@ -734,4 +709,543 @@ patch(
     "R's modStats",
     '''        "Model fit (normet.modStats; 'testing' is the rows held out of training):",''',
     '''        "Model fit (nm_modStats; 'testing' is the rows held out of training):",''',
+)
+
+
+# -- Chronos-2: not in this window ---------------------------------------------------------
+# normet-py's zero-shot foundation model (PyTorch) has no R counterpart: its module
+# (_chronos.py) is not copied, and what reads it is taken out -- the backend, its device
+# and fine-tuning, its seeded rows, its Model tab and Methods sentence, the SCM Studio's
+# similarity ranking, its texts and its tests.
+def passage(file: str, label: str, start: str, end: str, new: str) -> None:
+    """The text from ``start`` up to (not including) ``end`` replaced by ``new``."""
+    PATCHES.setdefault(file, []).append((label, (start, end), new))
+
+
+# Step 1's box
+patch(
+    "_panel_train.py",
+    "chronos: docstring",
+    r'''"""Step 1's box: backend, split, budget, seed, device -- and fine-tuning.
+
+Also the three questions the rest of the window asks about that box: which
+estimators are ticked, where Chronos-2 runs, and whether it is the backend in
+use.  They read the box this mixin built, which is an attribute of the window.
+"""''',
+    r'''"""Step 1's box: backend, split, budget, seed.
+
+Also the question the rest of the window asks about that box: which estimators
+are ticked.  It reads the box this mixin built, which is an attribute of the window.
+"""''',
+)
+patch(
+    "_panel_train.py",
+    "chronos: QWidget",
+    "    QMainWindow,\n    QWidget,\n)",
+    "    QMainWindow,\n)",
+)
+patch(
+    "_panel_train.py",
+    "chronos: import",
+    "from . import _chronos\nfrom ._lists",
+    "from ._lists",
+)
+patch(
+    "_panel_train.py",
+    "chronos: hint_label",
+    "    NoWheelSpinBox,\n    hint_label,\n",
+    "    NoWheelSpinBox,\n",
+)
+patch(
+    "_panel_train.py",
+    "chronos: parked samples",
+    r"""        # Parked value for the "Samples" spin box on the other side of the
+        # chronos-2 divide; see _train_backend_changed.
+        self._norm_samples_parked = _chronos.DEFAULT_SAMPLES
+        self._decom_samples_parked = _chronos.DEFAULT_SAMPLES
+        self._norm_samples_is_chronos = False
+""",
+    "",
+)
+passage(
+    "_panel_train.py",
+    "chronos: hint and device",
+    "        self._chronos_hint = hint_label(",
+    "        self.train_button = run_button(",
+    "",
+)
+passage(
+    "_panel_train.py",
+    "chronos: fine-tuning",
+    "        # Chronos-2 only: adapt the loaded checkpoint to this site's own record.",
+    "        return box\n\n    def _train_backend_changed",
+    "",
+)
+passage(
+    "_panel_train.py",
+    "chronos: backend change",
+    "    def _train_backend_changed(self, backend: str) -> None:",
+    "        self._budget_values[self._prev_backend] = self.budget_spin.value()",
+    r'''    def _train_backend_changed(self, backend: str) -> None:
+        """The budget row means seconds for H2O, search trials for LightGBM; the
+        algorithm checklist only applies to H2O's AutoML search."""
+''',
+)
+patch(
+    "_panel_train.py",
+    "chronos: device and _is_chronos",
+    r'''
+
+    def _selected_device(self) -> str | None:
+        """``None`` means let :func:`normet.foundation.resolve_device` choose."""
+        choice = self.device_combo.currentText()
+        return None if choice == "auto" else choice
+
+    def _is_chronos(self) -> bool:
+        return self.backend_combo.currentText() == _chronos.BACKEND''',
+    "",
+)
+
+# training and the Model tab
+patch(
+    "_run_train.py",
+    "chronos: docstring",
+    r'''"""Training, Chronos-2 loading and the Model tab.
+
+Step 1's run handler, what it does when the task comes back, and the two
+renderers for the Model tab (one for a trained estimator, one for Chronos-2's
+zero-shot check).  Mixed into :class:`~.main_window.MainWindow`.
+"""''',
+    r'''"""Training and the Model tab.
+
+Step 1's run handler, what it does when the task comes back, and the Model tab's
+renderer.  Mixed into :class:`~.main_window.MainWindow`.
+"""''',
+)
+patch(
+    "_run_train.py",
+    "chronos: import",
+    "from . import _chronos\nfrom ._constants",
+    "from ._constants",
+)
+patch(
+    "_run_train.py",
+    "chronos: load",
+    r"""        if backend == _chronos.BACKEND:
+            self._run_load_chronos(target, features)
+            return
+""",
+    "",
+)
+passage(
+    "_run_train.py",
+    "chronos: load and its tab",
+    "    def _run_load_chronos(",
+    "    def _train_done(",
+    "",
+)
+patch(
+    "_run_train.py",
+    "chronos: which tab",
+    r"""        if self._is_chronos():
+            self._render_chronos_model_tab()
+        else:
+            self._render_model_tab()""",
+    "        self._render_model_tab()",
+)
+patch(
+    "_run_train.py",
+    "chronos: fine-tuning",
+    r'''
+
+    def _run_finetune(self) -> None:
+        """Adapt the loaded Chronos-2 checkpoint to this site's record (on a worker)."""
+        if not self._check_model() or not self._is_chronos():
+            return
+        self.runner.submit(
+            f"fine-tune ({self.ft_mode.currentText()}, {self.ft_steps.value()} steps)",
+            _chronos.finetune,
+            self._finetune_done,
+            self._show_error,
+            self.model,
+            self.df_prep,
+            self.ft_mode.currentText(),
+            self.ft_steps.value(),
+        )
+
+    def _finetune_done(self, estimator: object) -> None:
+        self.model = estimator
+        self.results.pop("normalise", None)
+        self.results.pop("decompose", None)
+        self._render_chronos_model_tab()
+        self._sync_enabled()
+        self.tabs.setCurrentWidget(self.tab_model)
+        self.statusBar().showMessage("Fine-tuned — normalise again to use the tuned weights.")
+        log.info("Fine-tuning finished")''',
+    "",
+)
+
+# steps 2-5
+patch(
+    "_run_analyse.py",
+    "chronos: import",
+    "from . import _chronos\nfrom ._constants",
+    "from ._constants",
+)
+passage(
+    "_run_analyse.py",
+    "chronos: de-weather",
+    "        if self._is_chronos():\n            self.runner.submit(",
+    "        from .nm import normalise\n",
+    "\n",
+)
+patch(
+    "_run_analyse.py",
+    "chronos: seeded rows",
+    r"""        # Chronos-2 has no history to condition on for the first context_length
+        # rows, so deweather() seeds them with the observed values: normalised
+        # equals observed there by construction, not by result. Averaging across
+        # them drags the reported effect toward zero, and on a record not much
+        # longer than the context that is most of the series -- so say how many
+        # rows are seeded and take the mean over the rest.
+        seeded = min(int(self.model.context_length), len(result)) if self._is_chronos() else 0
+        projected = result.iloc[seeded:]""",
+    "        projected = result",
+)
+patch(
+    "_run_analyse.py",
+    "chronos: seeded span",
+    r"""            if seeded:
+                ax.axvspan(
+                    result.index[0],
+                    result.index[seeded - 1],
+                    color="#E5E5EA",
+                    lw=0,
+                    zorder=0,
+                    label="seeded (= observed)",
+                )
+                S.legend(ax, loc="upper right", ncols=4)
+""",
+    "",
+)
+passage(
+    "_run_analyse.py",
+    "chronos: seeded note",
+    "        if seeded:\n            pct = 100.0 * seeded / len(result)",
+    "        self.tab_norm.show_timeseries(render, result, lines=lines)",
+    "",
+)
+patch(
+    "_run_analyse.py",
+    "chronos: decompose",
+    r"""        if self._is_chronos():
+            # The zero-shot path: each coalition is a de-weathering of the
+            # estimator's own, over the meteorology it was loaded with.
+            options.update(target="value", backend=_chronos.BACKEND)
+            covariates = [f for f in self.trained_features if f not in TIME_VARS]
+        else:
+            covariates = self.trained_features + list(TIME_VARS)""",
+    "        covariates = self.trained_features + list(TIME_VARS)",
+)
+
+# which controls a task leaves enabled
+patch(
+    "_tasks.py",
+    "chronos: fine-tune button",
+    "        self.ft_button.setEnabled(not busy and has_model and self._is_chronos())\n",
+    "",
+)
+patch(
+    "_tasks.py",
+    "chronos: rolling and PDP",
+    r"""        elif self._is_chronos():
+            # Rolling and PDP call ml_predict() on a fitted scikit-learn-style
+            # estimator. Chronos-2 forecasts autoregressively from a context
+            # window instead, so there is nothing for them to call. The
+            # meteorological decomposition has its own zero-shot path.
+            tip = "Not available for chronos-2 — use flaml or lightgbm for this step."
+            for b in (self.roll_button, self.pdp_button):
+                b.setEnabled(False)
+                b.setToolTip(tip)
+""",
+    "",
+)
+patch(
+    "main_window.py",
+    "chronos: check",
+    r"""        #: Chronos-2's covariate-sensitivity check of the model loaded: (numbers, verdict).
+        self.chronos_check: tuple[dict, tuple[str, str]] | None = None
+""",
+    "",
+)
+patch(
+    "main_window.py", "chronos: fine-tune button", "            self.ft_button,\n", ""
+)
+patch("_panel_inputs.py", "chronos: check", "        self.chronos_check = None\n", "")
+
+# a saved session, the settings and the Methods paragraph
+patch(
+    "_saved.py",
+    "chronos: docstring",
+    r"""A Chronos-2 checkpoint is not written: it is the pretrained model, half a gigabyte, and
+is loaded again from its cache with *Load Chronos-2*. A file of this kind is a pickle:
+open only one you or the window wrote.""",
+    "A file of this kind is a pickle: open only one you or the window wrote.",
+)
+patch(
+    "_saved.py",
+    "chronos: import",
+    "from . import _chronos, _settings",
+    "from . import _settings",
+)
+patch("_saved.py", "chronos: bundle", "        chronos = self._is_chronos()\n", "")
+patch(
+    "_saved.py",
+    "chronos: model",
+    """            "model": None if chronos else self.model,
+            "chronos": chronos and self.model is not None,
+""",
+    '            "model": self.model,\n',
+)
+patch("_saved.py", "chronos: script bundle", '            "chronos": False,\n', "")
+patch(
+    "_saved.py",
+    "chronos: restored",
+    r"""        if bundle.get("chronos"):
+            self.backend_combo.setCurrentText(_chronos.BACKEND)
+            self.notify(
+                f"Session of {when} restored without its Chronos-2 model, which is not "
+                "saved: Load Chronos-2 again to go on.",
+                key="restored",
+                kind="warn",
+                actions=(("Load Chronos-2", self._run_train),),
+            )
+        else:
+            steps = [s for s in ("train", *_STEPS, "multiscale") if s in self.results]
+            self.notify(
+                f"Session of {when} restored: "
+                + (", ".join(steps) if steps else "the table and its settings")
+                + ".",
+                key="restored",
+            )""",
+    r"""        steps = [s for s in ("train", *_STEPS, "multiscale") if s in self.results]
+        self.notify(
+            f"Session of {when} restored: "
+            + (", ".join(steps) if steps else "the table and its settings")
+            + ".",
+            key="restored",
+        )""",
+)
+patch(
+    "_saved.py",
+    "chronos: script trains",
+    'if "build_model" not in calls and "load_estimator" not in calls:',
+    'if "build_model" not in calls:',
+)
+patch(
+    "_session.py",
+    "chronos: import",
+    "from . import _chronos, _settings, commandlog",
+    "from . import _settings, commandlog",
+)
+patch(
+    "_session.py",
+    "chronos: methods info",
+    r"""        if self.chronos_check is not None:
+            info["chronos_pct"] = float(self.chronos_check[0].get("pct_of_prediction", 0.0))
+""",
+    "",
+)
+patch(
+    "_session.py",
+    "chronos: samples",
+    r"""        # An explicit saved count wins; the fallback follows the restored backend,
+        # so a config written before chronos-2 existed does not push 300 forward
+        # passes onto it.
+        self.norm_samples.setValue(
+            c.get("norm_samples", _chronos.DEFAULT_SAMPLES if self._is_chronos() else 300)
+        )""",
+    '        self.norm_samples.setValue(c.get("norm_samples", 300))',
+)
+patch(
+    "_session.py",
+    "chronos: a new model",
+    'if step == "build_model" or step == "load_estimator":',
+    'if step == "build_model":',
+)
+patch(
+    "methods.py",
+    "chronos: info",
+    r'''the held-out ``r2``, ``rmse`` and ``n``; ``chronos_pct`` -- the forecast's shift, as a
+    share of the prediction, when the weather is shuffled (Chronos-2)."""''',
+    r'''the held-out ``r2``, ``rmse`` and ``n``."""''',
+)
+patch(
+    "methods.py",
+    "chronos: no model",
+    'if "build_model" not in ran and "load_estimator" not in ran:',
+    'if "build_model" not in ran:',
+)
+passage(
+    "methods.py",
+    "chronos: model",
+    '    else:\n        call = ran["load_estimator"]',
+    "    # -- normalisation",
+    "\n",
+)
+passage(
+    "methods.py",
+    "chronos: normalisation",
+    '    elif "deweather" in ran:',
+    "    # -- decomposition",
+    "\n",
+)
+patch(
+    "methods.py",
+    "chronos: references",
+    'REFERENCES["en"] if any(k in ran for k in ("normalise", "deweather")) else []',
+    'REFERENCES["en"] if "normalise" in ran else []',
+)
+
+# the Assistant
+patch(
+    "assistant.py",
+    "chronos: chain",
+    r"""    "decompose": "the decomposition: decompose (method='meteorology' on chronos-2, where "
+    "the emission one is not available)",""",
+    """    "decompose": "the decomposition: decompose",""",
+)
+patch(
+    "assistant.py",
+    "chronos: model fit",
+    r"""            if self.win._is_chronos():
+                return chronos_reading(self.win)
+            return readings.model_reading""",
+    "            return readings.model_reading",
+)
+patch(
+    "assistant.py",
+    "chronos: fit now",
+    r"""    def _fit_now(self) -> str:
+        if self.win._is_chronos():
+            return chronos_reading(self.win)
+""",
+    "    def _fit_now(self) -> str:\n",
+)
+patch(
+    "assistant.py",
+    "chronos: emission",
+    r"""        if method == "emission" and self._gui(self.win._is_chronos):
+            raise ValueError(
+                "the emission decomposition is not available on chronos-2: it reads the "
+                "calendar off the target's own history, so the time-scale components would "
+                "come back near zero. Use method='meteorology', or train with flaml or lightgbm."
+            )
+""",
+    "",
+)
+passage(
+    "assistant.py",
+    "chronos: reading",
+    "def chronos_reading(win: MainWindow) -> str:",
+    "#: The box written in before its first turn",
+    "",
+)
+
+# the SCM Studio: ranking donors by their Chronos-2 embeddings
+passage(
+    "scm_window.py",
+    "chronos: similarity controls",
+    "        from . import _chronos\n\n        chronos_ok, chronos_why",
+    "\n        # ---- Estimator",
+    "",
+)
+patch(
+    "scm_window.py",
+    "chronos: similarity tab",
+    r"""        self.tab_sim = CanvasTab(
+            "Rank donors by similarity (Chronos-2) to compare every unit's pre-period with the treated unit's."
+        )
+        self.tabs.addTab(self.tab_sim, "Similarity")
+""",
+    "",
+)
+patch(
+    "scm_window.py",
+    "chronos: similarity buttons",
+    r"""        self.sim_btn.setEnabled(not busy and has_df and self._chronos_ok)
+        self.sim_tick_btn.setEnabled(not busy and self._similarity is not None)
+""",
+    "",
+)
+passage(
+    "scm_window.py",
+    "chronos: similarity",
+    "    def _run_similarity(self) -> None:",
+    "    def _run_all_units(self) -> None:",
+    "",
+)
+
+# the Chinese texts of what is gone
+patch(
+    "ui_zh.py",
+    "chronos: names",
+    "backend and model names (flaml, lightgbm, chronos-2)",
+    "backend and model names (lightgbm, h2o)",
+)
+#: Their entries, each a whole line.
+_CHRONOS_ZH = (
+    '    "Similarity": "相似度",\n',
+    '    "flaml = AutoML search (uses the time budget below). lightgbm = LightGBM with random hyperparameter search. chronos-2 = zero-shot foundation model; nothing is trained.": "flaml = AutoML 搜索（使用下方的时间预算）。lightgbm = 带随机超参数搜索的 LightGBM。chronos-2 = 零样本基础模型，无需训练。",\n',
+    '    "Device": "设备",\n',
+    '    "Where Chronos-2 runs. auto: CUDA, else Apple Silicon (mps), else CPU. Every Monte-Carlo sample is a full forward pass, so this is the difference between minutes and hours.": "Chronos-2 的运行设备。auto：优先 CUDA，其次 Apple Silicon（mps），否则 CPU。每个蒙特卡洛样本都是一次完整的前向计算，因此这决定了耗时是几分钟还是几小时。",\n',
+    '    "Chronos-2 is zero-shot — nothing is trained, so there is no budget, search space or train/test split. The first run downloads about 500 MB of weights. Meteorology enters through the model\'s covariate channel; the ticked features below are what it sees.": "Chronos-2 是零样本模型——无需训练，因此没有时间预算、搜索空间或训练/测试划分。首次运行会下载约 500 MB 的权重。气象通过模型的协变量通道输入；下方勾选的特征就是它看到的内容。",\n',
+    '    "Chronos-2 conditions on meteorology through its covariate channel. Tick at least one meteorological feature — without any, the run is a plain forecast, not a de-weathering.": "Chronos-2 通过协变量通道以气象为条件。请至少勾选一个气象特征——否则只是普通预测，而非去气象化。",\n',
+    '    "Fine-tune": "微调",\n',
+    '    "▶ Fine-tune Chronos-2": "▶ 微调 Chronos-2",\n',
+    '    "Adapt the loaded checkpoint to this site\'s own record. The tuned weights replace the model for this session; Load Chronos-2 again to go back.": "用本站点自身的数据微调已载入的检查点。微调后的权重在本次会话中替换原模型；重新载入 Chronos-2 即可恢复。",\n',
+    '    "Steps": "步数",\n',
+    '    "Optimiser steps. On a CPU this takes a while; a GPU or Apple Silicon helps.": "优化器步数。在 CPU 上需要一段时间；GPU 或 Apple Silicon 会快很多。",\n',
+    '    "lora: train small adapters, leave the base weights alone (needs peft). full: update all 119M parameters; overfits a single site\'s record more easily.": "lora：只训练小型适配器，不改动基础权重（需要 peft）。full：更新全部 1.19 亿个参数，更容易对单个站点的数据过拟合。",\n',
+    '    "Loading Chronos-2 — first run downloads the checkpoint…": "正在载入 Chronos-2——首次运行会下载检查点…",\n',
+    '    "Fine-tuned — normalise again to use the tuned weights.": "已微调——重新归一化以使用微调后的权重。",\n',
+    '    "Checkpoint: {s0}": "检查点：{s0}",\n',
+    '    "device: {s0}": "设备：{s0}",\n',
+    '    "context: {s0} h": "上下文：{s0} 小时",\n',
+    '    "horizon: {s0} h": "预测步长：{s0} 小时",\n',
+    '    "Covariates: {n0} met + 6 calendar": "协变量：{n0} 个气象 + 6 个日历",\n',
+    '    "Rank donors by similarity (Chronos-2)": "按相似度排列供体（Chronos-2）",\n',
+    '    "Rank donors by similarity (Chronos-2) to compare every unit\'s pre-period with the treated unit\'s.": "按相似度排列供体（Chronos-2），比较每个单元与处理单元在干预前的表现。",\n',
+    '    "Embed every unit\'s outcome before the cutoff with Chronos-2 and rank the others by how alike their dynamics are to the treated unit\'s (cosine). Only the pre-period is read, so the effect cannot leak into the choice.": "用 Chronos-2 对每个单元干预前的结果进行嵌入，并按其动态与处理单元的相似程度（余弦）排序。只读取干预前的数据，因此效应不会影响供体的选择。",\n',
+    '        "seeded (= observed)": "种子段（= 观测）",\n',
+    '        "Units ranked by Chronos-2 embedding similarity": "按 Chronos-2 嵌入相似度排列的单元",\n',
+    '        "Similarity to {s0} before the cutoff (cosine)": "干预前与 {s0} 的相似度（余弦）",\n',
+    '        "Session of {s0} restored without its Chronos-2 model, which is not saved: Load Chronos-2 again to go on.": "已恢复 {s0} 的会话，但不含 Chronos-2 模型（模型不保存）：请重新载入 Chronos-2 以继续。",\n',
+    '        "Load Chronos-2": "载入 Chronos-2",\n',
+    '        "▶ Load Chronos-2": "▶ 载入 Chronos-2",\n',
+    '        "Not on chronos-2: it reads the calendar off the target\'s own history.": "chronos-2 不适用：它从目标自身的历史中读取日历。",\n',
+    '        "Needs the foundation extra: {s0}": "需要 foundation 扩展：{s0}",\n',
+)
+for _i, _line in enumerate(_CHRONOS_ZH):
+    patch("ui_zh.py", f"chronos: text {_i}", _line, "")
+patch(
+    "ui_zh.py",
+    "chronos: availability texts",
+    '        "Chronos-2 needs the \'foundation\' extra ({s0} not installed).": "Chronos-2 需要 \'foundation\' 扩展（未安装 {s0}）。",\n        "Install with: pip install normet[foundation]": "安装方法：pip install normet[foundation]",\n        "Unknown error": "未知错误",\n',
+    '        "Unknown error": "未知错误",\n',
+)
+patch(
+    "ui_zh.py",
+    "chronos: availability texts, alone",
+    'INNER.update(\n    {\n        "Chronos-2 needs the \'foundation\' extra ({s0} not installed).": "Chronos-2 需要 \'foundation\' 扩展（未安装 {s0}）。",\n        "Install with: pip install normet[foundation]": "安装方法：pip install normet[foundation]",\n    }\n)\n',
+    "",
+)
+
+# normet-py's tests of the backend
+passage(
+    "tests/test_gui_smoke.py",
+    "chronos: tests",
+    "def test_chronos_backend_hides_the_training_controls(qapp):",
+    "def test_scm_fit_verdict_reads_the_pre_fit_only_when_a_shuffled_series_cannot_match_it(qapp):",
+    "",
 )
