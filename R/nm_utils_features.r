@@ -71,7 +71,7 @@ nm_extract_features_h2o <- function(model, importance_ascending = FALSE, verbose
   varimp_success <- FALSE
   varimp_df <- NULL
 
-  if (h2o::h2o.clusterIsUp()) {
+  if (.nm_h2o_up()) {
     tryCatch(
       {
         varimp_obj <- h2o::h2o.varimp(model)
@@ -207,7 +207,7 @@ nm_feature_importance_h2o <- function(model, verbose = FALSE) {
   log <- nm_get_logger("features.importance.h2o")
   nm_require("h2o", hint = "install.packages('h2o')")
 
-  if (!h2o::h2o.clusterIsUp()) {
+  if (!.nm_h2o_up()) {
     log$error("Cannot extract feature importance table: H2O cluster is down.")
     return(data.frame())
   }

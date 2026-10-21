@@ -1,3 +1,16 @@
+#' Whether an H2O cluster is connected and up
+#'
+#' FALSE where none has been started in this R session: h2o.clusterIsUp() itself
+#' stops then, with "No active connection to an H2O cluster. Did you run
+#' `h2o.init()` ?", rather than saying the cluster is not up.
+#'
+#' @return TRUE or FALSE.
+#' @keywords internal
+#' @noRd
+.nm_h2o_up <- function() {
+  isTRUE(tryCatch(h2o::h2o.clusterIsUp(), error = function(e) FALSE))
+}
+
 #' Safely Initialize H2O Cluster
 #'
 #' @description
@@ -86,11 +99,8 @@ nm_init_h2o <- function(n_cores = NULL, max_mem_size = NULL,
   }
 
   # --- 3. If already running, reuse connection ---
-  already_running <- tryCatch(
-    {
-      !is.null(h2o::h2o.getConnection())
-    },
-    error = function(e) FALSE)
+  # A connection left from a cluster that has gone is not one: it is started again.
+  already_running <- .nm_h2o_up()
 
   if (already_running) {
     if (verbose) log$info("H2O is already initialized.")
@@ -164,8 +174,8 @@ nm_h2o_watchdog <- function(verbose = TRUE) {
   nm_require("h2o", hint = "install.packages('h2o')")
 
   # --- 1. Efficient Health Check ---
-  # h2o.clusterIsUp() is the preferred way to check status without throwing errors
-  if (h2o::h2o.clusterIsUp()) {
+  # .nm_h2o_up(): h2o.clusterIsUp() without its error where no cluster was started
+  if (.nm_h2o_up()) {
     if (verbose) log$info("H2O cluster is alive and healthy.")
     return(invisible(TRUE))
   }
@@ -191,7 +201,7 @@ nm_h2o_watchdog <- function(verbose = TRUE) {
     })
 
   # --- 3. Final Verification ---
-  if (h2o::h2o.clusterIsUp()) {
+  if (.nm_h2o_up()) {
     if (verbose) log$info("H2O cluster successfully restarted.")
     return(invisible(TRUE))
   } else {
@@ -266,6 +276,10 @@ nm_load_h2o <- function(path = "./", filename = "automl", verbose = TRUE) {
     })
 
   if (verbose) log$info("Loading H2O model from: %s", full_model_path)
+
+  # A model is loaded into a cluster: in an R session that has none yet (a new one,
+  # as each of the GUI's calls is), one is connected to -- or started -- first.
+  if (!.nm_h2o_up()) nm_init_h2o(verbose = verbose)
 
   # Load the H2O model
   model <- h2o::h2o.loadModel(full_model_path)
@@ -404,8 +418,8 @@ nm_train_h2o <- function(df, target = "value", covariates = NULL, model_config =
     }
 
     # Ensure H2O connection exists (Check before Action)
-    # [FIX] Use clusterIsUp() for robust health check
-    if (!h2o::h2o.clusterIsUp()) {
+    # .nm_h2o_up(): FALSE, not an error, where no cluster was started yet
+    if (!.nm_h2o_up()) {
       if (verbose) log$info("H2O cluster is down. Initializing...")
       nm_init_h2o(verbose = verbose)
     }
@@ -451,7 +465,7 @@ nm_train_h2o <- function(df, target = "value", covariates = NULL, model_config =
   model <- NULL
 
   # Initial Start (if needed, using defaults)
-  if (!h2o::h2o.clusterIsUp()) nm_init_h2o(verbose = verbose)
+  if (!.nm_h2o_up()) nm_init_h2o(verbose = verbose)
 
   while (is.null(model) && retry_count < final_config$max_retries) {
     retry_count <- retry_count + 1
@@ -585,7 +599,7 @@ nm_predict_h2o <- function(model, newdata, verbose = FALSE) {
 
   # --- 4. Ensure H2O is Initialized ---
   if (!requireNamespace("h2o", quietly = TRUE)) stop("Package 'h2o' is required.")
-  if (!h2o::h2o.clusterIsUp()) {
+  if (!.nm_h2o_up()) {
     if (verbose) log$info("H2O cluster is down. Initializing...")
     # Using defaults is fine for prediction (low resource usage)
     nm_init_h2o(verbose = verbose)
@@ -710,7 +724,7 @@ nm_stop_h2o <- function(quiet = TRUE) {
       nm_require("h2o", hint = "install.packages('h2o')")
 
       # Robust check: Only try to stop if it's actually responding
-      if (h2o::h2o.clusterIsUp()) {
+      if (.nm_h2o_up()) {
         h2o::h2o.shutdown(prompt = !quiet)
 
         # Log info only if we actually did something
