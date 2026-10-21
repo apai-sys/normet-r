@@ -223,10 +223,6 @@ _KNOWN: dict[str, tuple[str, str, tuple[str, ...]]] = {
     "pdp": ("Partial dependence", "pd_values", ()),
 }
 
-#: R's names for normet-py's arguments, where they differ (the session script read
-#: back, ``._script``, turns them round).
-R_ARGS = {"variables_resample": "resample_vars"}
-
 
 def _r_calls(fn: Callable[..., Any], args: Sequence[Any], kwargs: dict[str, Any], *, all_calls: bool) -> list:
     """The R calls ``fn(*args, **kwargs)`` makes, recorded and not made: the first only
