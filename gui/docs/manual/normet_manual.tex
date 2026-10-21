@@ -791,7 +791,7 @@ View     & Command Palette\ldots                & Ctrl+K \\
          & Language: Follow System, English, Chinese & \\
 Analysis & Synthetic Control (SCM) Studio\ldots & Ctrl+Shift+S \\
          & Polar Plot\ldots                     & \\
-R        & Locate Rscript\ldots, Check R environment & \\
+R        & Locate Rscript\ldots, Check R environment, Save Figure as R Script\ldots & \\
 Help     & User Manual                          & F1 \\
          & Keyboard Shortcuts\ldots             & \\
          & Documentation, About Normet          & \\
@@ -1366,6 +1366,16 @@ succeeded, from the call that was made, not from what the panel shows now.
 $\rightarrow$ Save Session as Script\ldots}) writes it as an R script that repeats the
 session, and \emph{Clear} empties it.
 
+The window draws its figures with matplotlib; the R package draws the same results with
+ggplot2. So each result's entry ends with the R package's figure of it ---
+\code{fig\_normalise <- nm\_plot\_normalise(normalised)}, and
+\code{nm\_plot\_decomposition\_stack}, \code{nm\_plot\_rolling} and
+\code{nm\_plot\_pdp\_grid} for the others --- drawn where the script is run in R or
+RStudio (not under \code{Rscript}), and changed as any ggplot is. \tab{R $\rightarrow$ Save Figure as R
+Script\ldots} writes the result the open tab shows (Normalised, Decomposition --- the
+method shown --- Rolling or PDP) as a CSV, and beside it the R that reads it, draws it so
+and saves it as a PDF: a figure to change in R without training the model again.
+
 \screenshot{ui_command_log.png}{The Command Log after this manual's session, its last
 entries in view: the multi-scale run and the partial dependence, as the calls that
 repeat them.}{fig:commandlog}
@@ -1392,6 +1402,8 @@ normalised <- nm_normalise(df_prep, model,
                                              "blh", "tcc", "tp", "ssrd"),
                            n_samples = 300, seed = 7654321,
                            return_quantiles = c(0.05, 0.25, 0.75, 0.95))
+fig_normalise <- nm_plot_normalise(normalised, ci_low = "q050", ci_high = "q950")
+if (interactive()) print(fig_normalise)
 
 # 21:46:18  Decompose
 decomposition <- nm_decompose("meteorology", df = df_prep, model = model,
@@ -1402,12 +1414,16 @@ decomposition <- nm_decompose("meteorology", df = df_prep, model = model,
                                             `Temperature and humidity` = c("temp", "RH"),
                                             `Boundary layer and pressure` = c("atmos_pres", "blh"),
                                             `Sky and rain` = c("tcc", "tp", "ssrd")))
+fig_decomposition <- nm_plot_decomposition_stack(decomposition)
+if (interactive()) print(fig_decomposition)
 
 # 21:47:17  Rolling normalisation
 rolled <- nm_rolling(df_prep, model = model, covariates = c(...),
                      resample_vars = c(...the nine...),
                      window_days = 14, rolling_every = 7, n_samples = 50,
                      seed = 7654321)
+fig_rolled <- nm_plot_rolling(rolled, data = df_prep)
+if (interactive()) print(fig_rolled)
 \end{lstlisting}
 Run again with \code{Rscript}, or \code{source()} in R, it gives the same model and the
 same results: every call carries its seed, and the LightGBM search runs a fixed number of

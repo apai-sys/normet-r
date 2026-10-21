@@ -280,7 +280,7 @@ free at once, but the computation cannot be interrupted, so it finishes in the b
 and its result is discarded.""", r"""Cancel stops the task: the R process doing it is
 ended, with whatever it started (a HYSPLIT run, say), and the window is free at once.""")
 patch(EN, "R menu", r"""Help     & User Manual                          & F1 \\""",
-      r"""R        & Locate Rscript\ldots, Check R environment & \\
+      r"""R        & Locate Rscript\ldots, Check R environment, Save Figure as R Script\ldots & \\
 Help     & User Manual                          & F1 \\""")
 patch(EN, "log dock", r"""stay open beside the main window: what each step did, how many rows, FLAML's chosen
 estimator and its hyperparameters, how many windows a rolling run made.""",
@@ -432,8 +432,18 @@ patch(EN, "report provenance", r"""result, and its provenance: \nm{}'s version, 
         version,""", r"""result, and its provenance: \nm{}'s version, the time, the platform and R
         version,""")
 patch(EN, "script is R", r"""$\rightarrow$ Save Session as Script\ldots}) writes it as a Python file that repeats the
-session,""", r"""$\rightarrow$ Save Session as Script\ldots}) writes it as an R script that repeats the
-session,""")
+session, and \emph{Clear} empties it.""", r"""$\rightarrow$ Save Session as Script\ldots}) writes it as an R script that repeats the
+session, and \emph{Clear} empties it.
+
+The window draws its figures with matplotlib; the R package draws the same results with
+ggplot2. So each result's entry ends with the R package's figure of it ---
+\code{fig\_normalise <- nm\_plot\_normalise(normalised)}, and
+\code{nm\_plot\_decomposition\_stack}, \code{nm\_plot\_rolling} and
+\code{nm\_plot\_pdp\_grid} for the others --- drawn where the script is run in R or
+RStudio (not under \code{Rscript}), and changed as any ggplot is. \tab{R $\rightarrow$ Save Figure as R
+Script\ldots} writes the result the open tab shows (Normalised, Decomposition --- the
+method shown --- Rolling or PDP) as a CSV, and beside it the R that reads it, draws it so
+and saves it as a PDF: a figure to change in R without training the model again.""")
 patch(EN, "saved session", r"""before the results were saved. A Chronos-2 checkpoint is not written (it is the
 pretrained model, about 500~MB): load it again to go on. A session file is a Python pickle:
 open only one you or the window wrote.""", r"""before the results were saved. A session file is a Python pickle, with the R models'
@@ -609,6 +619,8 @@ normalised <- nm_normalise(df_prep, model,
                                              "blh", "tcc", "tp", "ssrd"),
                            n_samples = 300, seed = 7654321,
                            return_quantiles = c(0.05, 0.25, 0.75, 0.95))
+fig_normalise <- nm_plot_normalise(normalised, ci_low = "q050", ci_high = "q950")
+if (interactive()) print(fig_normalise)
 
 # 21:46:18  Decompose
 decomposition <- nm_decompose("meteorology", df = df_prep, model = model,
@@ -619,12 +631,16 @@ decomposition <- nm_decompose("meteorology", df = df_prep, model = model,
                                             `Temperature and humidity` = c("temp", "RH"),
                                             `Boundary layer and pressure` = c("atmos_pres", "blh"),
                                             `Sky and rain` = c("tcc", "tp", "ssrd")))
+fig_decomposition <- nm_plot_decomposition_stack(decomposition)
+if (interactive()) print(fig_decomposition)
 
 # 21:47:17  Rolling normalisation
 rolled <- nm_rolling(df_prep, model = model, covariates = c(...),
                      resample_vars = c(...the nine...),
                      window_days = 14, rolling_every = 7, n_samples = 50,
                      seed = 7654321)
+fig_rolled <- nm_plot_rolling(rolled, data = df_prep)
+if (interactive()) print(fig_rolled)
 \end{lstlisting}
 Run again with \code{Rscript}, or \code{source()} in R, it gives the same model and the
 same results: every call carries its seed, and the LightGBM search runs a fixed number of
@@ -808,7 +824,7 @@ FLAML 的时间预算——进度条随之推进，""", r"""任务能说出自�
 patch(ZH, "cancel", r"""取消会\emph{放弃}该任务：窗口立刻空出来，但计算无法中断，它会在后台跑完，
 结果被丢弃。""", r"""取消会停止该任务：执行它的 R 进程连同它启动的东西（比如一次 HYSPLIT 运行）
 被终止，窗口立刻空出来。""")
-patch(ZH, "R menu", r"""帮助     & 用户手册                             & F1 \\""", r"""R        & 定位 Rscript…、检查 R 环境           & \\
+patch(ZH, "R menu", r"""帮助     & 用户手册                             & F1 \\""", r"""R        & 定位 Rscript…、检查 R 环境、将图另存为 R 脚本… & \\
 帮助     & 用户手册                             & F1 \\""")
 patch(ZH, "log dock", r"""它可以一直开在主窗口旁边：
 每一步做了什么、多少行、FLAML 选中的估计器及其超参数、一次滚动运行生成了多少窗口。""",
@@ -928,7 +944,16 @@ patch(ZH, "polar", r"""用脚本表示：
 \code{nm\_plot\_polar(df, target = "NO2", ws\_col = "ws", wd\_col = "wd")}。""")
 
 patch(ZH, "report provenance", r"""时间、平台和 Python 版本""", r"""时间、平台和 R 版本""")
-patch(ZH, "script is R", r"""把它写成一个能重复本次会话的 Python 文件""", r"""把它写成一个能重复本次会话的 R 脚本""")
+patch(ZH, "script is R", r"""把它写成一个能重复本次会话的 Python 文件，\emph{清空}清空日志。""",
+      r"""把它写成一个能重复本次会话的 R 脚本，\emph{清空}清空日志。
+
+窗口用 matplotlib 绘图；R 包用 ggplot2 绘制同样的结果。因此每个结果的条目最后都是 R 包绘制它的
+图——\code{fig\_normalise <- nm\_plot\_normalise(normalised)}，其他结果则是
+\code{nm\_plot\_decomposition\_stack}、\code{nm\_plot\_rolling} 和
+\code{nm\_plot\_pdp\_grid}——在 R 或 RStudio 中运行脚本时画出（\code{Rscript} 下不画），可像任何 ggplot 一样修改。
+\tab{R $\rightarrow$ 将图另存为 R 脚本…}把当前标签页显示的结果（归一化、分解——所显示的方法——、
+滚动或 PDP）存为 CSV，并在旁边写出读取它、如此绘图并保存为 PDF 的 R 代码：不必重新训练模型，
+就能在 R 中修改图。""")
 patch(ZH, "saved session", r"""Chronos-2 检查点不
 写入（它是预训练模型，约 500~MB）：要继续请重新载入。会话文件是 Python pickle：只打开你自己
 或本窗口写出的文件。""", r"""会话文件是 Python
@@ -1081,6 +1106,8 @@ normalised <- nm_normalise(df_prep, model,
                                              "blh", "tcc", "tp", "ssrd"),
                            n_samples = 300, seed = 7654321,
                            return_quantiles = c(0.05, 0.25, 0.75, 0.95))
+fig_normalise <- nm_plot_normalise(normalised, ci_low = "q050", ci_high = "q950")
+if (interactive()) print(fig_normalise)
 
 # 21:46:18  Decompose
 decomposition <- nm_decompose("meteorology", df = df_prep, model = model,
@@ -1091,12 +1118,16 @@ decomposition <- nm_decompose("meteorology", df = df_prep, model = model,
                                             `Temperature and humidity` = c("temp", "RH"),
                                             `Boundary layer and pressure` = c("atmos_pres", "blh"),
                                             `Sky and rain` = c("tcc", "tp", "ssrd")))
+fig_decomposition <- nm_plot_decomposition_stack(decomposition)
+if (interactive()) print(fig_decomposition)
 
 # 21:47:17  Rolling normalisation
 rolled <- nm_rolling(df_prep, model = model, covariates = c(...),
                      resample_vars = c(...the nine...),
                      window_days = 14, rolling_every = 7, n_samples = 50,
                      seed = 7654321)
+fig_rolled <- nm_plot_rolling(rolled, data = df_prep)
+if (interactive()) print(fig_rolled)
 \end{lstlisting}
 用 \code{Rscript} 再次运行，或在 R 中 \code{source()}，会得到相同的模型和结果：每个调用都带着
 它的种子，LightGBM 的搜索跑固定的次数，而不是固定的时间。

@@ -651,7 +651,7 @@ PDP      & 每个变量一幅部分依赖图 & 计算 PDP \\
          & 语言：跟随系统、English、中文        & \\
 分析     & 合成控制（SCM）工作室…               & Ctrl+Shift+S \\
          & 风向玫瑰图…                          & \\
-R        & 定位 Rscript…、检查 R 环境           & \\
+R        & 定位 Rscript…、检查 R 环境、将图另存为 R 脚本… & \\
 帮助     & 用户手册                             & F1 \\
          & 键盘快捷键…                          & \\
          & 文档、关于 Normet                    & \\
@@ -1103,6 +1103,14 @@ UTC，合并前先换到窗口的时钟上（第~\ref{sec:clock}~节）；传输
 \emph{复制}把日志放到剪贴板，\emph{保存为脚本…}（也可用\tab{文件 $\rightarrow$
 将会话保存为脚本…}）把它写成一个能重复本次会话的 R 脚本，\emph{清空}清空日志。
 
+窗口用 matplotlib 绘图；R 包用 ggplot2 绘制同样的结果。因此每个结果的条目最后都是 R 包绘制它的
+图——\code{fig\_normalise <- nm\_plot\_normalise(normalised)}，其他结果则是
+\code{nm\_plot\_decomposition\_stack}、\code{nm\_plot\_rolling} 和
+\code{nm\_plot\_pdp\_grid}——在 R 或 RStudio 中运行脚本时画出（\code{Rscript} 下不画），可像任何 ggplot 一样修改。
+\tab{R $\rightarrow$ 将图另存为 R 脚本…}把当前标签页显示的结果（归一化、分解——所显示的方法——、
+滚动或 PDP）存为 CSV，并在旁边写出读取它、如此绘图并保存为 PDF 的 R 代码：不必重新训练模型，
+就能在 R 中修改图。
+
 \screenshot{ui_command_log.png}{本手册会话之后的命令日志，显示的是最后几条：多尺度运行和
 部分依赖，写成能重复它们的调用。}{fig:commandlog}
 
@@ -1127,6 +1135,8 @@ normalised <- nm_normalise(df_prep, model,
                                              "blh", "tcc", "tp", "ssrd"),
                            n_samples = 300, seed = 7654321,
                            return_quantiles = c(0.05, 0.25, 0.75, 0.95))
+fig_normalise <- nm_plot_normalise(normalised, ci_low = "q050", ci_high = "q950")
+if (interactive()) print(fig_normalise)
 
 # 21:46:18  Decompose
 decomposition <- nm_decompose("meteorology", df = df_prep, model = model,
@@ -1137,12 +1147,16 @@ decomposition <- nm_decompose("meteorology", df = df_prep, model = model,
                                             `Temperature and humidity` = c("temp", "RH"),
                                             `Boundary layer and pressure` = c("atmos_pres", "blh"),
                                             `Sky and rain` = c("tcc", "tp", "ssrd")))
+fig_decomposition <- nm_plot_decomposition_stack(decomposition)
+if (interactive()) print(fig_decomposition)
 
 # 21:47:17  Rolling normalisation
 rolled <- nm_rolling(df_prep, model = model, covariates = c(...),
                      resample_vars = c(...the nine...),
                      window_days = 14, rolling_every = 7, n_samples = 50,
                      seed = 7654321)
+fig_rolled <- nm_plot_rolling(rolled, data = df_prep)
+if (interactive()) print(fig_rolled)
 \end{lstlisting}
 用 \code{Rscript} 再次运行，或在 R 中 \code{source()}，会得到相同的模型和结果：每个调用都带着
 它的种子，LightGBM 的搜索跑固定的次数，而不是固定的时间。
