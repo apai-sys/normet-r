@@ -250,7 +250,7 @@ nm_do_all_unc <- function(df = NULL, target = "value", backend = "lightgbm", cov
       total = n_models, clear = FALSE, width = 80) else NULL
 
     for (i in seq_along(seeds)) {
-      if (backend == "h2o" && !h2o::h2o.clusterIsUp()) {
+      if (backend == "h2o" && !.nm_h2o_up()) {
         log$warn("H2O cluster down before model %d. Restarting...", i)
         try(nm_stop_h2o(quiet = TRUE), silent = TRUE)
         Sys.sleep(2)

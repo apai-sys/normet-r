@@ -203,7 +203,7 @@ nm_placebo_in_space <- function(df, date_col, unit_col, outcome_col,
       pb$tick()
 
       # Safety check: Restart H2O if it crashed during previous iteration
-      if (uses_h2o && !h2o::h2o.clusterIsUp()) {
+      if (uses_h2o && !.nm_h2o_up()) {
         try(nm_init_h2o(n_cores = n_cores, max_mem_size = max_mem_size, verbose = FALSE), silent = TRUE)
         h2o::h2o.no_progress()
       }
@@ -214,7 +214,7 @@ nm_placebo_in_space <- function(df, date_col, unit_col, outcome_col,
       # Periodic Cleanup to prevent Out-Of-Memory errors
       counter <- counter + 1
       if (uses_h2o && counter %% cleanup_every == 0) {
-        if (h2o::h2o.clusterIsUp()) {
+        if (.nm_h2o_up()) {
           try(
             {
               h2o::h2o.removeAll()

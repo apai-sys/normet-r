@@ -876,7 +876,7 @@ nm_scm_all <- function(df,
 
       # --- 1. Smart Initialization Strategy ---
       # Check if H2O is ALREADY running
-      h2o_was_running <- tryCatch(h2o::h2o.clusterIsUp(), error = function(e) FALSE)
+      h2o_was_running <- .nm_h2o_up()
 
       # Determine exit strategy
       if (is.null(shutdown_on_exit)) {
@@ -918,7 +918,7 @@ nm_scm_all <- function(df,
       pb$tick()
 
       # [Robustness] Check H2O status & Auto-Recover
-      if (uses_h2o && !h2o::h2o.clusterIsUp()) {
+      if (uses_h2o && !.nm_h2o_up()) {
         if (verbose) log$warn("H2O crashed. Restarting...")
         try(nm_init_h2o(n_cores = n_cores, max_mem_size = max_mem_size, verbose = FALSE), silent = TRUE)
         h2o::h2o.no_progress()
@@ -963,7 +963,7 @@ nm_scm_all <- function(df,
 
       counter <- counter + 1
       if (uses_h2o && counter %% cleanup_every == 0) {
-        if (h2o::h2o.clusterIsUp()) {
+        if (.nm_h2o_up()) {
           try(
             {
               h2o::h2o.removeAll()

@@ -304,11 +304,7 @@ nm_uncertainty_bands <- function(df, date_col, unit_col, outcome_col, treated_un
   ensure_h2o_alive <- function() {
     if (uses_h2o) {
       # 1. Check status safely (handle case where clusterIsUp throws error)
-      is_up <- tryCatch(
-        {
-          h2o::h2o.clusterIsUp()
-        },
-        error = function(e) FALSE)
+      is_up <- .nm_h2o_up()
 
       # 2. If down, force init
       if (!is_up) {
@@ -327,7 +323,7 @@ nm_uncertainty_bands <- function(df, date_col, unit_col, outcome_col, treated_un
           })
 
         # 3. Final Verification
-        if (!tryCatch(h2o::h2o.clusterIsUp(), error = function(e) FALSE)) {
+        if (!.nm_h2o_up()) {
           stop("Fatal Error: Failed to start H2O cluster after multiple attempts.")
         }
       }
