@@ -4,9 +4,8 @@
 # rpc.R, executed by the *target machine's* Rscript (with the normet R
 # package installed) — R itself is not bundled, only the rpc script.
 #
-#   macOS  : packaging/macos/build_dmg.sh (wraps this same launcher via CLI
-#            flags) is the primary path and also produces the .dmg; this spec
-#            works there too if invoked directly.
+#   macOS  : packaging/macos/build_dmg.sh builds from this spec (Normet.app)
+#            and packs the .dmg.
 #   Windows: pyinstaller --noconfirm packaging/normet_r_gui.spec
 #            -> dist/normet/normet.exe (then packaging/windows/installer.iss)
 #   Linux  : pyinstaller --noconfirm packaging/normet_r_gui.spec
