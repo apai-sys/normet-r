@@ -1,5 +1,5 @@
 """What this window has that normet-py's does not, because it runs R: the R menu
-(Locate Rscript…, Check R environment), R's state in the status bar, and the R side
+(Locate Rscript…, Check R environment, Save Figure as R Script…), R's state in the status bar, and the R side
 cleaned up when the window closes. Mixed into :class:`~.main_window.MainWindow`."""
 
 from __future__ import annotations
@@ -7,6 +7,7 @@ from __future__ import annotations
 import logging
 import threading
 
+import pandas as pd
 from PySide6.QtCore import QObject, QTimer, Signal
 from PySide6.QtWidgets import QFileDialog, QLabel, QMainWindow
 
@@ -26,6 +27,12 @@ class RShellMixin(QMainWindow):
         rm = mb.addMenu("&R")
         rm.addAction("&Locate Rscript…", self._locate_rscript)
         rm.addAction("&Check R environment", self._check_r)
+        rm.addSeparator()
+        save = rm.addAction("Save Figure as R &Script…", self._save_figure_r)
+        save.setToolTip(
+            "The result the open tab shows, as a CSV and the R that draws it with the normet "
+            "package's ggplot2 figures (Normalised, Decomposition, Rolling, PDP)."
+        )
         self.r_label = QLabel("R: checking…")
         self.r_label.setStyleSheet("padding: 0 6px;")
         self.statusBar().insertPermanentWidget(0, self.r_label)
@@ -89,6 +96,61 @@ class RShellMixin(QMainWindow):
                 key="r-backends",
                 kind="warn",
             )
+
+    def _figure_r_result(self):  # noqa: ANN202 - (key, table) or None
+        """The open tab's result that the R package draws, as the tab shows it: for the
+        Decomposition, the method its selector shows."""
+        from ._r_figures import FIGURES
+
+        tabs = {
+            self.tab_norm: "normalise",
+            self.tab_decom: "decompose",
+            self.tab_roll: "rolling",
+            self.tab_pdp: "pdp",
+        }
+        tab = self.tabs.currentWidget()
+        key = tabs.get(tab)
+        if key not in FIGURES:
+            return None
+        result = self.results.get(key)
+        views = getattr(tab, "_views", None)
+        if key == "decompose" and views and views[2] in views[1]:
+            result = views[1][views[2]][1]
+        return (key, result) if isinstance(result, pd.DataFrame) and len(result) else None
+
+    def _save_figure_r(self) -> None:
+        """R → Save Figure as R Script…: the open tab's result written as a CSV and the R
+        that draws it (._r_figures)."""
+        from . import _r_figures
+        from ._shell import report_language
+
+        found = self._figure_r_result()
+        if found is None:
+            self.notify(
+                "Open the Normalised, Decomposition, Rolling or PDP tab with a result to save "
+                "its figure as an R script.",
+                key="figure-r",
+            )
+            return
+        key, result = found
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Save Figure as R Script", f"{_r_figures.FIGURES[key].table}.R", "R script (*.R)"
+        )
+        if not path:
+            return
+        try:
+            written = _r_figures.write(
+                key,
+                result,
+                path,
+                target=self.target_combo.currentText(),
+                lang=report_language(),  # a figure for a paper, as the report is written
+            )
+        except OSError as exc:
+            self.notify(f"Could not save: {exc}", key="figure-r", kind="fail")
+            return
+        self.statusBar().showMessage(f"Saved {written.name} and {written.with_suffix('.csv').name}.")
+        log.info("Figure saved as an R script: %s", written)
 
     def _locate_rscript(self) -> None:
         path, _ = QFileDialog.getOpenFileName(self, "Locate Rscript", "", "Rscript (Rscript*)")

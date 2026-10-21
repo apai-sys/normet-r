@@ -172,6 +172,14 @@
   follow a series' density. `nm_plot_pdp_grid()` marks each variable's deciles
   (`data =`) and draws whole-valued variables as steps; `nm_plot_scm_dashboard()`
   takes `ylabel =`. Mirrors `normet-py`'s `normet.style`.
+* **`nm_plot_rolling()`** draws `nm_rolling()`'s windows as the window does: their
+  mean, a band of one standard deviation where windows overlap, and the observed
+  series behind (`data = df_prep`).
+* **Fixed: `nm_plot_decomposition_stack()` stacked a total with its parts.** On
+  `nm_decompose()`'s output it stacked `emi_total` (or `met_total`) beside the parts
+  it is the sum of, counting them twice; by default (`exclude = NULL`) the total is
+  left out now, so the emission stack adds up to `emi_total` and the meteorology
+  stack to `observed`.
 * **Fixed: sub-daily series were drawn on days.** `nm_plot_normalise()`,
   `nm_plot_decomposition_stack()`, the SCM plots and `nm_plot_effect_with_bands()`
   converted times to `Date`, so an hourly record put 24 points on each day; they
