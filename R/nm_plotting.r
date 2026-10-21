@@ -528,7 +528,7 @@ nm_plot_rolling <- function(rolled, data = NULL, title = NULL, ylabel = "Concent
   col <- nm_colours
   lab_obs <- .say("observed")
   lab_mean <- .say("rolling mean")
-  lab_band <- .say("±1 SD across overlapping windows")
+  lab_band <- .say("\u00b11 SD across overlapping windows")
 
   p <- ggplot2::ggplot(df, ggplot2::aes(x = date))
   if (has_obs) {
@@ -547,7 +547,7 @@ nm_plot_rolling <- function(rolled, data = NULL, title = NULL, ylabel = "Concent
                                                           c(lab_obs, lab_mean)),
                                  breaks = c(if (has_obs) lab_obs, lab_mean)) +
     .time_scale(df$date) +
-    ggplot2::labs(title = title %||% .say("Rolling normalisation — mean of {s0} windows",
+    ggplot2::labs(title = title %||% .say("Rolling normalisation \u2014 mean of {s0} windows",
                                           length(windows)),
                   x = NULL, y = .fl(.say(ylabel)), colour = NULL) +
     nm_theme_normet() +
