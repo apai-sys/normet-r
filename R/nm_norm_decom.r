@@ -383,8 +383,10 @@ nm_decom_emi <- function(df = NULL, model = NULL, target = "value",
   # Start by assuming EVERYTHING needs to be resampled (shuffled)
   current_features_to_resample <- model_feats
 
-  for (var_to_freeze in decomp_vars) {
+  for (step in seq_along(decomp_vars)) {
+    var_to_freeze <- decomp_vars[step]
     if (verbose) pb$tick()
+    .nm_progress_report(step - 1, length(decomp_vars))
 
     # If not 'base', freeze variable by REMOVING it from resampling list
     if (var_to_freeze != "base") {
@@ -392,7 +394,7 @@ nm_decom_emi <- function(df = NULL, model = NULL, target = "value",
     }
 
     # Run Normalisation
-    df_norm <- nm_normalise(
+    df_norm <- .nm_progress_part(step - 1, length(decomp_vars), nm_normalise(
       df = df_work,
       model = model,
       resample_vars = current_features_to_resample,
@@ -405,7 +407,7 @@ nm_decom_emi <- function(df = NULL, model = NULL, target = "value",
       aggregate = TRUE,
       n_cores = n_cores_eff,
       cache_dir = cache_dir
-    )
+    ))
 
     tmp_results[[var_to_freeze]] <- df_norm$normalised
   }
@@ -584,10 +586,13 @@ nm_decom_emi <- function(df = NULL, model = NULL, target = "value",
     key <- if (length(fixed)) paste(sort(fixed), collapse = ",") else "none"
     if (!exists(key, envir = values, inherits = FALSE)) {
       if (!is.null(pb)) pb$tick()
+      done <- length(ls(values))
+      .nm_progress_report(done, planned)
       resample <- unlist(lapply(seq_len(k), function(i) if (!i %in% fixed) players[[i]]$feats),
                          use.names = FALSE)
       if (is.null(resample)) resample <- character(0)
-      assign(key, as.numeric(value_of(resample)), envir = values)
+      assign(key, .nm_progress_part(done, planned, as.numeric(value_of(resample))),
+             envir = values)
     }
     get(key, envir = values, inherits = FALSE)
   }

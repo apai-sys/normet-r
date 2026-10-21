@@ -111,6 +111,27 @@ test_that("nm_scm_abadie returns valid structure and sum-to-one weights", {
   expect_true(all(out$weights >= -1e-6))
 })
 
+test_that("nm_scm_abadie recovers a treated unit made of its donors", {
+  # More donors than pre-period dates (as monthly panels have), the treated unit a
+  # convex mix of three of them at levels above most: the simplex fit is exact.
+  set.seed(3)
+  dates <- seq(as.Date("2020-01-01"), by = "month", length.out = 30)
+  donors <- sprintf("D%02d", 1:40)
+  X <- sapply(seq_along(donors), function(j) 20 + j + 5 * sin(seq_along(dates) / (1 + j %% 4)) + rnorm(30))
+  colnames(X) <- donors
+  w_true <- setNames(rep(0, 40), donors)
+  w_true[c("D38", "D39", "D40")] <- c(0.5, 0.3, 0.2)
+  y <- as.numeric(X %*% w_true)
+  grid <- rbind(
+    data.frame(date = rep(dates, 40), code = rep(donors, each = 30), poll = as.numeric(X)),
+    data.frame(date = dates, code = "T", poll = y)
+  )
+  out <- nm_scm_abadie(grid, treated_unit = "T", cutoff_date = dates[25])
+  pre <- out$synthetic[out$synthetic$date < dates[25], ]
+  expect_lt(sqrt(mean(pre$effect^2)), 0.05)
+  expect_equal(unname(out$weights[c("D38", "D39", "D40")]), c(0.5, 0.3, 0.2), tolerance = 0.02)
+})
+
 test_that("nm_did_baseline returns plausible counterfactual", {
   grid <- .make_panel()
   out  <- nm_did_baseline(grid, treated_unit = "Treated", cutoff_date = "2026-01-16")

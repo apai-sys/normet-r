@@ -63,6 +63,12 @@ synthetic_low, synthetic_high, effect, effect_low, effect_high),
 }
 \description{
 Bayesian synthetic control with Dirichlet prior on donor weights and
-Normal likelihood. Uses a simple adaptive Metropolis-Hastings sampler
-on the simplex (or rstan if available).
+Normal likelihood (normet-py's model, which PyMC samples with NUTS). Sampled
+here by Metropolis-within-Gibbs: the weights by a random walk on their
+log-ratios, then the noise SD on the log scale, each step adapted to its
+acceptance rate during burn-in. The chain starts at the posterior mode (the
+simplex least-squares weights, exactly the mode for \code{dirichlet_alpha = 1},
+and their residual SD). On the bundled ULEZ design it gives what normet-py's
+NUTS gives: the posterior mean fits MY1's pre-period with RMSE 21.7, not the
+least-squares 13.2, as a flat prior on 53 donors puts its mass inside the simplex.
 }

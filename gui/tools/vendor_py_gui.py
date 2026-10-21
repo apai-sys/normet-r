@@ -7,6 +7,12 @@ The R GUI is normet-py's GUI, run on the R package. This script copies it across
   plotting, table reading, trajectory joins, SCM diagnostics, the agent's readings and
   language-model client) into ``normet_r_gui/nm/``, the window's ``normet``;
 
+- normet-py's GUI tests (``tests/test_gui_*.py``) into ``gui/tests/``, pointed at
+  this window;
+- normet-py's user manual (``docs/manual``: the two books' LaTeX and their build
+  script) into ``gui/docs/manual/``, rewritten for this window by the patches in
+  ``manual_patches.py`` -- its screenshots are this window's own (``walk_gui.py``);
+
 with ``normet`` imports pointed at ``normet_r_gui.nm`` and the patches in
 ``r_patches.py`` applied -- what this window does differently because it runs R
 (its backends, its R menu, a command log written in R). A patch whose text a newer
@@ -31,11 +37,33 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 GUI = HERE.parent / "normet_r_gui"
 NM = GUI / "nm"
+TESTS = HERE.parent / "tests"
+MANUAL = HERE.parent / "docs" / "manual"
 
-#: normet-py's GUI modules this window does not take: its own entry points stay.
+#: normet-py's manual: the two books and the script that builds them.
+MANUAL_FILES = ("normet_manual.tex", "normet_manual_zh.tex", "build.sh")
+
+#: normet-py's GUI modules this window does not take: its own entry points stay, and
+#: the modules that write or read the session's code, which here is R (``commandlog``
+#: writes it, ``_script`` reads a saved script back), are this window's own.
 #: (``_chronos.py`` comes across for the names the window reads from it; Chronos-2, a
 #: PyTorch model, is not offered -- see r_patches.py.)
-SKIP_GUI = {"__init__.py", "__main__.py"}
+SKIP_GUI = {"__init__.py", "__main__.py", "commandlog.py", "_script.py"}
+
+#: normet-py's GUI files that are not code, copied byte for byte: the app's icon, which
+#: the window shows (About, every window's icon) from the package itself.
+GUI_ASSETS = ("assets/normet.png",)
+
+#: normet-py's GUI tests this window does not take: Chronos-2 is not offered here.
+SKIP_TESTS = {"test_gui_chronos.py"}
+
+#: normet-py's tests of its manual, which hold for this window's book as they are, and
+#: of the progress reports and the task clock that shows them.
+TEST_MANUAL = ("test_manual.py", "test_progress.py")
+
+#: Test helpers copied beside the tests, under a name of their own where this window's
+#: tests already have one of that name.
+TEST_HELPERS = {"_uilang_smoke.py": "_py_uilang_smoke.py"}
 
 #: Library modules copied as they are, by their path under normet/ (pure Python).
 LIBRARY = [
@@ -49,6 +77,7 @@ LIBRARY = [
     "utils/logging.py",
     "utils/_config.py",
     "utils/_lazy.py",
+    "utils/progress.py",
     "causal/diagnostics.py",
     "causal/bands.py",
     "agent/llm.py",
@@ -75,12 +104,31 @@ def _imports_to_nm(text: str, depth: int) -> str:
     return text
 
 
+def _test_imports(text: str) -> str:
+    """A test's ``normet`` pointed at this window: its GUI at ``normet_r_gui``, the
+    library at ``normet_r_gui.nm`` -- in imports, and in names given as text (what a
+    test patches)."""
+    text = text.replace("normet.gui.", "normet_r_gui.").replace("normet.gui import", "normet_r_gui import")
+    text = re.sub(r"^(\s*)import normet as (\w+)$", r"\1from normet_r_gui import nm as \2", text, flags=re.M)
+    text = re.sub(r"^(\s*)import normet$", r"\1from normet_r_gui import nm as normet", text, flags=re.M)
+    text = re.sub(r"^(\s*)from normet\.([\w.]+) import", r"\1from normet_r_gui.nm.\2 import", text, flags=re.M)
+    text = re.sub(r"^(\s*)from normet import", r"\1from normet_r_gui.nm import", text, flags=re.M)
+    for name, ours in TEST_HELPERS.items():
+        text = text.replace(name, ours)
+    return re.sub(r"([\"'])normet\.(?!gui)", r"\1normet_r_gui.nm.", text)
+
+
 def _patches() -> dict[str, list[tuple[str, str, str]]]:
-    spec = importlib.util.spec_from_file_location("r_patches", HERE / "r_patches.py")
-    mod = importlib.util.module_from_spec(spec)
-    assert spec.loader is not None
-    spec.loader.exec_module(mod)
-    return mod.PATCHES
+    """The window's patches (``r_patches.py``) and the manual's (``manual_patches.py``)."""
+    out: dict[str, list[tuple[str, str, str]]] = {}
+    for name in ("r_patches", "manual_patches"):
+        spec = importlib.util.spec_from_file_location(name, HERE / f"{name}.py")
+        mod = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        spec.loader.exec_module(mod)
+        for file, edits in mod.PATCHES.items():
+            out.setdefault(file, []).extend(edits)
+    return out
 
 
 def build(py_root: Path) -> dict[Path, str]:
@@ -100,14 +148,32 @@ def build(py_root: Path) -> dict[Path, str]:
         f = src / rel
         depth = rel.count("/") + 1  # nm/x.py is one level below normet_r_gui, nm/io/x.py two
         out[NM / rel] = _imports_to_nm(f.read_text(encoding="utf-8"), depth)
+    for f in [*sorted((py_root / "tests").glob("test_gui_*.py")), *(py_root / "tests" / n for n in TEST_MANUAL)]:
+        if f.name not in SKIP_TESTS:
+            out[TESTS / f.name] = _test_imports(f.read_text(encoding="utf-8"))
+    for name, ours in TEST_HELPERS.items():
+        out[TESTS / ours] = _test_imports((py_root / "tests" / name).read_text(encoding="utf-8"))
+    for name in MANUAL_FILES:
+        out[MANUAL / name] = (py_root / "docs" / "manual" / name).read_text(encoding="utf-8")
     failed = []
     for name, edits in _patches().items():
-        path = GUI / name
+        # A patch to a test or the manual is named by its place under gui/:
+        # tests/test_gui_x.py, docs/manual/normet_manual.tex.
+        path = HERE.parent / name if name.startswith(("tests/", "docs/")) else GUI / name
         if path not in out:
             failed.append(f"{name}: not among the files copied")
             continue
         text = out[path]
         for label, old, new in edits:
+            if isinstance(old, tuple):
+                # A passage: from its first words up to (not including) the next's.
+                start, end = old
+                if text.count(start) != 1 or text.count(end) != 1 or text.find(end) < text.find(start):
+                    failed.append(f"{name}: passage {label!r} not found once, in order")
+                    continue
+                i, j = text.find(start), text.find(end)
+                text = text[:i] + new + text[j:]
+                continue
             if text.count(old) != 1:
                 failed.append(f"{name}: patch {label!r} matches {text.count(old)} times")
                 continue
@@ -138,7 +204,20 @@ def main(argv: list[str] | None = None) -> int:
         else:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(text, encoding="utf-8")
-    print(f"{changed} of {len(files)} file(s) {'would change' if a.check else 'written'}.")
+            if path.suffix == ".sh":
+                path.chmod(0o755)
+    for rel in GUI_ASSETS:
+        data, path = (a.normet_py.resolve() / "src" / "normet" / "gui" / rel).read_bytes(), GUI / rel
+        if path.exists() and path.read_bytes() == data:
+            continue
+        changed += 1
+        if a.check:
+            print(f"{path}: differs (binary)")
+        else:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(data)
+    total = len(files) + len(GUI_ASSETS)
+    print(f"{changed} of {total} file(s) {'would change' if a.check else 'written'}.")
     return 1 if a.check and changed else 0
 
 

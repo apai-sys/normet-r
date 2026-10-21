@@ -114,8 +114,9 @@ def bayesian_scm(df: pd.DataFrame, date_col: str = "date", unit_col: str = "code
 def _inference_options(kwargs: dict[str, Any]) -> dict[str, Any]:
     out = {k: kwargs[k] for k in ("scm_backend", "model_config", "post_agg") if kwargs.get(k) is not None}
     if kwargs.get("backend") is not None and kwargs.get("scm_backend") == "mlscm":
-        # An ML-SCM's own model backend goes to R inside model_config.
-        out["model_config"] = {**(out.get("model_config") or {}), "backend": kwargs["backend"]}
+        # An ML-SCM's own model backend: R's inference functions pass it on to
+        # nm_run_scm through `...`, and start H2O only when it is h2o.
+        out["backend"] = kwargs["backend"]
     return out
 
 

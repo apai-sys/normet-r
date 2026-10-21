@@ -51,6 +51,7 @@ from PySide6.QtWidgets import (
 from .nm import style as S
 from .nm.utils._time import to_datetime_coerced
 
+from ._clock import TaskClock
 from ._lists import ALL_TIP, _toggle_all
 from ._widgets import (
     CanvasTab,
@@ -73,7 +74,7 @@ BACKEND_TIPS = {
     "did": "Difference-in-differences baseline.",
     "mcnnm": "Matrix-completion (MC-NNM) estimator.",
     "robust": "Robust SCM (de-noised donor matrix).",
-    "bayesian": "Bayesian simplex SCM — needs pymc, gives credible bands.",
+    "bayesian": "Bayesian simplex SCM (MCMC) — gives credible bands.",
 }
 
 
@@ -198,6 +199,7 @@ class SCMWindow(QMainWindow):
         self.runner = TaskRunner(self)
         self.runner.started.connect(self._task_started)
         self.runner.finished.connect(self._task_finished)
+        self.task_clock = TaskClock(self, self.runner)
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.addWidget(self._build_panel())
@@ -357,16 +359,19 @@ class SCMWindow(QMainWindow):
         self.backend_combo.currentTextChanged.connect(self._backend_changed)
         ef.addRow("Backend", self.backend_combo)
         self.ml_backend_combo = NoWheelComboBox()
-        self.ml_backend_combo.addItems(["flaml", "lightgbm"])
+        self.ml_backend_combo.addItems(["lightgbm", "h2o"])
+        self.ml_backend_combo.setToolTip(
+            "lightgbm = LightGBM with random hyperparameter search (fast, default).\n"
+            "h2o = H2O AutoML (uses the time budget; needs Java and the h2o R package)."
+        )
         ef.addRow("ML backend", self.ml_backend_combo)
         self.ml_budget = NoWheelSpinBox()
-        self.ml_budget.setRange(5, 3600)
-        self.ml_budget.setValue(15)
-        self.ml_budget.setSuffix(" s")
-        self.ml_budget.setToolTip(
-            "AutoML time budget per fit (flaml). Placebo tests refit many\ntimes — keep this small."
-        )
-        ef.addRow("Time budget", self.ml_budget)
+        self._ml_budget_label = QLabel()
+        self._ml_budget_values = {"lightgbm": 5, "h2o": 15}
+        self._ml_prev_backend: str | None = None  # the first switch keeps nothing
+        ef.addRow(self._ml_budget_label, self.ml_budget)
+        self.ml_backend_combo.currentTextChanged.connect(self._ml_backend_changed)
+        self._ml_backend_changed("lightgbm")
         self.bayes_draws = NoWheelSpinBox()
         self.bayes_draws.setRange(100, 10_000)
         self.bayes_draws.setValue(1000)
@@ -469,6 +474,9 @@ class SCMWindow(QMainWindow):
 
     def _build_tabs(self) -> QTabWidget:
         self.tabs = QTabWidget()
+        # Pages on the window's own ground, as the toolbars above their figures are: a
+        # framed pane drew them lighter, and each toolbar as a grey band across it.
+        self.tabs.setDocumentMode(True)
         self.tab_panel = CanvasTab("Load a panel CSV to preview the outcome by unit.")
         self.tabs.addTab(self.tab_panel, "Panel")
         self.tab_fit = CanvasTab("Run the synthetic control to see observed vs. synthetic here.")
@@ -661,6 +669,30 @@ class SCMWindow(QMainWindow):
             item.setCheckState(Qt.CheckState.Checked)
             self.donor_list.addItem(item)
 
+    def _ml_backend_changed(self, backend: str) -> None:
+        """The budget spin is LightGBM's search trials or H2O's time budget, each
+        keeping its own value."""
+        if self._ml_prev_backend is not None:
+            self._ml_budget_values[self._ml_prev_backend] = self.ml_budget.value()
+        self._ml_prev_backend = backend
+        if backend == "h2o":
+            self._ml_budget_label.setText("Time budget")
+            self.ml_budget.setRange(5, 3600)
+            self.ml_budget.setSuffix(" s")
+            self.ml_budget.setToolTip(
+                "H2O AutoML time per fit (max_runtime_secs). Placebo tests refit many\n"
+                "times — keep this small."
+            )
+        else:
+            self._ml_budget_label.setText("Search trials")
+            self.ml_budget.setRange(1, 100)
+            self.ml_budget.setSuffix("")
+            self.ml_budget.setToolTip(
+                "LightGBM random-search trials per fit. Placebo tests refit many\n"
+                "times — keep this small."
+            )
+        self.ml_budget.setValue(self._ml_budget_values[backend])
+
     def _backend_changed(self, backend: str) -> None:
         is_ml = backend == "mlscm"
         is_bayes = backend == "bayesian"
@@ -769,15 +801,10 @@ class SCMWindow(QMainWindow):
 
     def _ml_kwargs(self) -> dict:
         ml_backend = self.ml_backend_combo.currentText()
-        if ml_backend == "flaml":
-            model_config = {
-                "time_budget": self.ml_budget.value(),
-                "metric": "r2",
-                "estimator_list": ["lgbm"],
-                "task": "regression",
-            }
+        if ml_backend == "h2o":
+            model_config = {"max_runtime_secs": self.ml_budget.value(), "include_algos": ["GBM"]}
         else:
-            model_config = None
+            model_config = {"n_trials": self.ml_budget.value(), "cv_folds": 3}
         return {"backend": ml_backend, "model_config": model_config}
 
     def _infer_kwargs(self) -> dict:
@@ -800,14 +827,11 @@ class SCMWindow(QMainWindow):
         self.cancel_btn.setEnabled(busy)
 
     def _task_started(self, name: str) -> None:
-        self.progress.setRange(0, 0)
-        self.statusBar().showMessage(f"Running: {name}…")
         for b in self._run_buttons:
             b.setEnabled(False)
         self.cancel_btn.setEnabled(True)
 
     def _task_finished(self) -> None:
-        self.progress.setRange(0, 1)
         self._sync_enabled()
 
     def _abandon(self) -> None:

@@ -51,7 +51,7 @@ ci_check_result.rds
 .Renviron
 
 # pkgdown site
-docs/
+/docs/
 
 # translation temp files
 po/*~
@@ -77,3 +77,8 @@ gui/dist_spec_test/
 gui/*.egg-info/
 gui/__pycache__/
 gui/normet_r_gui/__pycache__/
+
+# GUI walk-through screenshots (gui/tools/walk_gui.py)
+gui/tools/figures_*/
+gui/tools/walk_*.log
+__pycache__/

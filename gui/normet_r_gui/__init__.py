@@ -1,7 +1,7 @@
 """Qt (PySide6) graphical interface for the normet R package.
 
-The GUI itself is Python; every computation runs in R via ``Rscript``
-subprocesses (see :mod:`normet_r_gui.rbridge`).  Launch with
+The GUI itself is Python (normet-py's window, see ``tools/vendor_py_gui.py``); every
+computation runs in R via ``Rscript`` subprocesses (see :mod:`normet_r_gui._rpc`).  Launch with
 ``normet-r-gui`` or ``python -m normet_r_gui``.
 """
 

@@ -167,12 +167,12 @@ class SessionMixin(QMainWindow):
         dlg.open()
 
     def save_script(self) -> None:
-        """The command log as a Python file that repeats the session."""
+        """The command log as an R script that repeats the session."""
         if not len(self.command_log):
             self.notify("Nothing to save yet: open a table and run a step first.", key="nothing")
             return
         path, _ = QFileDialog.getSaveFileName(
-            self, "Save session as script", "normet_session.py", "Python (*.py)"
+            self, "Save session as script", "normet_session.R", "R script (*.R)"
         )
         if path:
             with open(path, "w", encoding="utf-8") as fh:
@@ -188,8 +188,8 @@ class SessionMixin(QMainWindow):
             "train_fraction": self.train_fraction_spin.value(),
             "time_budget": (
                 self.budget_spin.value()
-                if self.backend_combo.currentText() == "flaml"
-                else self._budget_values.get("flaml", 60)
+                if self.backend_combo.currentText() == "h2o"
+                else self._budget_values.get("h2o", 60)
             ),
             "lgb_trials": (
                 self.budget_spin.value()
@@ -225,13 +225,13 @@ class SessionMixin(QMainWindow):
                 item.setCheckState(
                     Qt.CheckState.Checked if item.text() in feats else Qt.CheckState.Unchecked
                 )
-        self._budget_values["flaml"] = c.get("time_budget", 60)
+        self._budget_values["h2o"] = c.get("time_budget", 60)
         self._budget_values["lightgbm"] = c.get("lgb_trials", 20)
-        self.backend_combo.setCurrentText(c.get("backend", "flaml"))
+        self.backend_combo.setCurrentText(c.get("backend", "lightgbm"))
         self.split_combo.setCurrentText(c.get("split_method", "random"))
         self.train_fraction_spin.setValue(c.get("train_fraction", 0.75))
         self.budget_spin.setValue(self._budget_values.get(self.backend_combo.currentText(), 60))
-        ests = set(c.get("flaml_estimators") or ["lgbm"])
+        ests = set(c.get("flaml_estimators") or ["GBM"])  # H2O's include_algos here
         for i in range(self.estimator_list.count()):
             item = self.estimator_list.item(i)
             item.setCheckState(

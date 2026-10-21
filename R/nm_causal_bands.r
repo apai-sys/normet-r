@@ -294,6 +294,7 @@ nm_uncertainty_bands <- function(df, date_col, unit_col, outcome_col, treated_un
   # --- 0. Initial Setup ---
   log <- nm_get_logger("causal.uncertainty")
   scm_backend <- tolower(scm_backend)
+  uses_h2o <- .nm_scm_uses_h2o(scm_backend, list(...)$backend)
 
   # Ensure date column is Date type and parse cutoff date
   df[[date_col]] <- as.Date(df[[date_col]])
@@ -301,7 +302,7 @@ nm_uncertainty_bands <- function(df, date_col, unit_col, outcome_col, treated_un
 
   # [DEFENSIVE HELPER]: Ensure H2O is alive; restart if dead.
   ensure_h2o_alive <- function() {
-    if (scm_backend == "mlscm") {
+    if (uses_h2o) {
       # 1. Check status safely (handle case where clusterIsUp throws error)
       is_up <- tryCatch(
         {
@@ -334,7 +335,7 @@ nm_uncertainty_bands <- function(df, date_col, unit_col, outcome_col, treated_un
   }
 
   # --- 1. Global H2O Initialization ---
-  if (scm_backend == "mlscm") {
+  if (uses_h2o) {
     ensure_h2o_alive() # Ensure alive BEFORE calling no_progress
     try(h2o::h2o.no_progress(), silent = TRUE)
 
@@ -439,7 +440,7 @@ nm_uncertainty_bands <- function(df, date_col, unit_col, outcome_col, treated_un
         })
 
       # Periodic GC
-      if (scm_backend == "mlscm" && b %% 50 == 0) try(
+      if (uses_h2o && b %% 50 == 0) try(
         {
           h2o::h2o.removeAll()
           gc(verbose = FALSE)
@@ -498,7 +499,7 @@ nm_uncertainty_bands <- function(df, date_col, unit_col, outcome_col, treated_un
         })
 
       # Periodic GC
-      if (scm_backend == "mlscm") try(
+      if (uses_h2o) try(
         {
           h2o::h2o.removeAll()
           gc(verbose = FALSE)

@@ -25,8 +25,8 @@ REFERENCES = {
         "detect interventions in air quality time series. Science of the Total Environment, "
         "653, 578–588.",
     ],
-    "flaml": "Wang, C., Wu, Q., Weimer, M. and Zhu, E. (2021). FLAML: A fast and "
-    "lightweight AutoML library. Proceedings of Machine Learning and Systems, 3, 434–447.",
+    "h2o": "LeDell, E. and Poirier, S. (2020). H2O AutoML: Scalable automatic machine "
+    "learning. 7th ICML Workshop on Automated Machine Learning (AutoML).",
     "lightgbm": "Ke, G., Meng, Q., Finley, T., Wang, T., Chen, W., Ma, W., Ye, Q. and Liu, "
     "T.-Y. (2017). LightGBM: A highly efficient gradient boosting decision tree. Advances "
     "in Neural Information Processing Systems, 30.",
@@ -79,13 +79,14 @@ def methods_paragraph(info: dict[str, Any], lang: str = "en") -> str | None:
     # -- the data --------------------------------------------------------------------
     if zh:
         out.append(
-            f"气象归一化使用 normet {info.get('version', '')} 完成。记录包含 {target} 的 "
+            f"气象归一化使用 normet R 包 {info.get('version', '')} 完成。记录包含 {target} 的 "
             f"{info.get('rows', 0):,} 个{info.get('step_zh', '')}观测值，"
             f"时间范围为 {info.get('start', '')} 至 {info.get('end', '')}。"
         )
     else:
         out.append(
-            f"Meteorological normalisation was done with normet {info.get('version', '')}. "
+            f"Meteorological normalisation was done with the normet R package "
+            f"{info.get('version', '')}. "
             f"The record held {info.get('rows', 0):,} {info.get('step', '')} observations of "
             f"{target}, from {info.get('start', '')} to {info.get('end', '')}."
         )
@@ -94,21 +95,21 @@ def methods_paragraph(info: dict[str, Any], lang: str = "en") -> str | None:
     test = info.get("test") or {}
     if "build_model" in ran:
         call = ran["build_model"]
-        backend = call.get("backend", "flaml")
+        backend = call.get("backend", "lightgbm")
         met = _met(call.get("covariates"))
         cfg = call.get("model_config") or {}
         frac = float(call.get("train_fraction", 0.75))
         split = str(call.get("split_method", "random"))
         seed = call.get("seed")
-        if backend == "flaml":
-            ests = cfg.get("estimator_list") or ["lgbm"]
-            budget = cfg.get("time_budget")
-            cites.append(REFERENCES["flaml"])
+        if backend == "h2o":
+            ests = cfg.get("include_algos") or ["GBM"]
+            budget = cfg.get("max_runtime_secs")
+            cites.append(REFERENCES["h2o"])
             how_en = (
-                f"by an automated search with FLAML (Wang et al., 2021) over "
+                f"by an automated search with H2O AutoML (LeDell and Poirier, 2020) over "
                 f"{_names([str(e) for e in ests], 'en')} within {budget} s"
             )
-            how_zh = f"用 FLAML（Wang 等，2021）在 {budget} 秒内对 {_names([str(e) for e in ests], 'zh')} 进行自动搜索"
+            how_zh = f"用 H2O AutoML（LeDell 和 Poirier，2020）在 {budget} 秒内对 {_names([str(e) for e in ests], 'zh')} 进行自动搜索"
         else:
             trials = cfg.get("n_trials")
             cites.append(REFERENCES["lightgbm"])

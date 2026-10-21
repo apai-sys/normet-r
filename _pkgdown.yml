@@ -94,3 +94,9 @@ reference:
   - nm_stop_h2o
   - nm_get_logger
 
+
+- title: AI Agents
+  desc: normet for an AI agent -- an MCP server, and the tools it serves.
+  contents:
+  - nm_mcp_server
+  - nm_agent_tool

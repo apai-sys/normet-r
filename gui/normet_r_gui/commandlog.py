@@ -1,25 +1,28 @@
-"""What the window did, written as the normet calls that do the same.
+"""What the window did, written as the normet R calls that do the same.
 
-Every action that decides a result
--- opening a table, training, normalising, decomposing, a rolling run, partial
-dependence -- is recorded as the call that performs it, so an analysis done by
-clicking can be repeated, changed and handed on as a script.
+Every action that decides a result -- opening a table, training, normalising,
+decomposing, a rolling run, partial dependence -- is recorded as the R call that
+performs it, so an analysis done by clicking can be repeated, changed and handed on as
+an R script.
 
-An entry is written from the call the window actually made -- the function and
-the arguments its task was started with -- and only once that task succeeded:
-the log says what happened, not what the panel shows now. The tables and the
-model the window passes are named as the script names them (``df``,
-``df_prep``, ``model``). Where the window did something no call expresses (a
-table from the Data Studio, held only in memory), the entry says so in a note
-instead of a line that would quietly do something else.
-``tests/test_command_log.py`` runs the script this module writes and compares
-it with the window's own result.
+This is the R window's own module (normet-py's writes Python; ``tools/vendor_py_gui.py``
+does not copy it over this one), with the same entries and the same interface. An entry
+is written from the call the window actually made, once its task succeeded: the task's
+function is run with :func:`._rpc.capture` on, so the R call it would send -- the
+function and its arguments, named as R names them -- is recorded instead of made. The
+tables and the model the window passes are named as the script names them (``df``,
+``df_prep``, ``model``). Where the window did something no call expresses (a table
+from the Data Studio, held only in memory), the entry says so in a note instead of a
+line that would quietly do something else.
 """
 
 from __future__ import annotations
 
 import datetime
-from collections.abc import Callable, Sequence
+import json
+import math
+import re
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -29,36 +32,52 @@ import pandas as pd
 #: Width the generated code wraps at.
 WIDTH = 88
 
+#: The line every script starts its calls with.
+LIBRARY = "library(normet)"
+
+_SYNTACTIC = re.compile(r"^[A-Za-z][A-Za-z0-9._]*$|^\.[A-Za-z._][A-Za-z0-9._]*$")
+
+
+def _name(key: Any) -> str:
+    """A list element's name as R reads it: backquoted where it is not syntactic."""
+    key = str(key)
+    return key if _SYNTACTIC.match(key) else "`" + key.replace("`", "\\`") + "`"
+
 
 def literal(value: Any) -> str:
-    """A Python literal for a parameter value, exact enough to re-run."""
+    """An R literal for a parameter value, exact enough to re-run."""
+    if value is None:
+        return "NULL"
     if isinstance(value, (np.bool_, bool)):
-        return repr(bool(value))
+        return "TRUE" if value else "FALSE"
     if isinstance(value, np.integer):
-        return repr(int(value))
+        value = int(value)
     if isinstance(value, np.floating):
         value = float(value)
+    if isinstance(value, int):
+        return str(value)
     if isinstance(value, float):
-        if value != value:
-            return "float('nan')"
-        if value in (float("inf"), float("-inf")):
-            return f"float('{'-' if value < 0 else ''}inf')"
-        # repr round-trips, but 0.30000000000000004 reads as a mistake: 12 digits
-        # keep every value a person types and drop the float noise.
+        if math.isnan(value):
+            return "NA"
+        if math.isinf(value):
+            return "-Inf" if value < 0 else "Inf"
+        # 12 digits keep every value a person types and drop the float noise.
         short = round(value, 12)
-        return repr(int(short) if short == int(short) and abs(short) < 1e15 else short)
-    if isinstance(value, np.ndarray):
-        return "[" + ", ".join(literal(v) for v in value.tolist()) + "]"
-    if isinstance(value, list):
-        return "[" + ", ".join(literal(v) for v in value) + "]"
-    if isinstance(value, tuple):
-        inner = ", ".join(literal(v) for v in value)
-        return f"({inner},)" if len(value) == 1 else f"({inner})"
-    if isinstance(value, dict):
-        return "{" + ", ".join(f"{literal(k)}: {literal(v)}" for k, v in value.items()) + "}"
+        return str(int(short)) if short == int(short) and abs(short) < 1e15 else repr(short)
     if isinstance(value, (pd.Timestamp, datetime.datetime, datetime.date)):
-        return repr(str(value))
-    return repr(value)
+        return json.dumps(str(value))
+    if isinstance(value, str):
+        return json.dumps(value, ensure_ascii=False)
+    if isinstance(value, np.ndarray):
+        value = value.tolist()
+    if isinstance(value, Mapping):
+        return "list(" + ", ".join(f"{_name(k)} = {literal(v)}" for k, v in value.items()) + ")"
+    if isinstance(value, (list, tuple)):
+        items = list(value)
+        if all(v is None or isinstance(v, (str, bool, int, float, np.generic)) for v in items):
+            return "c(" + ", ".join(literal(v) for v in items) + ")"
+        return "list(" + ", ".join(literal(v) for v in items) + ")"
+    return json.dumps(str(value), ensure_ascii=False)
 
 
 def call(
@@ -67,9 +86,9 @@ def call(
     positional: Sequence[str] = (),
     keywords: Sequence[tuple[str, str]] = (),
 ) -> str:
-    """``target = name(positional, keyword=…)``, wrapped under the open bracket."""
-    args = list(positional) + [f"{k}={v}" for k, v in keywords]
-    head = f"{target} = {name}(" if target else f"{name}("
+    """``target <- name(positional, keyword = …)``, wrapped under the open bracket."""
+    args = list(positional) + [f"{k} = {v}" for k, v in keywords]
+    head = f"{target} <- {name}(" if target else f"{name}("
     one = head + ", ".join(args) + ")"
     if len(one) <= WIDTH or len(args) < 2:
         return one
@@ -93,7 +112,7 @@ class Entry:
     title: str
     code: str
     notes: tuple[str, ...] = ()
-    imports: tuple[str, ...] = ()  # whole import lines this entry needs
+    imports: tuple[str, ...] = ()  # whole lines this entry needs first (library(...))
     when: str = ""
 
     def text(self) -> str:
@@ -133,8 +152,9 @@ class CommandLog:
         return "\n\n".join(e.text() for e in self.entries)
 
     def script(self, *, title: str = "") -> str:
-        """The log as a file that runs: a header, the imports it needs, the entries."""
-        imports: list[str] = []
+        """The log as a file that runs (``Rscript session.R``): a header, the libraries
+        it needs, the entries."""
+        imports: list[str] = [LIBRARY]
         for e in self.entries:
             imports += [i for i in e.imports if i not in imports]
         try:
@@ -143,107 +163,109 @@ class CommandLog:
             version = "?"
         when = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
         head = [
-            '"""' + (title or "A normet session") + ".",
-            "",
-            f"Written by normet {version} on {when}, from the window's command log.",
-            "Every command is the call behind one action, in the order they were taken;",
-            "running this file repeats the analysis.",
-            '"""',
+            "# " + (title or "A normet session") + ".",
+            "#",
+            f"# Written by normet {version} (R) on {when}, from the window's command log.",
+            "# Every command is the call behind one action, in the order they were taken;",
+            "# running this file (Rscript, or source() in R) repeats the analysis.",
         ]
         body = "\n\n".join(e.text() for e in self.entries)
-        return "\n".join([*head, "", *sorted(imports), "", body]) + "\n"
+        return "\n".join([*head, "", *imports, "", body]) + "\n"
 
 
 # -- the window's actions, as entries -------------------------------------------------------
 def open_table(path: str, zone: str | None = None) -> Entry:
-    """A table file read as the window reads one (:func:`normet.io.read_time_series`):
-    its times found, parsed and named 'date', and put on UTC from ``zone``."""
-    call = f"df = read_time_series({literal(path)}"
-    call += f", zone={literal(zone)})" if zone and zone.upper() != "UTC" else ")"
-    return Entry("Open data", call, imports=("from normet.io import read_time_series",))
+    """A table file read as the window reads one (``nm_read_time_series``): its times
+    found, parsed and named 'date', and put on UTC from ``zone``."""
+    kw = [("zone", literal(zone))] if zone and zone.upper() != "UTC" else []
+    return Entry("Open data", call("df", "nm_read_time_series", [literal(path)], kw))
 
 
 def load_example(example: Any = None) -> Entry:
     """An example as the window loads one (``._examples.EXAMPLES``); the synthetic site
-    where none is named."""
+    where none is named. The synthetic site is made by the window (in Python): the
+    script reads it from a CSV the user saves."""
     if example is None:
         from ._examples import EXAMPLES
 
         example = EXAMPLES["synthetic"]
-    title = "Load example data" if example.key == "synthetic" else f"Load example: {example.title}"
-    return Entry(title, example.code, imports=example.imports)
+    if example.key == "synthetic":
+        return Entry(
+            "Load example data",
+            'df <- nm_read_time_series("<the example table, saved as CSV>")  # replace with its path',
+            notes=(
+                "The synthetic site is made by the window, not by an R function.",
+                "Save it as CSV (Data tab → Export result CSV) and read it here.",
+            ),
+        )
+    return Entry(f"Load example: {example.title}", example.code, imports=example.imports)
 
 
 def from_memory(label: str) -> Entry:
     """A table the window was handed in memory (the Data Studio's), which no call reads."""
     return Entry(
         f"Table from {label}",
-        "df = pd.read_csv('<the table, saved as CSV>')  # replace with its path",
+        'df <- nm_read_time_series("<the table, saved as CSV>")  # replace with its path',
         notes=(
             "This table was handed to the window in memory, not read from a file.",
             "Save it as CSV where it was made (Data Studio → Save CSV) and read it here.",
         ),
-        imports=("import pandas as pd",),
     )
 
 
-#: The calls the window's tasks make, by function: (title, what the result is
-#: assigned to, the import line, a note where the call is the GUI's own helper).
-_KNOWN: dict[str, tuple[str, str, str, str]] = {
-    "normet.model.train.build_model": (
-        "Train model",
-        "df_prep, model",
-        "from normet import build_model",
-        "",
-    ),
-    "normet.analysis.normalise.normalise": (
-        "Normalise",
-        "normalised",
-        "from normet import normalise",
-        "",
-    ),
-    "normet.analysis.decomposition.decompose": (
-        "Decompose",
-        "decomposition",
-        "from normet import decompose",
-        "",
-    ),
-    "normet.analysis.rolling.rolling": (
-        "Rolling normalisation",
-        "rolled",
-        "from normet import rolling",
-        "",
-    ),
-    "normet.analysis.pdp.pdp": ("Partial dependence", "pd_values", "from normet import pdp", ""),
-    "normet.gui._chronos.load_estimator": (
-        "Load Chronos-2",
-        "df_prep, model",
-        "from normet.gui._chronos import load_estimator",
-        "The GUI's own helper around normet.foundation.Chronos2Estimator.",
-    ),
-    "normet.gui._chronos.deweather": (
-        "De-weather (Chronos-2)",
-        "normalised",
-        "from normet.gui._chronos import deweather",
-        "The GUI's own helper around Chronos2Estimator.deweather.",
-    ),
-    "normet.gui._chronos.finetune": (
-        "Fine-tune Chronos-2",
-        "model",
-        "from normet.gui._chronos import finetune",
-        "The GUI's own helper around Chronos2Estimator.finetune.",
-    ),
-    "normet.gui._multiscale.compute_multiscale": (
-        "Multi-scale decomposition",
-        "multiscale",
-        "from normet.gui._multiscale import compute_multiscale",
-        "The GUI's own helper over normet.rolling at three window widths.",
-    ),
+#: The window's tasks, by their function's name: (title, what the R result is assigned
+#: to, the lines that follow it). The R call itself is the one the function makes.
+_KNOWN: dict[str, tuple[str, str, tuple[str, ...]]] = {
+    "build_model": ("Train model", "res", ("df_prep <- res$df_prep", "model <- res$model")),
+    "normalise": ("Normalise", "normalised", ()),
+    "decompose": ("Decompose", "decomposition", ()),
+    "rolling": ("Rolling normalisation", "rolled", ()),
+    "pdp": ("Partial dependence", "pd_values", ()),
 }
 
+#: R's names for normet-py's arguments, where they differ (the session script read
+#: back, ``._script``, turns them round).
+R_ARGS = {"variables_resample": "resample_vars"}
 
-def _qualname(fn: Callable[..., Any]) -> str:
-    return f"{getattr(fn, '__module__', '')}.{getattr(fn, '__name__', '')}"
+
+def _r_calls(fn: Callable[..., Any], args: Sequence[Any], kwargs: dict[str, Any], *, all_calls: bool) -> list:
+    """The R calls ``fn(*args, **kwargs)`` makes, recorded and not made: the first only
+    (the task stops there), or with *all_calls* every one, each answered with an empty
+    table (a helper that calls R several times runs through)."""
+    from . import _rpc
+
+    answer = (lambda: pd.DataFrame()) if all_calls else None
+    with _rpc.capture(answer) as calls:
+        try:
+            fn(*args, **kwargs)
+        except _rpc.Captured:
+            pass
+        except Exception:  # noqa: BLE001 - what the empty answers make of it is no matter
+            if not all_calls:
+                return []
+    return calls
+
+
+def _render(names: Sequence[tuple[Any, str]], notes: list[str]) -> Callable[[Any], str]:
+    def render(value: Any) -> str:
+        for obj, name in names:
+            if value is obj:
+                # normet-py's ``normalised['normalised']`` is R's ``normalised$normalised``.
+                return re.sub(r"\['([^']+)'\]", r"$\1", name)
+        if isinstance(value, (pd.DataFrame, pd.Series)) or (
+            hasattr(value, "__dict__") and not isinstance(value, type)
+        ):
+            notes.append(f"An object the window held ({type(value).__name__}) is not named here.")
+            return "NULL  # " + type(value).__name__
+        return literal(value)
+
+    return render
+
+
+def _code(r_call: tuple[str, tuple[Any, ...], dict[str, Any]], target: str, render: Callable[[Any], str]) -> str:
+    fn, args, kwargs = r_call
+    keywords = [(k, render(v)) for k, v in kwargs.items() if k != "verbose"]
+    return call(target, fn, [render(a) for a in args], keywords)
 
 
 def task(
@@ -252,32 +274,32 @@ def task(
     kwargs: dict[str, Any],
     names: Sequence[tuple[Any, str]],
 ) -> Entry | None:
-    """The entry for a task the window ran: ``fn(*args, **kwargs)``.
+    """The entry for a task the window ran: the R call ``fn(*args, **kwargs)`` makes.
 
-    *names* pairs each object the window holds (its tables, its model, a
-    series of a result) with the expression the script names it by; an
-    argument found there is written as that name, by identity. A function the
-    log does not know (nothing but the calls above decide a result) gives None.
+    *names* pairs each object the window holds (its tables, its model, a series of a
+    result) with the name the script gives it; an argument found there is written as
+    that name, by identity. A function the log does not know (nothing but the calls
+    above decide a result) gives None.
     """
-    known = _KNOWN.get(_qualname(fn))
+    name = getattr(fn, "__name__", "")
+    notes: list[str] = []
+    render = _render(names, notes)
+    if name == "compute_multiscale":
+        calls = [c for c in _r_calls(fn, args, kwargs, all_calls=True) if c[0] == "nm_rolling"]
+        if not calls:
+            return None
+        lines = [_code(c, f"rolled_{c[2].get('window_days', i)}", render) for i, c in enumerate(calls)]
+        notes.insert(
+            0,
+            "The bands are differences of these rolling means (the window's own helper).",
+        )
+        return Entry("Multi-scale decomposition", "\n".join(lines), notes=tuple(dict.fromkeys(notes)))
+    known = _KNOWN.get(name)
     if known is None:
         return None
-    title, target, imp, note = known
-    notes = [note] if note else []
-
-    def render(value: Any) -> str:
-        for obj, name in names:
-            if value is obj:
-                return name
-        if isinstance(value, (pd.DataFrame, pd.Series)) or (
-            hasattr(value, "__dict__") and not isinstance(value, type)
-        ):
-            notes.append(f"An object the window held ({type(value).__name__}) is not named here.")
-            return "None  # " + type(value).__name__
-        return literal(value)
-
-    positional = [render(a) for a in args]
-    keywords = [(k, render(v)) for k, v in kwargs.items() if k != "verbose"]
-    return Entry(
-        title, call(target, fn.__name__, positional, keywords), notes=tuple(notes), imports=(imp,)
-    )
+    title, target, after = known
+    calls = _r_calls(fn, args, kwargs, all_calls=False)
+    if not calls or calls[0][0].startswith(".gui_"):
+        return None
+    code = "\n".join([_code(calls[0], target, render), *after])
+    return Entry(title, code, notes=tuple(dict.fromkeys(notes)))

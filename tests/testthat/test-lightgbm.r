@@ -138,6 +138,31 @@ test_that("nm_pdp works with lightgbm model", {
   expect_true("temp" %in% pdp$variable)
 })
 
+test_that("nm_pdp gives a factor (weekday) its levels as codes", {
+  skip_if_not_installed("lightgbm")
+
+  set.seed(42)
+  n <- 24 * 28
+  dates <- seq(as.POSIXct("2020-01-06", tz = "UTC"), by = "hour", length.out = n)
+  df <- data.frame(
+    date = dates,
+    value = 10 + 3 * (as.POSIXlt(dates)$wday %in% c(0, 6)) + rnorm(n, 0, 0.5),
+    temp = rnorm(n, 15, 3)
+  )
+  result <- nm_build_model(
+    df, target = "value",
+    covariates = c("temp", "weekday"),
+    model_config = list(n_trials = 1, cv_folds = 2, nrounds = 20),
+    seed = 42, verbose = FALSE
+  )
+  pdp <- nm_pdp(result$df_prep, result$model, var_list = c("weekday", "temp"),
+                n_cores = 1, verbose = FALSE)
+  wk <- pdp[pdp$variable == "weekday", ]
+  expect_equal(wk$value, 1:7)  # 1 = Mon ... 7 = Sun
+  expect_true(all(is.finite(wk$pdp_mean)))
+  expect_true("temp" %in% pdp$variable)
+})
+
 test_that("nm_run_scm works with mlscm backend using lightgbm", {
   skip_if_not_installed("lightgbm")
 

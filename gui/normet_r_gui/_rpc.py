@@ -17,11 +17,13 @@ written, an R error is raised here as :class:`RError` in R's words, and
 
 from __future__ import annotations
 
+import contextlib
 import datetime as _dt
 import itertools
 import json
 import logging
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -118,6 +120,31 @@ class RObject:
     def __repr__(self) -> str:
         cls = "/".join(self.r_class) or "R object"
         return f"<R {cls} {os.path.basename(self.path)}>"
+
+    # Pickled (a saved session, the autosave) with its files: the session's folder is
+    # gone once the window closes, so the object takes its .rds or model folder along,
+    # zipped, and is unpacked into the folder of the window that reads it back.
+    def __getstate__(self) -> dict[str, Any]:
+        import io
+        import zipfile
+
+        src = Path(self.path)
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            files = sorted(p for p in src.rglob("*") if p.is_file()) if src.is_dir() else [src]
+            for f in files:
+                zf.write(f, f.relative_to(src.parent))
+        return {"name": src.name, "files": buf.getvalue(), "info": dict(self.info)}
+
+    def __setstate__(self, state: dict[str, Any]) -> None:
+        import io
+        import zipfile
+
+        dest = Path(tempfile.mkdtemp(prefix="restored_", dir=session_dir()))
+        with zipfile.ZipFile(io.BytesIO(state["files"])) as zf:
+            zf.extractall(dest)
+        self.path = str(dest / state["name"])
+        self.info = state["info"]
 
 
 # -- the session's folder ----------------------------------------------------------------
@@ -277,13 +304,33 @@ def _decode(value: Any) -> Any:
 # -- the call ----------------------------------------------------------------------------
 
 
+#: normet's R logger writes ``INFO [17:10:24.727] message``; the window's log has its own
+#: level and time, so the line is logged at R's level with only its message.
+_R_LINE = re.compile(r"^(TRACE|DEBUG|INFO|WARN|ERROR|FATAL)\s+\[[\d:.]+\]\s?(.*)$")
+_R_LEVEL = {"TRACE": logging.DEBUG, "DEBUG": logging.DEBUG, "INFO": logging.INFO,
+            "WARN": logging.WARNING, "ERROR": logging.ERROR, "FATAL": logging.ERROR}
+#: rpc.R's line for the share of the call done (the package's own reports): passed on to
+#: whoever listens on this thread (normet.utils.progress, the window's task clock), not logged.
+_PROGRESS = re.compile(r"^NM_PROGRESS ([0-9.]+)$")
+
+
 def _forward(stream: Any, lines: list[str], on_line: Callable[[str], None] | None) -> None:
     for raw in iter(stream.readline, ""):
         line = raw.rstrip("\n")
         if not line.strip() or line.strip() == "RPC_DONE":
             continue
+        share = _PROGRESS.match(line)
+        if share:
+            from .nm.utils import progress  # here: nm's own imports come through this module
+
+            progress.report(round(10000 * float(share.group(1))), 10000)
+            continue
         lines.append(line)
-        log.info("%s", line)
+        m = _R_LINE.match(line)
+        if m:
+            log.log(_R_LEVEL[m.group(1)], "%s", m.group(2))
+        else:
+            log.info("%s", line)
         if on_line is not None:
             try:
                 on_line(line)
@@ -291,9 +338,49 @@ def _forward(stream: Any, lines: list[str], on_line: Callable[[str], None] | Non
                 pass
 
 
+class Captured(Exception):
+    """Raised by :func:`call` inside :func:`capture` (without an answer): the call was
+    recorded, not made."""
+
+
+_capturing = threading.local()
+
+
+@contextlib.contextmanager
+def capture(answer: Callable[[], Any] | None = None):
+    """Inside it, on this thread, :func:`call` runs no R: it records each call as it
+    would send it -- ``(fn, args, kwargs)``, the keywords given as None left out -- in
+    the list this yields, then raises :class:`Captured` or, given *answer*, returns
+    ``answer()``. The command log writes the R a task runs this way (``commandlog``).
+    What the code run logs meanwhile, on this thread, is not shown: run on empty
+    answers, it would say what did not happen."""
+    calls: list[tuple[str, tuple[Any, ...], dict[str, Any]]] = []
+    _capturing.calls, _capturing.answer = calls, answer
+    handlers = {*logging.getLogger().handlers, *logging.getLogger("normet").handlers}
+    for h in handlers:
+        h.addFilter(_not_captured)
+    try:
+        yield calls
+    finally:
+        _capturing.calls = _capturing.answer = None
+        for h in handlers:
+            h.removeFilter(_not_captured)
+
+
+def _not_captured(record: logging.LogRecord) -> bool:
+    """A log record kept unless its thread is inside :func:`capture`."""
+    return getattr(_capturing, "calls", None) is None
+
+
 def call(fn: str, *args: Any, on_line: Callable[[str], None] | None = None, **kwargs: Any) -> Any:
     """``fn(*args, **kwargs)`` in R: a normet function, or one of rpc.R's ``.gui_*``
     helpers. Keyword arguments given as ``None`` are left out, so R's defaults apply."""
+    calls = getattr(_capturing, "calls", None)
+    if calls is not None:
+        calls.append((fn, args, {k: v for k, v in kwargs.items() if v is not None}))
+        if _capturing.answer is None:
+            raise Captured(fn)
+        return _capturing.answer()
     exe = rscript()
     if not exe:
         raise RNotFound(
@@ -322,6 +409,8 @@ def call(fn: str, *args: Any, on_line: Callable[[str], None] | None = None, **kw
         encoding="utf-8",
         errors="replace",
         env=env,
+        # A group of its own, so a stop ends what R started too (see _kill_tree).
+        **_OWN_GROUP,
     )
     with _lock:
         _state["proc"] = proc
@@ -345,6 +434,11 @@ def call(fn: str, *args: Any, on_line: Callable[[str], None] | None = None, **kw
     return _decode(out.get("value"))
 
 
+_OWN_GROUP: dict[str, Any] = (
+    {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt" else {"start_new_session": True}
+)
+
+
 def cancel() -> bool:
     """Stop the R call in progress, if there is one."""
     with _lock:
@@ -352,5 +446,39 @@ def cancel() -> bool:
     if proc is None or proc.poll() is not None:
         return False
     _state["cancelled"] = proc
-    proc.kill()
+    _kill_tree(proc)
     return True
+
+
+def _kill_tree(proc: subprocess.Popen) -> None:
+    """R and every process it started: one left running would hold R's output open,
+    and the call would wait on it."""
+    if os.name == "nt":
+        subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)], capture_output=True, check=False)
+        proc.kill()
+        return
+    # Found before R is killed: its children are then no longer R's. R runs a command
+    # it gives a time limit (HYSPLIT) in a group of its own, so each is killed by name.
+    pids = _descendants(proc.pid)
+    for kill in (lambda: os.killpg(proc.pid, 9), *(lambda p=p: os.kill(p, 9) for p in pids)):
+        with contextlib.suppress(OSError):
+            kill()
+    proc.kill()
+
+
+def _descendants(pid: int) -> list[int]:
+    try:
+        ps = subprocess.run(["ps", "-A", "-o", "pid=,ppid="], capture_output=True, text=True, check=False)
+    except OSError:
+        return []
+    children: dict[int, list[int]] = {}
+    for line in ps.stdout.splitlines():
+        parts = line.split()
+        if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
+            children.setdefault(int(parts[1]), []).append(int(parts[0]))
+    out, todo = [], [pid]
+    while todo:
+        for c in children.get(todo.pop(), []):
+            out.append(c)
+            todo.append(c)
+    return out

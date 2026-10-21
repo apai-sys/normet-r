@@ -209,8 +209,8 @@ EXAMPLES: dict[str, Example] = {
         # atmos_pres is meteorology under a name the window does not recognise.
         features=("ws", "wd", "temp", "RH", "atmos_pres", "blh", "tcc", "tp", "ssrd"),
         load=_my1,
-        code="df = nm.datasets.load_my1()",
-        imports=("import normet as nm",),
+        code="df <- my1",
+        imports=(),
     ),
     "my1_pm25": Example(
         key="my1_pm25",
@@ -222,8 +222,8 @@ EXAMPLES: dict[str, Example] = {
         # The site's own ws/wd/temp; ERA5's copies of them (ws_era5, t2m, ...) left out.
         features=("ws", "wd", "temp", "u10", "v10", "d2m", "blh", "sp", "ssrd", "tcc", "tp"),
         load=_my1_pm25,
-        code="df = nm.datasets.load_my1_pm25()",
-        imports=("import normet as nm",),
+        code="df <- my1_pm25",
+        imports=(),
     ),
     "synthetic": Example(
         key="synthetic",

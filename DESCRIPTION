@@ -25,7 +25,6 @@ Imports:
     doSNOW (>= 1.0.19),
     foreach (>= 1.5.0),
     ggplot2 (>= 3.3.0),
-    glmnet (>= 4.0),
     httr2 (>= 1.0.0),
     jsonlite (>= 1.7.0),
     lgr (>= 0.3.0),
