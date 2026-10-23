@@ -320,11 +320,21 @@ NULL
   cut <- as.POSIXct(as.character(cutoff), tz = "UTC")
   rows <- c(rows, list(list("treated unit's pre-period mean",
                             mean(df$observed[df$date < cut], na.rm = TRUE))))
-  paste(c(
+  pt <- d[["pre_trend"]]
+  if (is.null(pt)) pt <- list()
+  rows <- c(rows, list(
+    list("pre-trend p-value (slope)", if (is.null(pt$p_slope)) NA else pt$p_slope),
+    list("pre-trend drift (final third vs rest)", if (is.null(pt$rmpe_drift)) NA else pt$rmpe_drift)
+  ))
+  lines <- c(
     sprintf("Synthetic control, cutoff %s (nm_scm_diagnostics):", cutoff),
     "",
     .nm_text_table(c("", "value"), rows)
-  ), collapse = "\n")
+  )
+  if (!is.null(pt$verdict) && !is.na(pt$verdict) && nzchar(pt$verdict)) {
+    lines <- c(lines, "", sprintf("pre-trend: %s", pt$verdict))
+  }
+  paste(lines, collapse = "\n")
 }
 
 #' A time-series cross-validation's scores, fold by fold, with their means.
@@ -346,5 +356,141 @@ NULL
       collapse = ", "
     ), "."))
   }
+  paste(lines, collapse = "\n")
+}
+
+#' A trend test on a series (nm_trend result): its direction and the
+#' Mann-Kendall test, the slope with its interval, and -- where the record is
+#' autocorrelated -- the block-bootstrap interval and Wald p, which is the one
+#' to quote (the classical MK p is anti-conservative there and says so).
+#' @noRd
+.nm_trend_reading <- function(res, name = "series") {
+  t <- res$test
+  s <- res$slope
+  unit <- if (s$time_unit == "day") "per day" else "per step"
+  rows <- list(
+    c("series", res$name),
+    c("rows used", res$n)
+  )
+  if (res$n_dropped) rows <- c(rows, list(c("missing dropped", res$n_dropped)))
+  rows <- c(rows, list(
+    c("direction (5%)", .nm_trend_direction(t)),
+    c("Mann-Kendall S", t$S),
+    c("MK z", .nm_num(t$z, 3)),
+    c("MK p (two-sided, classical)", .nm_num(t$p, 4)),
+    c(paste0("slope (", unit, ")"), .nm_num(s$slope, 4)),
+    c(
+      paste0("slope 95% CI (", unit, ")"),
+      paste0("[", .nm_num(s$ci_low, 4), ", ", .nm_num(s$ci_high, 4), "]")
+    )
+  ))
+  if (!is.null(s$slope_per_year)) {
+    rows <- c(rows, list(c("slope per year", .nm_num(s$slope_per_year, 4))))
+  }
+  rows <- c(rows, list(
+    c("AR(1) residual acf", .nm_num(res$ar1_acf, 3)),
+    c("AR(1) p", .nm_num(res$ar1_p, 4))
+  ))
+  if (res$ar_autocorrelated) {
+    if (!is.null(res$boot_slope_se)) {
+      rows <- c(rows, list(
+        c("bootstrap SE (block)", .nm_num(res$boot_slope_se, 4)),
+        c(
+          paste0("bootstrap 95% CI (", unit, ")"),
+          paste0("[", .nm_num(res$boot_ci_low, 4), ", ", .nm_num(res$boot_ci_high, 4), "]")
+        ),
+        c("p (Wald on block bootstrap)", .nm_num(res$p_wald_boot, 4)),
+        c("block length", res$block_length),
+        c("bootstrap replicates", res$n_bootstrap)
+      ))
+      rows <- c(rows, list(c(
+        "quote",
+        paste0(
+          res$name, ": ", .nm_trend_direction(t), " at 5%, slope ", .nm_num(s$slope, 4), " ", unit,
+          " (bootstrap CI [", .nm_num(res$boot_ci_low, 4), ", ", .nm_num(res$boot_ci_high, 4), "], ",
+          "p_wald ", .nm_num(res$p_wald_boot, 4), ")"
+        )
+      )))
+    } else {
+      rows <- c(rows, list(
+        c("quote", "AR(1) detected but the block bootstrap was unavailable \u2014 see the notes")
+      ))
+    }
+  }
+  lines <- c(paste0("Trend test on ", name, " (nm_trend):"), "")
+  lines <- c(lines, .nm_text_table(c("", "value"), rows))
+  if (length(res$notes)) lines <- c(lines, "", res$notes)
+  paste(lines, collapse = "\n")
+}
+
+#' A segmented trend test on a series (nm_trend_breaks result): where the trend
+#' breaks, each segment with its own Theil-Sen slope and Sen (1968) interval,
+#' and the block-bootstrap p of the search over every candidate position -- the
+#' multiple-testing-corrected, autocorrelation-aware one to quote; the record's
+#' reason for staying one regime where the gates refused a split.
+#' @noRd
+.nm_trend_breaks_reading <- function(res, name = "series") {
+  unit <- if (res$time_unit == "day") "per day" else "per step"
+  rows <- list(
+    c("series", res$name),
+    c("rows used", res$n),
+    c("segments", res$n_segments)
+  )
+  if (res$n_dropped) rows <- c(rows, list(c("missing dropped", res$n_dropped)))
+  header <- c("start", "end", "n", paste0("slope (", unit, ")"), "slope 95% CI", "slope per year")
+  seg_rows <- lapply(seq_along(res$segments), function(i) {
+    seg <- res$segments[[i]]
+    c(
+      .nm_fmt_index(res$starts[i]),
+      .nm_fmt_index(res$ends[i]),
+      seg$n,
+      .nm_num(seg$slope, 4),
+      paste0("[", .nm_num(seg$ci_low, 4), ", ", .nm_num(seg$ci_high, 4), "]"),
+      if (!is.null(seg$slope_per_year)) .nm_num(seg$slope_per_year, 3) else "n/a"
+    )
+  })
+  lines <- c(paste0("Segmented trend test on ", name, " (nm_trend_breaks):"), "")
+  if (res$n_segments > 1L) {
+    breaks <- paste(vapply(res$starts[-1L], .nm_fmt_index, ""), collapse = ", ")
+    rows <- c(rows, list(
+      c("break(s)", breaks),
+      c("single-slope SSE", .nm_num(res$sse_single, 6)),
+      c("segmented SSE", .nm_num(res$sse_segmented, 6)),
+      c("SSE improvement", paste0(.nm_num(res$improvement_pct, 1), " %")),
+      c("BIC (single / segmented)", paste0(" ", .nm_num(res$bic_single, 6), " / ", .nm_num(res$bic_segmented, 6))),
+      c("p (block bootstrap of the search)", .nm_num(res$p_value, 4)),
+      c("alpha", res$alpha)
+    ))
+    if (!is.null(res$n_bootstrap)) {
+      rows <- c(rows, list(
+        c("bootstrap replicates", res$n_bootstrap),
+        c("block length", res$block_length)
+      ))
+    }
+    lines <- c(lines, .nm_text_table(c("", "value"), rows))
+    lines <- c(lines, "", .nm_text_table(header, seg_rows))
+    lines <- c(lines, "", paste0(
+      "Quote: ", res$n_segments, " segments, break(s) at ", breaks, "; ",
+      "p=", .nm_num(res$p_value, 4), " (block bootstrap over ", res$n_bootstrap, " resamples ",
+      "is the multiple-testing-corrected, autocorrelation-aware test -- the one ",
+      "to quote). Each segment's Theil-Sen slope above, with its interval; ",
+      "compare adjacent segments against their Sen intervals, do not re-test."
+    ))
+  } else {
+    rows <- c(rows, list(
+      c("single-slope SSE", .nm_num(res$sse_single, 6)),
+      c("BIC (single / searched)", paste0(" ", .nm_num(res$bic_single, 6), " / ", .nm_num(res$bic_segmented, 6)))
+    ))
+    if (!is.null(res$p_value)) {
+      rows <- c(rows, list(
+        c("best candidate cut", if (!is.null(res$best_break)) .nm_fmt_index(res$best_break) else "n/a"),
+        c("best candidate SSE improvement", paste0(.nm_num(res$best_split_pct, 1), " %")),
+        c("p (block bootstrap of the search)", .nm_num(res$p_value, 4))
+      ))
+    }
+    lines <- c(lines, .nm_text_table(c("", "value"), rows))
+    # the notes say where the search wanted to cut and why it was refused
+  }
+  if (length(res$notes)) lines <- c(lines, "", res$notes)
   paste(lines, collapse = "\n")
 }

@@ -59,6 +59,8 @@ _TASK_WORDS = {
     "rolling": "Rolling",
     "multiscale": "Multi-scale",
     "pdp": "PDP",
+    "trend": "Trend",
+    "uncertainty": "Uncertainty",
 }
 
 
@@ -72,6 +74,8 @@ class SessionMixin(QMainWindow):
         4: "rolling",
         5: "multiscale",
         6: "pdp",
+        7: "trend",
+        8: "uncertainty",
     }
 
     def _record_task(self, fn, args, kwargs):  # noqa: ANN001, ANN202 - TaskRunner.record
@@ -85,6 +89,7 @@ class SessionMixin(QMainWindow):
             (self.df_loaded, "df"),
             (self.df_prep, "df_prep"),
             (self.model, "model"),
+            (self.results.get("decompose"), "decomposition"),
         ]
         if normalised is not None and "normalised" in normalised:
             names.append((normalised["normalised"], "normalised['normalised']"))
@@ -217,7 +222,15 @@ class SessionMixin(QMainWindow):
             "ms_fast": self.ms_fast.value(),
             "ms_meso": self.ms_meso.value(),
             "ms_slow": self.ms_slow.value(),
+            "trend_series": self.trend_series.currentText(),
+            "tre_seasonal": self.tre_seasonal.currentText(),
+            "tre_segments": self.tre_segments.value(),
+            "tre_n_bootstrap": self.tre_n_bootstrap.value(),
+            "trend_after": self.trend_after.isChecked(),
             "pdp_grid": self.pdp_grid.value(),
+            "unc_samples": self.unc_samples.value(),
+            "unc_models": self.unc_models.value(),
+            "unc_backend": self.unc_backend.currentText(),
         }
 
     def apply_config(self, c: dict) -> None:
@@ -265,7 +278,18 @@ class SessionMixin(QMainWindow):
         self.ms_fast.setValue(c.get("ms_fast", 14))
         self.ms_meso.setValue(c.get("ms_meso", 90))
         self.ms_slow.setValue(c.get("ms_slow", 365))
+        # Segments before the series: raising the row moves a still-default
+        # emission-part choice to the long-term one, and the restored choice
+        # must stand after it.
+        self.tre_segments.setValue(int(c.get("tre_segments", 1)))
+        self.trend_series.setCurrentText(c.get("trend_series", "emission part (emi_total)"))
+        self.tre_seasonal.setCurrentText(c.get("tre_seasonal", "auto"))
+        self.tre_n_bootstrap.setValue(c.get("tre_n_bootstrap", 1000))
+        self.trend_after.setChecked(c.get("trend_after", True))
         self.pdp_grid.setValue(c.get("pdp_grid", 50))
+        self.unc_samples.setValue(c.get("unc_samples", 300))
+        self.unc_models.setValue(c.get("unc_models", 4))
+        self.unc_backend.setCurrentText(c.get("unc_backend", "lightgbm"))
 
     def save_config(self) -> None:
         path, _ = QFileDialog.getSaveFileName(

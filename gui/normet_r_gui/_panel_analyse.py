@@ -199,6 +199,153 @@ class AnalysePanelMixin(QMainWindow):
         mf.addRow(self.ms_button)
         return box
 
+    def _build_trend_box(self) -> QGroupBox:
+        """The trend test of the decomposition's series, the observed target, or both:
+        runs after each emission decomposition where its tick is on."""
+        box = QGroupBox("Trend test")
+        tf = QFormLayout(box)
+        tf.setLabelAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        tf.addRow(
+            hint_label(
+                "Mann–Kendall and Theil–Sen on the series, with a block-bootstrap "
+                "correction where its residuals are autocorrelated -- which is which "
+                "p to quote said in the Trend tab. With more than one segment, a "
+                "segmented fit instead: where the trend breaks, if it does."
+            )
+        )
+        self.trend_series = NoWheelComboBox()
+        self.trend_series.addItems(
+            [
+                "emission part (emi_total)",
+                "long-term trend (separated)",
+                "meteorology part (met_total)",
+                "observed target",
+            ]
+        )
+        self.trend_series.setToolTip(
+            "Which series to test. The decomposition's parts need a decomposition "
+            "first; the observed target only the model.\n"
+            "The emission part is the series the whole toolkit exists to trend: what "
+            "weather does not explain. The long-term trend is the separated part of "
+            "it: the recurring calendar cycles already taken out, so a cleaner fit -- "
+            "the series the decomposition's Trend (long-term) panel draws."
+        )
+        tf.addRow("Series", self.trend_series)
+        self.tre_seasonal = NoWheelComboBox()
+        self.tre_seasonal.addItems(["auto", "none", "24", "7", "12"])
+        self.tre_seasonal.setToolTip(
+            "Sen's seasonal test pairs by calendar slot (hour 14 with hour 14, ...), "
+            "which is the right test of a record that carries a repeating cycle.\n"
+            "auto: from the record's step (hourly → 24, 30-minute → 48, daily → 7, "
+            "monthly → 12), falling back to the classical test where the record is "
+            "not a whole number of periods.\n"
+            "24 hourly / 7 daily / 12 monthly where auto would guess wrong."
+        )
+        tf.addRow("Seasonal period", self.tre_seasonal)
+        self.tre_segments = NoWheelSpinBox()
+        self.tre_segments.setRange(1, 4)
+        self.tre_segments.setValue(1)
+        self.tre_segments.setToolTip(
+            "One segment: the single-slope test (Mann–Kendall, Theil-Sen).\n"
+            "Two or more: a segmented fit -- the record is split where the trend "
+            "breaks, if it breaks, each segment reported with its own slope and "
+            "interval; the break's p is the block bootstrap's, over the search.\n"
+            "The fit runs on the Series chosen above: the long-term trend is the "
+            "cleaner input (the cycles are in their own components), the emission "
+            "part it for the whole de-weathered signal. Raising this moves a "
+            "still-default emission-part choice to the long-term trend."
+        )
+        tf.addRow("Segments", self.tre_segments)
+        self.tre_n_bootstrap = NoWheelSpinBox()
+        self.tre_n_bootstrap.setRange(100, 20_000)
+        self.tre_n_bootstrap.setValue(1000)
+        tf.addRow("Bootstrap replicates", self.tre_n_bootstrap)
+        self.trend_after = QCheckBox("Run after each emission decomposition")
+        self.trend_after.setChecked(True)
+        self.trend_after.setToolTip(
+            "Each finished emission decomposition starts the test of its emission "
+            "part, in the background, under this box's settings; the Segments row "
+            "says whether it is the single-slope test or the segmented fit."
+        )
+        tf.addRow(self.trend_after)
+        self.trend_button = run_button(
+            "▶  Run trend test",
+            "One segment: Mann–Kendall, Theil–Sen slope and its interval, the "
+            "block-bootstrap correction where the record is autocorrelated.\n"
+            "Two or more: the segmented fit -- where the trend breaks, each segment "
+            "with its own slope and interval. Seconds, not minutes.",
+        )
+        self.trend_button.clicked.connect(self._run_trend)
+        self.tre_segments.valueChanged.connect(self._trend_segments_changed)
+        tf.addRow(self.trend_button)
+        return box
+
+    def _trend_segments_changed(self, value: int) -> None:
+        """Going segmented moves the default emission-part choice to its separated
+        long-term trend: with the cycles in their own component columns, the
+        segmentation is cleaner there (the record can go back; the long-term one
+        stays until the analyst chooses otherwise). It fires on a change only,
+        never at the box's build."""
+        if value > 1 and self.trend_series.currentText().startswith("emission"):
+            self.trend_series.setCurrentText("long-term trend (separated)")
+
+    def _build_unc_box(self) -> QGroupBox:
+        """The spread's sources: weather, model form, their interaction.
+
+        A model behind the box is not what it runs on -- the decomposition trains
+        its own members from the table as loaded. What the model gates is the
+        choice: an AutoML model at all (chronos-2's zero-shot forecasts carry
+        no model form to vary), and the feature set and the ticked resample
+        variables it was trained with.
+        """
+        box = QGroupBox("Uncertainty decomposition")
+        uf = QFormLayout(box)
+        uf.setLabelAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        uf.addRow(
+            hint_label(
+                "Of the band a model's estimate carries, how much is the met "
+                "resampling and how much the model form? An ensemble of members, "
+                "each trained on its own seed, predicts the same shared met "
+                "draws; the per-date spread splits orthogonally into weather, "
+                "model and their interaction. Minutes, not seconds: every "
+                "member is a fresh fit."
+            )
+        )
+        self.unc_samples = NoWheelSpinBox()
+        self.unc_samples.setRange(2, 10_000)
+        self.unc_samples.setValue(300)
+        self.unc_samples.setToolTip(
+            "Met resamples shared by every member (the weather factor).\n"
+            "The Normalise page's count, kept here so the two agree."
+        )
+        uf.addRow("Samples", self.unc_samples)
+        self.unc_models = NoWheelSpinBox()
+        self.unc_models.setRange(2, 30)
+        self.unc_models.setValue(4)
+        self.unc_models.setToolTip(
+            "Ensemble members, each trained on its own seed (the model-form "
+            "factor). Two is the floor: with one member there is no model-form "
+            "variance to attribute. The cost is this many fits, so the default "
+            "stays small."
+        )
+        uf.addRow("Models", self.unc_models)
+        self.unc_backend = NoWheelComboBox()
+        self.unc_backend.addItems(["lightgbm", "h2o"])
+        self.unc_backend.setToolTip(
+            "How each member is trained. lightgbm: a fast random search on "
+            "every member.\nh2o: an H2O AutoML search per member, at the cost of "
+            "its budget each (needs Java and the h2o R package)."
+        )
+        uf.addRow("Member backend", self.unc_backend)
+        self.unc_button = run_button(
+            "▶  Run uncertainty decomposition",
+            "Split the total per-date spread into weather, model form and "
+            "their\ninteraction, each member on the same met draws.",
+        )
+        self.unc_button.clicked.connect(self._run_unc)
+        uf.addRow(self.unc_button)
+        return box
+
     def _build_pdp_box(self) -> QGroupBox:
         """Step 5: partial-dependence curves for the ticked variables."""
         box = QGroupBox("Partial dependence")

@@ -202,6 +202,125 @@ The R GUI *is* normet-py's GUI code, vendored, with every analysis routed to R:
 - workers.py: a task's thread that ended after its window was gone raised "Signal
   source has been deleted" (the end of the transport tests); fixed in normet-py.
 
+## Sync with normet-py main at af8bf22 (PRs #52, #53, #56, #57)
+- Vendor source is the committed tree at `af8bf22`, extracted with `git archive`
+  (the normet-py working tree carries uncommitted uncertainty-tab work that is not
+  ported; its delta over af8bf22 is only that tab).
+- R core first: `nm_trend` / `nm_trend_breaks` (Mann-Kendall with the seasonal variant,
+  Theil-Sen with the Sen 1968 interval, the AR(1) residual diagnostic, the moving-block
+  bootstrap; the segmented fit is a greedy search gated by BIC and by the block-bootstrap
+  p of the search over every candidate position), `nm_verification`, `nm_uncertainty`;
+  the agent readings and tools, the MCP registration; the testthat suite green.
+- The GUI re-vendors af8bf22: `_trend.py` (the series, the auto seasonal, the verdicts,
+  the figures), the Trend tab and its box, the runner's `_run_trend` (segments 1 is the
+  single-slope test, 2-4 the segmented fit, which moves an emission-part choice to the
+  separated long-term trend), the session's saved trend result, the Assistant's trend
+  tools, the methods paragraph. normet-py's own GUI tests come over too
+  (`tests/test_gui_trend.py`), running R here.
+- R-own: `nm/analysis/trend.py` holds normet-py's dataclasses as they are (the window
+  reads the results as those, and `_saved.py` checks their names); `nm/_r.py`'s
+  `trend` / `detect_trend_breaks` call `nm_trend` / `nm_trend_breaks`. A datetime-indexed
+  series crosses as a frame with its date column and the series' own column (a bare
+  vector would lose its index); a positional one crosses as its values.
+- `rpc.R` encodes the `nm_trend*` results plain (the window's dataclasses read them; a
+  classed object would cross as an .rds handle); `commandlog` writes
+  `nm_trend(df_prep, value_col = "column", ...)` in place of the window's constructed
+  series (`'long-term'` is the separated component R computes from `date_unix + emi_base`).
+- `r_patches.py`: the trend's chronos tooltip and the Assistant's two chronos guards
+  (the vendored trend tools call the deleted `_is_chronos`), the methods paragraph's R
+  names, the readings' R names. `vendor_py_gui.py` fixed: its import rewrite added a
+  superfluous dot to a library module's dotted subpaths (`nm/agent/readings.py`'s trend
+  import came back as `...analysis.trend`); `nm/__init__.py` now exports
+  `scm_diagnostics` at the top level, as normet-py's `normet` does (the readings reach
+  it there).
+- The manual: the run-buttons table re-patched for af8bf22 (its new trend row, the
+  Chronos rows out); the English book was missing the trend section's cross-reference
+  the Chinese one has (af8bf22's own mismatch); the trend section's quoted numbers and
+  both screenshots are this window's (`walk_gui.py` gained the trend walk, and restores
+  the visible tab before the decomposition's figure, where the ticked
+  run-after-each-decomposition tick has already started the trend).
+
+## Sync with normet-py main at 0569833 (PRs #58, #59, #60)
+- Only PR #58 (the uncertainty step in the window) has a part for this window. PRs #59
+  and #60 (quantile calibration on a held-out span, and the counterfactual's
+  calibrated band) are `foundation`-only — they calibrate Chronos-2's zero-shot
+  quantile bands and are used by nothing the window or the R package can reach — so
+  they are not ported. The vendor source is the committed tree at `0569833`
+  (`git archive`); the GUI files it copies differ from af8bf22's by exactly #58's.
+- The R core was already here from af8bf22 (`nm_uncertainty.r`, its result class with
+  summary/as.data.frame/plot/print, tests green). Fixed on the way:
+  `nm_decompose_uncertainty` now hands `nm_prepare_data` only the external covariates
+  and checks the full list after preparing, as `nm_build_model` does — the window
+  names the calendar columns with the met ones and they are not in the raw table.
+- The GUI re-vendors #58: `_uncertainty.py` (the tab's words and verdicts), the
+  Uncertainty box under Trend on the Decompose page (Models, Samples, Member
+  backend), the Uncertainty tab and its light, the runner's `_run_unc`, the session's
+  saved run and its config rows, the Methods lines. normet-py's own GUI test comes
+  over too (`tests/test_gui_uncertainty.py`), running R here — and it runs: the
+  window's covariates, three members and their verdicts come from R.
+- R-own: `nm/analysis/uncertainty.py` holds normet-py's `UncDecomposition` as it is
+  (the tab reads its `summary()`/`plot()`; the saved session pickles it whole);
+  `nm/_r.py`'s `decompose_uncertainty` calls `nm_decompose_uncertainty` and fills it.
+  `rpc.R` encodes `nm_unc_decomposition` plain, like the trend results (a classed
+  object would cross as an .rds handle); `commandlog` writes
+  `nm_decompose_uncertainty(df, target = "column", ...)`.
+- `r_patches.py`: the Member backends are lightgbm/h2o (normet-py's lightgbm/flaml)
+  and h2o's budget is its runtime, as on the Train page; the step's and the enable
+  rule's chronos guards go (the vendored code calls the deleted `_is_chronos`); the
+  Methods paragraph says R's name and cites H2O where normet-py cites FLAML; the
+  Chinese line of the chronos refusal goes. The vendored test: the chronos row goes,
+  and its flaml settings are this window's h2o.
+- The manual: the Uncertainty section lands in both books with R's names, h2o for
+  flaml and `nm_do_all_unc` for py's pipeline; its quoted numbers and both
+  screenshots are this window's own (`walk_gui.py` gained the uncertainty walk: MY1,
+  three members sharing 50 draws, lightgbm). The API table row for
+  `nm_decompose_uncertainty` is written inside the scripting passage's rewrite,
+  which covers that chapter's function table whole — the copied row falls inside it.
+
+## Sync with normet-py main at 48bee46 (PR #61: the SCM pre-trend test)
+
+- PR #61 is `causal`-side and portable: `pre_trend_test`, the pre-period
+  parallel-trends check (the OLS slope of the pre-period residuals with its
+  classical two-sided t-test, and the RMSPE of the final third over that of
+  the first two thirds, read together as a traffic light). It touches no GUI
+  file; it lands in the window through the already-vendored `causal/diagnostics.py`
+  and `agent/readings.py`.
+- GUI: `causal/prediagnostics.py` joins the vendor LIBRARY (it is pure
+  numpy/pandas, its scipy import lazy like the trend module's), so
+  `scm_diagnostics` gains `pre_trend` and the vendored reading quotes it
+  unchanged; `nm/causal/__init__.py` and `nm/__init__.py` export `pre_trend_test`
+  and `PreTrend` the way normet-py's `normet` does.
+- R core: `R/nm_causal_pre_trend.r` ports `pre_trend_test` (and the `PreTrend`
+  dataclass as a classed list with a `print` method) — the t-test is `pt()`,
+  so the R port needs no scipy; the verdict strings are normet-py's bytes,
+  `nan`/`inf` included. `nm_scm_diagnostics` gained the `pre_trend` element and
+  the R agent's SCM reading the two rows and the verdict line (mirroring the
+  `readings.py` diff). `rpc.R` encodes `nm_pre_trend` plain, as it does the
+  other classed results.
+- Tests: `tests/testthat/test-pre-trend.r` mirrors `tests/test_prediagnostics.py`
+  on the same fixture (the clean panel stays quiet; an injected ramp fails;
+  late noise says caution-deteriorates; a bare frame and a list read the same;
+  four pre-period points are `insufficient`; `nm_scm_diagnostics` and
+  `nm_run_scm` feed it).
+
+## Sync with normet-py main at 6e8555d (PR #62: the event-study figure)
+
+- PR #62 adds `plot_event_study` to `causal/bands.py` — the visual companion
+  of #61's pre-trend test — and touches no GUI file and no manual file (its
+  guide and notebook changes are not vendored). The window takes it with the
+  re-vendored `bands.py`; `nm/causal/__init__.py` exports it beside the other
+  bands figures (the window's `nm/__init__` top level mirrors only what the
+  readings reach, and `effect_bands_*` never did, so neither does this).
+- R core: `nm_plot_event_study()` in `R/nm_causal_bands.r`, a ggplot mirror —
+  event time (a period count), pre-period `neutral` and post-period
+  `modelled`, the band's `lw=0` alpha-0.18 ribbon over the post period only,
+  `.zero_line()` and `.cutoff_line(0)`, the labels through `.say()`. A
+  date-carrying band matches post rows on the shared epoch scale (a Date band
+  meets a POSIXct frame); an event-time band aligns by row position, as in
+  normet-py. `tests/testthat/test-event-study.r` mirrors the four
+  `test_bands.py` additions (event-time split, ci_lo/ci_hi winning, date
+  alignment, the four rejections).
+
 ## Local setup used here
 - R 4.3 + normet installed from this repo (`R CMD INSTALL .`), lightgbm R package
   built from GitHub source (`Rscript build_r.R` in microsoft/LightGBM).

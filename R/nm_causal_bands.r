@@ -670,3 +670,129 @@ nm_plot_uncertainty_bands <- function(band_result, cutoff_date = NULL, title = "
 
   return(p)
 }
+
+#' Event-Study Figure for the Pre-Trend Check
+#'
+#' @description
+#' Plots the treated effect against event time, the pre- and post-period
+#' apart: the visual companion of [nm_pre_trend_test()]. A synthetic control
+#' that is credible has pre-period points scattered about zero and a
+#' post-period path that leaves them; pre-period points that slope away from
+#' zero are the pre-trend failure the test flags. Event time counts *periods*
+#' of the panel (days for a daily panel, months for a monthly one), so a slow
+#' panel does not get a wide, unreadable x axis.
+#'
+#' The band, when given, starts at the cutoff and covers no pre-period:
+#' placebo cutoffs have no pre-period of their own to estimate one from, and
+#' a shaded pre-period would claim a coverage the data cannot back.
+#'
+#' @param eff_by_period A data frame with `date` and `effect` columns (the
+#'   `synthetic` frame of an SCM fit works), or a list holding one under
+#'   `treated` - the shape [nm_placebo_in_time()] returns.
+#' @param cutoff_date The intervention date, a string or Date. The first
+#'   observation at or after it is event time 0; every observation before it
+#'   gets a negative event time.
+#' @param band Optional post-period band: an event-time band, aligned by row
+#'   position (as `nm_effect_bands_time()` returns), or a date-carrying frame
+#'   from [nm_effect_bands_space()], aligned by date. Its columns are read as
+#'   `ci_lo`/`ci_hi`, else `lower`/`upper`, else `low`/`high`, else
+#'   `p10`/`p90`.
+#' @param title The title for the plot.
+#'
+#' @return A ggplot object: pre-period in the neutral grey, post-period in
+#'   the modelled red, the band (when given) shaded over the post-period
+#'   only, a dotted line at the cutoff (event time 0) and a line at zero.
+#' @seealso [nm_pre_trend_test()], [nm_plot_effect_with_bands()].
+#' @export
+nm_plot_event_study <- function(eff_by_period, cutoff_date, band = NULL,
+                                title = "Event study") {
+  df <- if (is.data.frame(eff_by_period)) {
+    eff_by_period
+  } else if (is.list(eff_by_period) && !is.null(eff_by_period[["treated"]])) {
+    eff_by_period[["treated"]]
+  } else {
+    NULL
+  }
+  if (!is.data.frame(df) || !"effect" %in% colnames(df)) {
+    stop("`eff_by_period` must be a data.frame with an 'effect' column.", call. = FALSE)
+  }
+  if (!"date" %in% colnames(df)) {
+    stop("`eff_by_period` must carry a 'date' column.", call. = FALSE)
+  }
+  nm_require("ggplot2")
+
+  dates <- .as_time(df$date)
+  ord <- order(dates)
+  df <- df[ord, , drop = FALSE]
+  dates <- dates[ord]
+  post <- dates >= .as_cutoff(cutoff_date, dates)
+  n_pre <- sum(!post)
+  n_post <- sum(post)
+  event_time <- seq.int(-n_pre, n_post - 1L)
+  effect <- as.numeric(df$effect)
+
+  d <- data.frame(
+    .x = event_time, effect = effect,
+    period = factor(ifelse(post, "post-period", "pre-period"),
+                    levels = c("pre-period", "post-period"))
+  )
+  p <- ggplot2::ggplot(d, ggplot2::aes(x = .x, y = effect, colour = period))
+
+  if (!is.null(band) && n_post > 0) {
+    pair <- NULL
+    for (pp in list(c("ci_lo", "ci_hi"), c("lower", "upper"),
+                    c("low", "high"), c("p10", "p90"))) {
+      if (all(pp %in% colnames(band))) {
+        pair <- pp
+        break
+      }
+    }
+    if (is.null(pair)) {
+      stop("`band` must have ci_lo/ci_hi, lower/upper, low/high or p10/p90 columns.",
+           call. = FALSE)
+    }
+    if ("date" %in% colnames(band)) {
+      # A date-carrying band spans whatever window it came from; keep its post
+      # rows, matched on the shared epoch scale (Date days meet POSIXct seconds).
+      band_t <- .as_time(band$date)
+      band_t <- if (inherits(band_t, "Date")) as.numeric(band_t) * 86400 else as.numeric(band_t)
+      post_t <- if (inherits(dates, "Date")) as.numeric(dates[post]) * 86400 else as.numeric(dates[post])
+      idx <- match(post_t, band_t)
+      lo <- as.numeric(band[[pair[1]]])[idx]
+      hi <- as.numeric(band[[pair[2]]])[idx]
+    } else {
+      n_draw <- min(n_post, nrow(band))
+      lo <- as.numeric(band[[pair[1]]])[seq_len(n_draw)]
+      hi <- as.numeric(band[[pair[2]]])[seq_len(n_draw)]
+    }
+    if (length(lo) == 0L || all(is.na(lo))) {
+      stop("`band` does not cover the post-period.", call. = FALSE)
+    }
+    band_df <- data.frame(.x = event_time[post][seq_along(lo)], lo = lo, hi = hi)
+    p <- p + ggplot2::geom_ribbon(
+      data = band_df,
+      ggplot2::aes(x = .x, ymin = lo, ymax = hi, fill = "placebo band"),
+      inherit.aes = FALSE, alpha = 0.18, linewidth = 0
+    ) +
+      ggplot2::scale_fill_manual(
+        name = NULL,
+        values = stats::setNames(nm_colours[["modelled"]], "placebo band"),
+        labels = .say("placebo band")
+      )
+  }
+
+  p +
+    ggplot2::geom_line(linewidth = .pt_lw(1)) +
+    ggplot2::geom_point(size = 1) +
+    ggplot2::scale_colour_manual(
+      name = NULL,
+      values = c("pre-period" = nm_colours[["neutral"]],
+                 "post-period" = nm_colours[["modelled"]]),
+      labels = c(.say("pre-period"), .say("post-period"))
+    ) +
+    .zero_line() +
+    .cutoff_line(0) +
+    ggplot2::labs(title = .say(title), x = .say("Periods since cutoff"),
+                  y = .say("Effect (observed - synthetic)")) +
+    nm_theme_normet()
+}

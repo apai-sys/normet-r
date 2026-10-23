@@ -352,6 +352,24 @@ patch(
 )
 patch(
     "methods.py",
+    "trend: R's name",
+    '''                f"bootstrap where the residuals are autocorrelated (normet.trend), was "''',
+    '''                f"bootstrap where the residuals are autocorrelated (nm_trend), was "''',
+)
+patch(
+    "methods.py",
+    "trend breaks: R's name (zh)",
+    '''                f"normet.detect_trend_breaks，最多 {k} 段）施加于{nm}。"''',
+    '''                f"nm_trend_breaks，最多 {k} 段）施加于{nm}。"''',
+)
+patch(
+    "methods.py",
+    "trend breaks: R's name (en)",
+    '''                f"A segmented trend test (normet.detect_trend_breaks, up to {k} segments, "''',
+    '''                f"A segmented trend test (nm_trend_breaks, up to {k} segments, "''',
+)
+patch(
+    "methods.py",
     "the R package",
     '''            f"气象归一化使用 normet {info.get('version', '')} 完成。记录包含 {target} 的 "''',
     '''            f"气象归一化使用 normet R 包 {info.get('version', '')} 完成。记录包含 {target} 的 "''',
@@ -710,6 +728,25 @@ patch(
     '''        "Model fit (normet.modStats; 'testing' is the rows held out of training):",''',
     '''        "Model fit (nm_modStats; 'testing' is the rows held out of training):",''',
 )
+patch(
+    "nm/agent/readings.py",
+    "R's trend name",
+    '''    lines = [f"Trend test on {name} (normet.trend):", ""]''',
+    '''    lines = [f"Trend test on {name} (nm_trend):", ""]''',
+)
+patch(
+    "nm/agent/readings.py",
+    "R's trend breaks name",
+    '''    lines = [f"Segmented trend test on {name} (normet.detect_trend_breaks):", ""]''',
+    '''    lines = [f"Segmented trend test on {name} (nm_trend_breaks):", ""]''',
+)
+# The Assistant's trend reading, which that test reads back, says R's name.
+patch(
+    "tests/test_gui_trend.py",
+    "the Assistant's trend reading, in R",
+    '''    assert "Trend test on NO2 — emission part (normet.trend)" in said, said[:400]''',
+    '''    assert "Trend test on NO2 — emission part (nm_trend)" in said, said[:400]''',
+)
 
 
 # -- Chronos-2: not in this window ---------------------------------------------------------
@@ -967,6 +1004,47 @@ patch(
             for b in (self.roll_button, self.pdp_button):
                 b.setEnabled(False)
                 b.setToolTip(tip)
+""",
+    "",
+)
+patch(
+    "_tasks.py",
+    "chronos: trend tooltip",
+    r"""        elif self._is_chronos() and self.trend_series.currentText().startswith(
+            ("emission", "long-term")
+        ):
+            self.trend_button.setToolTip(
+                "The emission part and its separated long-term trend need the "
+                "emission decomposition, which chronos-2 cannot make: choose the "
+                "observed target, or train with flaml or lightgbm."
+            )
+""",
+    "",
+)
+patch(
+    "assistant.py",
+    "chronos: trend guard",
+    r"""        if series == "emission" and self._gui(self.win._is_chronos):
+            raise ValueError(
+                "the emission part does not exist on chronos-2: its decomposition "
+                "cannot make it. Take series='observed' instead, or 'met' once the "
+                "meteorological decomposition has run."
+            )
+
+""",
+    "",
+)
+patch(
+    "assistant.py",
+    "chronos: trend breaks guard",
+    r"""        if series in ("emission", "long-term") and self._gui(self.win._is_chronos):
+            raise ValueError(
+                "the emission part and its separated long-term trend do not exist "
+                "on chronos-2: its decomposition cannot make them. Take "
+                "series='observed' instead, or 'met' once the meteorological "
+                "decomposition has run."
+            )
+
 """,
     "",
 )
@@ -1248,4 +1326,117 @@ passage(
     "def test_chronos_backend_hides_the_training_controls(qapp):",
     "def test_scm_fit_verdict_reads_the_pre_fit_only_when_a_shuffled_series_cannot_match_it(qapp):",
     "",
+)
+
+# -- uncertainty decomposition (normet-py PR #58): the box runs R's members ----------------
+patch(
+    "_panel_analyse.py",
+    "unc: member backends are R's",
+    '''        self.unc_backend.addItems(["lightgbm", "flaml"])
+        self.unc_backend.setToolTip(
+            "How each member is trained. lightgbm: a fast random search on "
+            "every member.\\nflaml: an AutoML search per member, at the cost of "
+            "its budget each."
+        )''',
+    '''        self.unc_backend.addItems(["lightgbm", "h2o"])
+        self.unc_backend.setToolTip(
+            "How each member is trained. lightgbm: a fast random search on "
+            "every member.\\nh2o: an H2O AutoML search per member, at the cost of "
+            "its budget each (needs Java and the h2o R package)."
+        )''',
+)
+patch(
+    "_run_analyse.py",
+    "unc: no chronos to refuse (its guard calls the deleted _is_chronos)",
+    '''        if self._is_chronos():
+            self.notify(
+                "Not available for chronos-2: its zero-shot forecasts carry no "
+                "model form to vary, and the attribution needs several members "
+                "each fitted to the record. Train with flaml or lightgbm.",
+                key="need-model",
+            )
+            return
+        from .nm import decompose_uncertainty''',
+    '''        from .nm import decompose_uncertainty''',
+)
+patch(
+    "_run_analyse.py",
+    "unc: R's h2o budget is its runtime",
+    '''        cfg = (
+            {"time_budget": self.budget_spin.value()}
+            if self.unc_backend.currentText() == "flaml"
+            else {"n_trials": self.budget_spin.value()}
+        )''',
+    '''        cfg = (
+            {"max_runtime_secs": self.budget_spin.value()}
+            if self.unc_backend.currentText() == "h2o"
+            else {"n_trials": self.budget_spin.value()}
+        )''',
+)
+patch(
+    "_tasks.py",
+    "unc: enable on a model alone (no chronos here)",
+    '''        self.unc_button.setEnabled(not busy and has_model and not self._is_chronos())
+        if not has_model:
+            self.unc_button.setToolTip("Train a model first.")
+        elif self._is_chronos():
+            self.unc_button.setToolTip(
+                "Not available for chronos-2 -- train with flaml or lightgbm first."
+            )''',
+    '''        self.unc_button.setEnabled(not busy and has_model)
+        if not has_model:
+            self.unc_button.setToolTip("Train a model first.")''',
+)
+# The Methods paragraph says the R package's name, and cites H2O where normet-py cites FLAML.
+patch(
+    "methods.py",
+    "unc: citation is R's h2o",
+    '''        cite = REFERENCES["lightgbm"] if backend == "lightgbm" else REFERENCES["flaml"]''',
+    '''        cite = REFERENCES["lightgbm"] if backend == "lightgbm" else REFERENCES["h2o"]''',
+)
+patch(
+    "methods.py",
+    "unc: R's name (en)",
+    '''                "(normet.decompose_uncertainty): an ensemble of "''',
+    '''                "(nm_decompose_uncertainty): an ensemble of "''',
+)
+patch(
+    "methods.py",
+    "unc: R's name (zh)",
+    '''                f"不确定度分解（normet.decompose_uncertainty）将总方差按来源分摊：以 "''',
+    '''                f"不确定度分解（nm_decompose_uncertainty）将总方差按来源分摊：以 "''',
+)
+# The chronos line of the copied Chinese catalogue, whose string the patched code no longer has.
+patch(
+    "ui_zh.py",
+    "unc: chronos refusal is gone",
+    '    "Not available for chronos-2 -- train with flaml or lightgbm first.": "chronos-2 不可用——请先用 flaml 或 lightgbm 训练。",\n',
+    "",
+)
+# normet-py's own test of the step: the chronos row goes (no such backend here), and its
+# flaml settings are this window's h2o.
+passage(
+    "tests/test_gui_uncertainty.py",
+    "unc: no chronos test",
+    "def test_the_button_greys_for_a_chronos_model(win, qapp):",
+    "def test_the_step_runs_and_says_where_the_spread_goes",
+    "",
+)
+patch(
+    "tests/test_gui_uncertainty.py",
+    "unc: the box's h2o, set",
+    '''    win.unc_backend.setCurrentText("flaml")''',
+    '''    win.unc_backend.setCurrentText("h2o")''',
+)
+patch(
+    "tests/test_gui_uncertainty.py",
+    "unc: the box's h2o, kept",
+    '''    assert c["unc_samples"] == 120 and c["unc_models"] == 7 and c["unc_backend"] == "flaml"''',
+    '''    assert c["unc_samples"] == 120 and c["unc_models"] == 7 and c["unc_backend"] == "h2o"''',
+)
+patch(
+    "tests/test_gui_uncertainty.py",
+    "unc: the box's h2o, restored",
+    '''    assert win.unc_backend.currentText() == "flaml"''',
+    '''    assert win.unc_backend.currentText() == "h2o"''',
 )

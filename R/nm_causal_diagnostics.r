@@ -27,7 +27,9 @@ NULL
 #'         \code{effective_n_donors}, \code{n_donors}, \code{top_donors},
 #'         \code{top_donor_share}). \code{top_donors} is a named numeric
 #'         vector mapping each top-\code{top_k} donor to its absolute
-#'         normalised weight, sorted descending.
+#'         normalised weight, sorted descending. \code{pre_trend} is the
+#'         \code{nm_pre_trend} result of \code{\link{nm_pre_trend_test}}:
+#'         whether the pre-period was parallel.
 #' @export
 nm_scm_diagnostics <- function(scm_result, cutoff_date, top_k = 5) {
   if (is.data.frame(scm_result)) {
@@ -110,12 +112,16 @@ nm_scm_diagnostics <- function(scm_result, cutoff_date, top_k = 5) {
     top_share <- sum(top_vals)
   }
 
+  # Whether the pre-period was parallel, on the same window (normet-py #61).
+  pre_trend <- nm_pre_trend_test(synth, cutoff_date)
+
   list(
     pre_n = pre_n, pre_rmse = pre_rmse, pre_mae = pre_mae,
     pre_mape = pre_mape, pre_r2 = pre_r2,
     post_n = post_n, att = att, att_cum = att_cum, post_rmse = post_rmse,
     hhi = hhi, effective_n_donors = eff_n, n_donors = n_donors,
-    top_donors = top_donors, top_donor_share = top_share
+    top_donors = top_donors, top_donor_share = top_share,
+    pre_trend = pre_trend
   )
 }
 

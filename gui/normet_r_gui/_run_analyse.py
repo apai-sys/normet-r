@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import functools
 import logging
+from typing import Any
 
 import pandas as pd
 from PySide6.QtWidgets import QMainWindow, QMessageBox
@@ -18,6 +19,18 @@ from ._constants import TIME_VARS
 from ._lists import _checked_items
 
 log = logging.getLogger(__name__)
+
+
+def _long_term_columns(res: pd.DataFrame | None) -> pd.DataFrame | None:
+    """Where the separated long-term component can be read from: the emission
+    decomposition's table, which is the only method that separates its
+    ``date_unix`` contribution next to its base (the met method splits by
+    meteorology, and a chronos-2 run makes no emission part at all)."""
+    if res is None:
+        return None
+    if "date_unix" in res.columns and "emi_base" in res.columns:
+        return res
+    return None
 
 
 class AnalyseRunMixin(QMainWindow):
@@ -208,6 +221,260 @@ class AnalyseRunMixin(QMainWindow):
         self.statusBar().showMessage("Decomposition done.")
         self._log_history("decompose", method)
         log.info("Decomposition finished")
+        # The question a decomposition invites next: does its series trend? The box's
+        # tick says so; the runner's own finished slot starts it, because this one
+        # ends before the runner knows it is free.
+        self._trend_wanted = (
+            self.trend_after.isChecked() and method == "emission" and "emi_total" in result.columns
+        )
+        if getattr(self, "_restoring", False):
+            self._trend_wanted = False
+
+    def _trend_resolve(self) -> tuple[pd.DataFrame, str, str, int | None, str] | None:
+        """The box's choice as a testable series: its table, the column, a name and
+        the seasonal period (the auto's, spoken when it fell back to the
+        classical). The column is ``"long-term"`` where the box points at the
+        separated long-term component (a sum of the decomposition's columns,
+        not one of them). Nothing the window can hold gives None; its why is
+        said on screen."""
+        target = self.target_combo.currentText()
+        choice = self.trend_series.currentText()
+        frame, column = self.df_prep, target
+        if choice.startswith("long-term"):
+            res = self.results.get("decompose")
+            long = _long_term_columns(res)
+            if res is None or long is None:
+                self.notify(
+                    "The long-term trend needs the emission decomposition that "
+                    "separated it (its Trend (long-term) panel) -- run the "
+                    "emission decomposition first, or choose another series.",
+                    key="need-decompose",
+                )
+                return None
+            frame, column = res, "long-term"
+        elif not choice.startswith("observed"):
+            res = self.results.get("decompose")
+            if res is None:
+                self.notify(
+                    "Run the decomposition first: the trend is tested on its series.",
+                    key="need-decompose",
+                )
+                return None
+            column = "emi_total" if choice.startswith("emission") else "met_total"
+            if column not in res.columns:
+                self.notify(
+                    f"The decomposition has no {column!r} in it: the emission "
+                    "part needs the emission method (on chronos-2, a flaml or "
+                    "lightgbm model), the weather part the meteorology one.",
+                    key="need-decompose",
+                )
+                return None
+            frame = res
+        if not isinstance(frame, pd.DataFrame) or (
+            column != "long-term" and column not in frame.columns
+        ):
+            self.notify(
+                f"The table the window holds has no {column!r}: train again, or "
+                "test the decomposition's series.",
+                key="need-model",
+            )
+            return None
+        if column == "long-term":
+            if frame["date_unix"].notna().sum() < 15:
+                self.notify(
+                    "Fewer than 15 values in the series: the trend test needs more.",
+                    key="need-trend",
+                )
+                return None
+        elif frame.dropna(subset=[column]).shape[0] < 15:
+            self.notify(
+                "Fewer than 15 values in the series: the trend test needs more.",
+                key="need-trend",
+            )
+            return None
+        name = (
+            f"{target} (observed)"
+            if choice.startswith("observed")
+            else f"{target} — long-term trend (separated)"
+            if column == "long-term"
+            else f"{target} — emission part"
+            if column == "emi_total"
+            else f"{target} — weather part"
+        )
+        segment = self.tre_segments.value()
+        if segment > 1:
+            name += f", {segment} segments"
+        period, note = None, ""
+        choice_seasonal = self.tre_seasonal.currentText()
+        if choice_seasonal == "auto":
+            from . import _trend
+
+            index = _trend._datetime_index(frame)
+            if index is not None:
+                n = int(
+                    frame["date_unix"].notna().sum()
+                    if column == "long-term"
+                    else frame[column].notna().sum()
+                )
+                period, note = _trend.auto_seasonal(index, n)
+        elif choice_seasonal != "none":
+            period = int(choice_seasonal)
+        return frame, column, name, period, note
+
+    def _run_trend(self) -> None:
+        if not self._check_model():
+            return
+        got = self._trend_resolve()
+        if got is None:
+            return
+        frame, column, name, period, note = got
+        from . import _trend
+
+        self._trend_note = note
+        self._trend_name = name
+        self._trend_table = (frame, column)
+        self._trend_segmented = self.tre_segments.value() > 1
+        if self._trend_segmented:
+            ok = self.runner.submit(
+                "trend (segmented)",
+                _trend.trend_breaks_call,
+                self._trend_breaks_done,
+                self._show_error,
+                frame,
+                column,
+                series_name=name,
+                max_segments=self.tre_segments.value(),
+                n_bootstrap=self.tre_n_bootstrap.value(),
+                seed=self.seed_spin.value(),
+            )
+        else:
+            ok = self.runner.submit(
+                "trend",
+                _trend.trend_call,
+                self._trend_done,
+                self._show_error,
+                frame,
+                column,
+                series_name=name,
+                seasonal_period=period,
+                n_bootstrap=self.tre_n_bootstrap.value(),
+                seed=self.seed_spin.value(),
+            )
+        if not ok:
+            self._trend_note = ""
+
+    def _trend_done(self, result: pd.DataFrame) -> None:
+        from . import _trend
+
+        self._trend_wanted = False
+        self.results["trend"] = result.summary()  # the Trend tab's light, export and session
+        summary = result.summary()
+        frame, column = self._trend_table or (None, "")
+        try:
+            series = _trend.trend_series(frame, column) if frame is not None else None
+        except ValueError:
+            series = None
+        self._trend_series = series
+        self._trend_raw = result
+        verdict = _trend.trend_verdict(result, self._trend_name or column)
+        lines = ([self._trend_note] if self._trend_note else []) + list(result.notes)
+        rows = [list(r) for r in summary.itertuples(index=False, name=None)]
+        self.tab_trend.show_result(
+            _trend.trend_fig(series, result) if series is not None else None,
+            verdict=verdict,
+            lines=lines,
+            header=["metric", "value"],
+            rows=rows,
+        )
+        self.tabs.setCurrentWidget(self.tab_trend)
+        self.statusBar().showMessage("Trend test done.")
+        self._log_history("trend", self._trend_name)
+        log.info("Trend test finished (%s)", self._trend_name)
+
+    def _trend_breaks_done(self, result: Any) -> None:
+        from . import _trend
+
+        self._trend_wanted = False
+        self.results["trend"] = result.summary()  # the Trend tab's light, export and session
+        summary = result.summary()
+        frame, column = self._trend_table or (None, "")
+        if frame is None:
+            series = None
+        else:
+            try:
+                series = (
+                    _trend.long_term_series(frame)
+                    if column == "long-term"
+                    else _trend.trend_series(frame, column)
+                )
+            except ValueError:
+                series = None
+        self._trend_series = series
+        self._trend_raw = result
+        verdict = _trend.trend_breaks_verdict(result, self._trend_name or column)
+        lines = ([self._trend_note] if self._trend_note else []) + list(result.notes)
+        rows = [list(r) for r in summary.itertuples(index=False, name=None)]
+        self.tab_trend.show_result(
+            _trend.trend_breaks_fig(series, result) if series is not None else None,
+            verdict=verdict,
+            lines=lines,
+            header=list(summary.columns),
+            rows=rows,
+        )
+        self.tabs.setCurrentWidget(self.tab_trend)
+        self.statusBar().showMessage("Segmented trend done.")
+        self._log_history("trend", self._trend_name)
+        log.info("Segmented trend finished (%s)", self._trend_name)
+
+    def _run_unc(self) -> None:
+        if not self._check_model():
+            return
+        from .nm import decompose_uncertainty
+
+        variables_resample = self._selected_norm_vars() or None
+        cfg = (
+            {"max_runtime_secs": self.budget_spin.value()}
+            if self.unc_backend.currentText() == "h2o"
+            else {"n_trials": self.budget_spin.value()}
+        )
+        self.runner.submit(
+            "uncertainty decomposition",
+            decompose_uncertainty,
+            self._unc_done,
+            self._show_error,
+            self.df_raw,
+            self.target_combo.currentText(),
+            backend=self.unc_backend.currentText(),
+            covariates=self.trained_features + list(TIME_VARS),
+            variables_resample=variables_resample,
+            model_config=cfg,
+            n_samples=self.unc_samples.value(),
+            n_models=self.unc_models.value(),
+            seed=self.seed_spin.value(),
+            n_cores=self._n_cores(self.norm_cores),
+            verbose=True,
+        )
+
+    def _unc_done(self, result: Any) -> None:
+        from . import _uncertainty
+
+        self._unc_raw = result
+        self.results["uncertainty"] = result.frame()  # the tab's light, export and session
+        summary = result.summary()
+        # The run's own numbers, read off the result: a restored session re-shows
+        # the saved run under its own settings, whatever the panel stands at now.
+        name = f"{result.target} ({result.n_models} members x {result.n_weather_draws} met draws)"
+        self.tab_unc.show_result(
+            result.plot(),
+            verdict=_uncertainty.verdict(result, name),
+            lines=list(result.notes),
+            header=list(summary.columns),
+            rows=[list(r) for r in summary.itertuples(index=False, name=None)],
+        )
+        self.tabs.setCurrentWidget(self.tab_unc)
+        self.statusBar().showMessage("Uncertainty decomposition done.")
+        self._log_history("uncertainty", f"n_models={self.unc_models.value()}")
+        log.info("Uncertainty decomposition finished (%s)", result)
 
     def _run_rolling(self) -> None:
         if not self._check_model():

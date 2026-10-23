@@ -25,7 +25,9 @@ effect (\code{post_n}, \code{att}, \code{att_cum},
 \code{effective_n_donors}, \code{n_donors}, \code{top_donors},
 \code{top_donor_share}). \code{top_donors} is a named numeric
 vector mapping each top-\code{top_k} donor to its absolute
-normalised weight, sorted descending.
+normalised weight, sorted descending. \code{pre_trend} is the
+\code{nm_pre_trend} result of \code{\link{nm_pre_trend_test}}:
+whether the pre-period was parallel.
 }
 \description{
 Summarise the quality of a synthetic-control fit: pre-period fit metrics,

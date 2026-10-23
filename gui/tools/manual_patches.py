@@ -62,6 +62,13 @@ N = {
     "met_sky": "4.57",
     "ms_fast": "3.0",
     "scm_att": "-18.15",
+    # the uncertainty run of the figure's settings (three members, 50 shared draws,
+    # lightgbm): median shares in whole percents, and the total's median variance.
+    # walk_gui.py prints them; they are this window's R run, not normet-py's.
+    "unc_w": "96",
+    "unc_i": "4",
+    "unc_m": "0",
+    "unc_total": "159.4",
 }
 
 
@@ -262,13 +269,44 @@ Run normalisation     & a model, one variable to resample & \code{normalise} \\
 Run decomposition     & a model                  & \code{decompose} \\
 Run rolling normalisation & an AutoML model      & \code{rolling} \\
 Multi-scale decomposition & an AutoML model, a normalisation & \code{rolling} $\times 3$ \\
+Trend test          & an AutoML model (a decomposition, where it tests one) & \code{trend} (1 segment), \code{detect\_trend\_breaks} (more) \\
 Compute PDP           & an AutoML model, one variable ticked & \code{pdp} \\""",
       r"""Train model           & a table, one predictor ticked & \code{nm\_build\_model} \\
 Run normalisation     & a model, one variable to resample & \code{nm\_normalise} \\
 Run decomposition     & a model                  & \code{nm\_decompose} \\
 Run rolling normalisation & a model              & \code{nm\_rolling} \\
 Multi-scale decomposition & a model, a normalisation & \code{nm\_rolling} $\times 3$ \\
+Trend test          & a model (a decomposition, where it tests one) & \code{nm\_trend} (1 segment), \code{nm\_trend\_breaks} (more) \\
 Compute PDP           & a model, one variable ticked & \code{nm\_pdp} \\""")
+patch(EN, "trend reference",
+      r"""        whether the series the decomposition just drew is rising, falling or flat, and
+        the \tab{Uncertainty} tab where the band's spread comes from (Section~\ref{sec:uncertainty}).""",
+      r"""        whether the series the decomposition just drew is rising, falling or flat
+        (Section~\ref{sec:trend}), and the \tab{Uncertainty} tab where the band's
+        spread comes from (Section~\ref{sec:uncertainty}).""")
+patch(EN, "trend breaks name",
+      r"""\emph{segmented fit} instead --- \code{detect\_trend\_breaks} on the chosen""",
+      r"""\emph{segmented fit} instead --- \code{nm\_trend\_breaks} on the chosen""")
+patch(EN, "trend script names",
+      r"""(\code{trend\_breaks\_call} in the script, not \code{trend\_call})""",
+      r"""(\code{nm\_trend\_breaks} in the script, not \code{nm\_trend})""")
+patch(EN, "trend breaks caption",
+      r"""\screenshot{ui_trend_breaks.png}{The segmented fit (Segments 2) on MY1's separated
+long-term trend: the search found the break at 2020-03-18 19:00 --- the 2020-03-23
+lockdown's lead-in --- the single-slope SSE down 88.7\,\% with the block-bootstrap
+p of the search 0.001, the one to quote. Segment 1 runs +0.0812 per day
+(95\,\% [0.0761, 0.0863]); segment 2 flattens to $-$0.0121 per day
+(95\,\% [$-$0.0134, $-$0.0108]). The piecewise Theil--Sen lines and the marked
+break are in the figure; the per-segment table and the verdict above it are the
+Trend tab's.}{fig:trend_breaks}""",
+      r"""\screenshot{ui_trend_breaks.png}{The segmented fit (Segments 2) on MY1's separated
+long-term trend: the search found the break at 2020-03-25 20:00 --- two days after
+the 2020-03-23 lockdown began --- the single-slope SSE down 79.6\,\% with the
+block-bootstrap p of the search 0.001, the one to quote. Segment 1 runs +0.03562 per
+day (95\,\% [0.03173, 0.03937]); segment 2 eases to +0.00512 per day
+(95\,\% [0.00362, 0.00660]). The piecewise Theil--Sen lines and the marked
+break are in the figure; the per-segment table and the verdict above it are the
+Trend tab's.}{fig:trend_breaks}""")
 patch(EN, "task clock", r"""Where the task says how far it has come
 --- the rolling windows, the decomposition's steps, LightGBM's trials, the receptor times
 HYSPLIT runs, FLAML's time budget --- the progress bar fills with it,""", r"""Where the task says how far it has come
@@ -509,6 +547,9 @@ Function & Does \\
 \code{nm\_detect\_events}, \code{nm\_anomaly\_scores} & events in a normalised series \\
 \code{nm\_plot\_normalise}, \code{nm\_plot\_decomposition\_stack}, \code{nm\_plot\_scm\_dashboard} & figures (ggplot2) \\
 \code{nm\_make\_run}, \code{nm\_save\_run}, \code{nm\_generate\_html} & provenance and reports \\
+\code{nm\_trend}               & the trend test with the block-bootstrap correction (the \tab{Trend} tab, Section~\ref{sec:trend}) \\
+\code{nm\_trend\_breaks}       & segmented trend: where the level or slope breaks (BIC + block-bootstrap gate) \\
+\code{nm\_decompose\_uncertainty} & the total spread attributed to weather, model form and their interaction (the \tab{Uncertainty} tab, Section~\ref{sec:uncertainty}) \\
 \code{nm\_make\_cache}        & on-disk caching \\
 \bottomrule
 \end{tabular}
@@ -811,13 +852,30 @@ patch(ZH, "run buttons", r"""训练模型 / 载入 Chronos-2 & 一张表，至�
 运行分解              & 一个模型                 & \code{decompose} \\
 运行滚动归一化        & 一个 AutoML 模型         & \code{rolling} \\
 多尺度分解            & 一个 AutoML 模型，一次归一化 & \code{rolling} $\times 3$ \\
+趋势检验              & 一个 AutoML 模型（有分解时检验分解的序列） & \code{trend}（1 段）/\code{detect\_trend\_breaks}（更多） \\
 计算 PDP              & 一个 AutoML 模型，至少勾选一个变量 & \code{pdp} \\""",
       r"""训练模型              & 一张表，至少勾选一个预测变量 & \code{nm\_build\_model} \\
 运行归一化            & 一个模型，至少一个重采样变量 & \code{nm\_normalise} \\
 运行分解              & 一个模型                 & \code{nm\_decompose} \\
 运行滚动归一化        & 一个模型                 & \code{nm\_rolling} \\
 多尺度分解            & 一个模型，一次归一化     & \code{nm\_rolling} $\times 3$ \\
+趋势检验              & 一个模型（有分解时检验分解的序列） & \code{nm\_trend}（1 段）/\code{nm\_trend\_breaks}（更多） \\
 计算 PDP              & 一个模型，至少勾选一个变量 & \code{nm\_pdp} \\""")
+patch(ZH, "trend breaks name",
+      r"""\emph{分段拟合}——即对所选序列运行 \code{detect\_trend\_breaks}。""",
+      r"""\emph{分段拟合}——即对所选序列运行 \code{nm\_trend\_breaks}。""")
+patch(ZH, "trend script names",
+      "（脚本里是 \\code{trend\\_breaks\\_call}，不是\n\\code{trend\\_call}）",
+      "（脚本里是 \\code{nm\\_trend\\_breaks}，不是\n\\code{nm\\_trend}）")
+patch(ZH, "trend breaks caption",
+      r"""\screenshot{ui_trend_breaks.png}{段数 2、对 MY1 分离出的长期趋势的分段拟合：搜索在 2020-03-18 19:00（2020-03-23
+封控的前奏）找到断点——相对单段的 SSE 下降 88.7\,\%，搜索的块自助法 p 为 0.001，要引用的是它。第 1 段
+斜率 +0.0812 每天（95\,\% [0.0761, 0.0863]），第 2 段降到 $-$0.0121 每天（95\,\% [$-$0.0134, $-$0.0108]）。
+图上方的评估结论和每段一行的表格就是\tab{趋势}标签页的内容。}{fig:trend_breaks}""",
+      r"""\screenshot{ui_trend_breaks.png}{段数 2、对 MY1 分离出的长期趋势的分段拟合：搜索在 2020-03-25 20:00（2020-03-23
+封控开始两天后）找到断点——相对单段的 SSE 下降 79.6\,\%，搜索的块自助法 p 为 0.001，要引用的是它。第 1 段
+斜率 +0.03562 每天（95\,\% [0.03173, 0.03937]），第 2 段放缓到 +0.00512 每天（95\,\% [0.00362, 0.00660]）。
+图上方的评估结论和每段一行的表格就是\tab{趋势}标签页的内容。}{fig:trend_breaks}""")
 patch(ZH, "task clock", r"""任务能说出自己的进度时——滚动窗口、分解的各步、LightGBM 的各次试验、HYSPLIT 的各个受体时刻、
 FLAML 的时间预算——进度条随之推进，""", r"""任务能说出自己的进度时——R 报告蒙特卡罗的各批、滚动窗口、分解的各步、LightGBM 的各次
 试验和 HYSPLIT 的各个受体时刻；H2O 则按已用时间与其时间预算之比——进度条随之推进，""")
@@ -1013,6 +1071,9 @@ curves <- nm_pdp(df_prep, model, var_list = c("ws", "temp"))
 \code{nm\_detect\_events}, \code{nm\_anomaly\_scores} & 归一化序列中的事件 \\
 \code{nm\_plot\_normalise}, \code{nm\_plot\_decomposition\_stack}, \code{nm\_plot\_scm\_dashboard} & 图（ggplot2） \\
 \code{nm\_make\_run}, \code{nm\_save\_run}, \code{nm\_generate\_html} & 溯源和报告 \\
+\code{nm\_trend}               & 趋势检验及其块自助法修正（\tab{趋势}标签页，第~\ref{sec:trend}~节） \\
+\code{nm\_trend\_breaks}       & 分段趋势：水平或斜率在哪处断掉（BIC + 块自助法门槛） \\
+\code{nm\_decompose\_uncertainty} & 把总离散分摊到气象、模型形式及二者交互（\tab{不确定性}标签页，第~\ref{sec:uncertainty}~节） \\
 \code{nm\_make\_cache}        & 磁盘缓存 \\
 \bottomrule
 \end{tabular}
@@ -1146,3 +1207,66 @@ patch("docs/manual/build.sh", "figures", r"""# The figures are screenshots of th
 # The SCM Studio has no Similarity tab: its ranking of donors was Chronos-2's.
 patch(EN, "SCM tabs: no Similarity", r"""\tab{All Units}, \tab{Similarity}), and""", r"""\tab{All Units}), and""")
 patch(ZH, "SCM tabs: no Similarity", r"""\tab{全部单元}、\tab{相似度}），""", r"""\tab{全部单元}），""")
+
+# == uncertainty decomposition (normet-py PR #58) ==========================================
+# The box, the tab and the step as normet-py's book tells them; what differs is the R
+# names, this window's backends (h2o where normet-py has flaml), and the quoted numbers,
+# which are this window's own run of the figure's settings (walk_gui.py: three members
+# sharing 50 draws, lightgbm).
+
+patch(EN, "unc run-buttons row",
+      r"""Uncertainty decomposition & an AutoML model & \code{decompose\_uncertainty} \\""",
+      r"""Uncertainty decomposition & a model & \code{nm\_decompose\_uncertainty} \\""")
+patch(EN, "unc member backend",
+      r"""page's budget as its trials) or \code{flaml} (an AutoML search per member, at
+that member's budget each).""",
+      r"""page's budget as its trials) or \code{h2o} (an H2O AutoML search per member,
+at that member's budget each; needs Java and the h2o R package).""")
+patch(EN, "unc numbers",
+      r"""the median spread is 96\,\% met resampling, 3\,\% the interaction and 0\,\%
+model form --- the fitted model is nearly certain about what the weather does,""",
+      fill(r"""the median spread is @unc_w@\,\% met resampling, @unc_i@\,\% the interaction and
+@unc_m@\,\% model form --- the fitted model is nearly certain about what the weather does,"""))
+patch(EN, "unc command log name",
+      r"""run is added to the command log as the \code{decompose\_uncertainty} call the
+window made""",
+      r"""run is added to the command log as the \code{nm\_decompose\_uncertainty} call
+the window made""")
+patch(EN, "unc R pipeline name",
+      r"""\code{do\_all\_unc} run, and no more""",
+      r"""\code{nm\_do\_all\_unc} run, and no more""")
+patch(EN, "unc caption",
+      r"""\screenshot{ui_uncertainty.png}{The attribution of MY1's per-date spread: the
+stacked bands (met resampling, model form, the interaction) total 144.3
+(\ugm{})$^{2}$ of variance in the median, and the verdict above says where it
+goes --- 96\,\% met resampling, 3\,\% interaction, 0\,\% model form (three
+members sharing 50 met draws, lightgbm members).""",
+      fill(r"""\screenshot{ui_uncertainty.png}{The attribution of MY1's per-date spread: the
+stacked bands (met resampling, model form, the interaction) total @unc_total@
+(\ugm{})$^{2}$ of variance in the median, and the verdict above says where it
+goes --- @unc_w@\,\% met resampling, @unc_i@\,\% interaction, @unc_m@\,\% model
+form (three members sharing 50 met draws, lightgbm members)."""))
+# The API table's row for nm_decompose_uncertainty is inside the scripting passage's
+# rewrite, which covers the whole chapter's function table.
+
+patch(ZH, "unc run-buttons row",
+      r"""不确定度分解          & 一个 AutoML 模型 & \code{decompose\_uncertainty} \\""",
+      r"""不确定度分解          & 一个模型 & \code{nm\_decompose\_uncertainty} \\""")
+patch(ZH, "unc member backend",
+      r"""\code{flaml}（每个成员各做一次 AutoML 搜索，各花各自的预算）。""",
+      r"""\code{h2o}（每个成员各做一次 H2O AutoML 搜索，各花各自的预算；需要 Java 与 h2o R 包）。""")
+patch(ZH, "unc numbers",
+      r"""成员、共享 50 次抽样：中位数总离散中 96\,\% 来自气象重采样，交互 3\,\%、模型形式 0\,\%——""",
+      fill(r"""成员、共享 50 次抽样：中位数总离散中 @unc_w@\,\% 来自气象重采样，交互 @unc_i@\,\%、模型形式 @unc_m@\,\%——"""))
+patch(ZH, "unc command log name",
+      r"""\code{decompose\_uncertainty} 调用记入命令日志""",
+      r"""\code{nm\_decompose\_uncertainty} 调用记入命令日志""")
+patch(ZH, "unc R pipeline name",
+      r"""——与一次 \code{do\_all\_unc}""",
+      r"""——与一次 \code{nm\_do\_all\_unc}""")
+patch(ZH, "unc caption",
+      r"""交互）的中位数总方差为 144.3 (\ugm{})$^{2}$，图上方的结论说明它去往何处——96\,\% 气象
+重采样、3\,\% 交互、0\,\% 模型形式（共享 50 次抽样的三个成员，lightgbm）。小于该区间的效果，""",
+      fill(r"""交互）的中位数总方差为 @unc_total@ (\ugm{})$^{2}$，图上方的结论说明它去往何处——@unc_w@\,\% 气象
+重采样、@unc_i@\,\% 交互、@unc_m@\,\% 模型形式（共享 50 次抽样的三个成员，lightgbm）。小于该区间的效果，"""))
+# The API table's row, as in the English book, rides in the scripting passage's rewrite.

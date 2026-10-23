@@ -78,6 +78,8 @@ STEP_LIGHTS = (
     ("rolling", "Rolling"),
     ("multiscale", "Multi-scale"),
     ("pdp", "PDP"),
+    ("trend", "Trend"),
+    ("uncertainty", "Uncertainty"),
 )
 LIGHT_ON, LIGHT_OFF = "#34c759", "#aeaeb2"
 
@@ -309,6 +311,18 @@ class ShellMixin(QMainWindow):
         self.tabs.addTab(self.tab_multiscale, "Multi-scale")
         self.tab_pdp = CanvasTab("Compute PDP to see partial-dependence curves.")
         self.tabs.addTab(self.tab_pdp, "PDP")
+        self.tab_trend = CanvasTab(
+            "Run the trend test (or a decomposition, which runs it) to see the "
+            "verdict here — whether the tested series is increasing or decreasing, "
+            "and which p stands for it."
+        )
+        self.tabs.addTab(self.tab_trend, "Trend")
+        self.tab_unc = CanvasTab(
+            "Run the uncertainty decomposition to see where the band's spread comes "
+            "from -- met resampling, the model form, and the two's interaction, each "
+            "date and in the median."
+        )
+        self.tabs.addTab(self.tab_unc, "Uncertainty")
         self._sync_welcome()
         return self.tabs
 

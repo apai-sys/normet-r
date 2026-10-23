@@ -3,9 +3,10 @@ normet-py's shapes.
 
 The estimators, the placebo tests, the uncertainty bands and the batch over every unit
 are R's (``nm_scm``, ``nm_scm_abadie``, ``nm_placebo_in_space`` …). What is arithmetic on
-their results -- the diagnostics (``scm_diagnostics``) and the bands drawn from a
-placebo test's effects (``effect_bands_space``/``effect_bands_time``) -- and the figures
-are normet-py's own, copied (``diagnostics.py``, ``bands.py``).
+their results -- the diagnostics (``scm_diagnostics``, ``pre_trend_test``) and the bands
+drawn from a placebo test's effects (``effect_bands_space``/``effect_bands_time``) -- and
+the figures are normet-py's own, copied (``diagnostics.py``, ``prediagnostics.py``,
+``bands.py``).
 """
 
 from __future__ import annotations
@@ -20,9 +21,11 @@ from .bands import (  # noqa: F401 - arithmetic and figures, normet-py's own
     effect_bands_space,
     effect_bands_time,
     plot_effect_with_bands,
+    plot_event_study,
     plot_uncertainty_bands,
 )
 from .diagnostics import scm_diagnostics  # noqa: F401
+from .prediagnostics import PreTrend, pre_trend_test  # noqa: F401
 
 
 def _design(df: Any, date_col: str, unit_col: str, outcome_col: str, treated_unit: Any,
