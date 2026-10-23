@@ -4,7 +4,18 @@
 \alias{nm_scm_diagnostics}
 \title{SCM Diagnostics}
 \usage{
-nm_scm_diagnostics(scm_result, cutoff_date, top_k = 5)
+nm_scm_diagnostics(
+  scm_result,
+  cutoff_date,
+  top_k = 5,
+  panel = NULL,
+  donors = NULL,
+  treated_unit = NULL,
+  unit_col = "unit",
+  lat_col = "lat",
+  lon_col = "lon",
+  n_sectors = 8L
+)
 }
 \arguments{
 \item{scm_result}{List or data.frame. Output of \code{nm_scm},
@@ -16,20 +27,45 @@ Must contain a \code{synthetic} data.frame with columns
 \item{cutoff_date}{Character or Date. Treatment cutoff.}
 
 \item{top_k}{Integer. How many top donors to report. Default 5.}
+
+\item{panel}{Optional data.frame, the long-format donor panel. With
+\code{treated_unit}, and carrying \code{lat_col}/\code{lon_col}, a
+\code{spatial} section is appended: each donor's distance and
+compass sector from the treated unit, the pool's centroid offset,
+and its sector coverage -- a reading of where the counterfactual is
+borrowed from, which the weights alone do not say (see
+\code{\link{nm_donor_spatial_summary}}).}
+
+\item{donors}{Optional character vector, the donor units to place. Defaults
+to the fit's weights' names; without weights and without this the
+section is skipped.}
+
+\item{treated_unit}{Optional character, the treated unit the bearings are
+taken from; required for the \code{spatial} section.}
+
+\item{unit_col, }{lat_col, lon_col Column names in \code{panel} for the unit
+id, latitude and longitude.}
+
+\item{n_sectors}{Integer. Compass sectors the bearings are divided into
+(8 = N/NE/E/...). Default 8.}
 }
 \value{
 A list with pre-period fit (\code{pre_n}, \code{pre_rmse},
 \code{pre_mae}, \code{pre_mape}, \code{pre_r2}), post-period
 effect (\code{post_n}, \code{att}, \code{att_cum},
-\code{post_rmse}), and weight concentration (\code{hhi},
+\code{post_rmse}), weight concentration (\code{hhi},
 \code{effective_n_donors}, \code{n_donors}, \code{top_donors},
-\code{top_donor_share}). \code{top_donors} is a named numeric
-vector mapping each top-\code{top_k} donor to its absolute
-normalised weight, sorted descending. \code{pre_trend} is the
+\code{top_donor_share}) and \code{pre_trend}, the
 \code{nm_pre_trend} result of \code{\link{nm_pre_trend_test}}:
-whether the pre-period was parallel.
+whether the pre-period was parallel. When the panel supports it, a
+\code{spatial} element too: a \code{donors} table plus
+\code{centroid_offset_km}, \code{centroid_bearing_deg},
+\code{sector_coverage}, \code{sector_fraction},
+\code{n_donors_placed}, \code{n_donors_missing}.
 }
 \description{
 Summarise the quality of a synthetic-control fit: pre-period fit metrics,
-post-period effect summary, and donor weight concentration.
+post-period effect summary, donor weight concentration, the pre-period
+parallel-trend check, and -- when the panel carries coordinates -- the
+donor pool's spatial layout.
 }

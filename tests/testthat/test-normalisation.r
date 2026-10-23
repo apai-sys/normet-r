@@ -114,3 +114,100 @@ test_that("nm_normalise_auto correctly converges under mocked prediction backend
   expect_false(data.table::is.data.table(res$res)) # Ensure it's a standard data.frame via setDF
   expect_equal(res$res$normalised, df$value + 1.23)
 })
+
+# ---------------------------------------------------------------------------
+# log_transform: df and model on the log1p scale, result back in original
+# units. Mirrors normet-py's PR #63 additions to test_normalise_pools.py
+# (the flaml stand-in model becomes the package's own mock-model pattern).
+# ---------------------------------------------------------------------------
+
+.log_frame <- function() {
+  # (original-unit frame, its log1p-space twin): the log-space frame is what
+  # nm_do_all(log_transform = TRUE) hands to nm_normalise.
+  n <- 20
+  df_orig <- data.frame(
+    date = seq(as.POSIXct("2024-01-01", tz = "UTC"), by = "hour", length.out = n),
+    value = 1.0 + (0:(n - 1)) / 10.0,  # 1.0 .. 2.9 in original units
+    w = rep(c(0.0, 1.0, 2.0), length.out = n),
+    stringsAsFactors = FALSE
+  )
+  df_log <- df_orig
+  df_log$value <- log1p(df_orig$value)
+  list(orig = df_orig, log = df_log)
+}
+
+.log_model <- function() {
+  # Small log-scale predictions (0.5 .. 0.9), so expm1 stays in a sane range.
+  model <- list()
+  attr(model, "backend") <- "lightgbm"
+  attr(model, "feature_names") <- "w"
+  model
+}
+
+.log_predict_mock <- function() {
+  mock_pred <- function(model, newdata, verbose = FALSE, ...) {
+    0.5 + 0.2 * as.numeric(newdata[["w"]])
+  }
+  orig_pred <- get("nm_predict_lgb", envir = asNamespace("normet"))
+  assignInNamespace("nm_predict_lgb", mock_pred, ns = "normet")
+  function() assignInNamespace("nm_predict_lgb", orig_pred, ns = "normet")
+}
+
+test_that("nm_normalise: log_transform inverts the point estimate and the quantiles", {
+  # The log path = the linear path run on the same log-space frame, with
+  # every column inverted: observed, normalised and the quantiles.
+  skip_if_not_installed("lightgbm")
+  frames <- .log_frame()
+  restore <- .log_predict_mock()
+  on.exit(restore(), add = TRUE)
+
+  common <- list(model = .log_model(), n_samples = 12, seed = 3, n_cores = 1,
+    verbose = FALSE, return_quantiles = c(0.1, 0.5, 0.9)
+  )
+  lin <- do.call(nm_normalise, c(list(df = frames$log), common))
+  logr <- do.call(nm_normalise, c(list(df = frames$log), common, list(log_transform = TRUE)))
+
+  expect_equal(expm1(lin$normalised), logr$normalised, tolerance = 1e-12)
+  for (q in c("q100", "q500", "q900")) {
+    expect_equal(expm1(lin[[q]]), logr[[q]], tolerance = 1e-12)
+  }
+  # observed comes back in the original units the user gave
+  expect_equal(logr$observed, frames$orig$value, tolerance = 1e-12)
+  expect_true(all(logr$normalised >= 0))
+})
+
+test_that("nm_normalise: the default log_transform is bit identical to the legacy call", {
+  skip_if_not_installed("lightgbm")
+  frames <- .log_frame()
+  restore <- .log_predict_mock()
+  on.exit(restore(), add = TRUE)
+
+  plain <- nm_normalise(
+    df = frames$log, model = .log_model(),
+    n_samples = 12, seed = 3, n_cores = 1, verbose = FALSE
+  )
+  explicit <- nm_normalise(
+    df = frames$log, model = .log_model(),
+    n_samples = 12, seed = 3, n_cores = 1, verbose = FALSE, log_transform = FALSE
+  )
+  expect_identical(plain, explicit)
+})
+
+test_that("nm_normalise: log_transform inverts the aggregate=FALSE wide table", {
+  skip_if_not_installed("lightgbm")
+  frames <- .log_frame()
+  restore <- .log_predict_mock()
+  on.exit(restore(), add = TRUE)
+
+  common <- list(model = .log_model(), n_samples = 12, seed = 3, n_cores = 1,
+    verbose = FALSE, aggregate = FALSE
+  )
+  lin <- do.call(nm_normalise, c(list(df = frames$log), common))
+  logr <- do.call(nm_normalise, c(list(df = frames$log), common, list(log_transform = TRUE)))
+
+  seed_cols <- setdiff(colnames(lin), c("date", "observed"))
+  expect_setequal(seed_cols, setdiff(colnames(logr), c("date", "observed")))
+  for (c in seed_cols) {
+    expect_equal(expm1(lin[[c]]), logr[[c]], tolerance = 1e-12)
+  }
+})

@@ -4,7 +4,14 @@
 \alias{nm_normalise}
 \title{Normalise a Time Series Using a Trained Model}
 \usage{
-nm_normalise(df, model, verbose = TRUE, cache_dir = NULL, ...)
+nm_normalise(
+  df,
+  model,
+  verbose = TRUE,
+  cache_dir = NULL,
+  log_transform = FALSE,
+  ...
+)
 }
 \arguments{
 \item{df}{The input data frame.}
@@ -23,6 +30,15 @@ feature, each a full Monte Carlo resample-and-predict over
 \code{n_samples} draws. The model is fingerprinted via
 \code{nm_model_hash}, so a re-fit model (even with identical data
 and config) correctly invalidates the cache.}
+
+\item{log_transform}{Logical. Default FALSE. When TRUE, \code{df} and the
+model are on the \code{log1p} scale (a fit made with
+\code{nm_do_all(log_transform = TRUE)}) and every numeric column of
+the result -- \code{observed}, \code{normalised} and the quantiles --
+is back-transformed through \code{expm1} before it is returned, so
+the output is in the original units and non-negative by construction
+(\code{\link{nm_expm1_columns}}). The flag joins the cache key, as
+the result's scale is part of what is cached.}
 
 \item{...}{Additional arguments passed to the implementation function
 (e.g., \code{n_samples}, \code{aggregate}, \code{resample_vars} for H2O).}

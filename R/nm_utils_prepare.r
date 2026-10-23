@@ -392,3 +392,84 @@ nm_getmode <- function(v) {
   if (length(uniqv) == 0) return(NA)
   uniqv[which.max(tabulate(match(v, uniqv)))]
 }
+
+
+#' Replace a Frame's Target with Its log1p
+#'
+#' \code{nm_log1p_target} replaces \code{target} with \code{log1p(target)},
+#' for a log-scale fit.
+#'
+#' A pollutant that ranges from sub-unit to hundreds of \eqn{\mu g/m^3}
+#' spends most of its variance in its high hours, so a model fitted on the
+#' raw scale buys accuracy there at the expense of the low values -- and
+#' those are the ones a policy or a health assessment reads. Fitting on
+#' \code{log1p} makes errors count in relative rather than absolute terms: a
+#' fixed relative miss maps to a bounded error at every level (its weight
+#' grows from half a relative unit at level 1 toward the full unit), while
+#' its absolute error grows without bound. The transform also keeps the
+#' target non-negative by construction when the result is back-transformed.
+#'
+#' @param df A data frame carrying \code{target}; already prepared (dates
+#'   parsed, target named \code{"value"}) -- this is the step between
+#'   \code{\link{nm_prepare_data}} and the split-aware fit.
+#' @param target Character. Column to transform, in place on a copy.
+#'   Default \code{"value"}.
+#'
+#' @return A copy of \code{df} with \code{target} replaced by its \code{log1p}.
+#'
+#' @export
+nm_log1p_target <- function(df, target = "value") {
+  if (!target %in% colnames(df)) {
+    stop(sprintf("`log1p_target`: column '%s' not found.", target), call. = FALSE)
+  }
+  values <- suppressWarnings(as.numeric(df[[target]]))
+  negative <- values < 0
+  negative[is.na(negative)] <- FALSE  # NA is not negative: prepare has imputed or dropped it
+  if (any(negative)) {
+    n_bad <- sum(negative)
+    worst <- min(values[negative])
+    stop(
+      sprintf(
+        paste0(
+          "`log_transform` needs non-negative '%s', but %d rows are negative (min %s). ",
+          "Log-scale normalisation cannot represent them; drop or floor those rows ",
+          "first, or leave `log_transform=FALSE`."
+        ),
+        target, n_bad, formatC(worst, format = "g")
+      ),
+      call. = FALSE
+    )
+  }
+  out <- df
+  out[[target]] <- log1p(values)
+  out
+}
+
+
+#' Invert nm_log1p_target on Every Numeric Column
+#'
+#' \code{nm_expm1_columns} applies \code{expm1} to every numeric column of a
+#' data frame, inverting \code{\link{nm_log1p_target}}.
+#'
+#' Applied to the whole result, not just the point estimate, because every
+#' column is a value of the same target -- the observations, the normalised
+#' series and each quantile. \code{expm1} is monotone, so a quantile of the
+#' log space is the quantile of the original space, and the back-transform
+#' cannot produce a negative concentration.
+#'
+#' @param df A data frame whose numeric columns hold log1p-scale values.
+#'
+#' @return A copy of \code{df} with every numeric column passed through
+#'   \code{expm1}. Non-numeric columns (dates, labels) are untouched.
+#'
+#' @export
+nm_expm1_columns <- function(df) {
+  out <- df
+  numeric <- vapply(out, is.numeric, logical(1))
+  if (any(numeric)) {
+    for (nm in names(out)[numeric]) {
+      out[[nm]] <- expm1(as.numeric(out[[nm]]))
+    }
+  }
+  out
+}

@@ -51,6 +51,75 @@
   position (`nm_effect_bands_time()`) or by date (`nm_effect_bands_space()`);
   band columns are read as `ci_lo`/`ci_hi`, `lower`/`upper`, `low`/`high` or
   `p10`/`p90`. Mirrors `normet-py` (PR #62).
+* **Donor spatial diagnostics**: added `nm_donor_spatial_summary()` — each
+  donor's great-circle distance and compass bearing from the treated unit,
+  the bearing's sector, and (when given) the donor's weight — and
+  `nm_spatial_summary()`, the pool-level reading: the centroid's offset and
+  bearing from the treated unit (an average of the donors' east/north offset
+  vectors, so a mean of angles does not wrap) and the sector coverage, in
+  bearing order, read against the sector count the table was built with.
+  `nm_haversine()` and `nm_bearing()` are the vectorised primitives behind
+  them, on the R = 6371 km sphere. `nm_scm_diagnostics()` takes the panel,
+  the treated unit and the coordinate columns, and appends the reading as a
+  `spatial` section — only when the panel carries the coordinates it is
+  about; without them the summary is exactly what it was before. A donor
+  with no coordinate fix is read as missing, not dropped. It is a diagnostic,
+  not a fitter: nothing here changes the weights. Mirrors `normet-py`
+  (PR #65); the window's SCM Studio gains the Spatial tab with it.
+* **Staggered adoption**: added `nm_run_scm_staggered()` — several treated
+  units, each with its own cutoff. Every unit gets its own `nm_run_scm()` fit
+  on its own pre- and post-period, with the *other treated units excluded
+  from every run's donor pool*, so one unit's intervention cannot leak into
+  another unit's synthetic control. Each unit's effect is the post-cutoff mean
+  (or `sum`) of its effect path, ranked against its own placebo-in-space
+  distribution (every donor in turn takes the unit's role at the unit's own
+  cutoff, `p = (count + 1) / (n + 1)`). The result is one row per unit —
+  cutoff, pre/post lengths, pre-period `R^2`, effect, p-value — plus `mean`
+  and `median` summary rows; the `mean` row carries the cross-unit
+  permutation test, whose reference is donor-only by design (a donor never
+  intervened on draws from the null, while permuting the treated units'
+  identities is contaminated by the true effect). The real and placebo runs
+  share one parallel pool, as in `nm_scm_all()`; the `scm` backend runs it on
+  an R cluster, the other backends in order. Mirrors `normet-py` (PR #66).
+* **Log-scale fits**: the normalisation pipeline gains `log_transform` —
+  `nm_do_all()`, `nm_do_all_unc()` and `nm_normalise()` take the flag and the
+  model trains on `log1p(value)`, the de-weathering runs on that scale, and
+  every result column (observed, normalised, quantiles, the ensemble's means
+  and bounds) is back-transformed through `expm1`, so the output is in the
+  original units and non-negative by construction. `nm_do_all()` returns the
+  frame the model was trained on (the log1p target); `nm_do_all_unc()`'s
+  per-member weighting statistics are computed on that same log scale. A
+  negative target is rejected with an error that names the offending rows.
+  `nm_log1p_target()` and `nm_expm1_columns()` are the transform pair behind
+  it. `nm_modStats()`/`nm_Stats()` gain `logMAE` and `logRMSE` — accuracy in
+  log1p space, the space a log fit optimises; pairs with either side below
+  -1 are dropped from those two metrics only. The HTML report says so when a
+  run's config carries the flag, with the share of observations below 1 in
+  the original units. Mirrors `normet-py` (PR #63).
+* **Embedding diagnostics**: new `R/nm_foundation_embedding.r` with
+  `nm_silhouette_curve()`, `nm_embedding_projection()` and
+  `nm_plot_embedding_diagnostics()` — the diagnostics for choosing how to
+  use multi-site embeddings: the mean silhouette as a function of the number
+  of groups (KMeans as a discardable yardstick, 10 seeded restarts, a
+  deterministic 1000-point subsample above 1000 sites, `NA` rows for
+  infeasible `k`), a 2-D projection, and the two-panel diagnostic figure
+  (ggplot2 + patchwork). As in normet-py, the module emits no cluster
+  memberships and no recommended k. R-side decisions: the silhouette runs on
+  base R (`stats::kmeans` + `cluster::silhouette`) so it needs no sklearn
+  equivalent; `metric` accepts `"euclidean"` and `"cosine"` (R's `dist()` has
+  no `"cosine"` method, so the cosine dissimilarity is built as 1 - cosine
+  similarity, zero vectors dissimilar to everything); `method = "umap"`
+  stops with an error naming `umap-learn`, as the R package has no UMAP
+  backend; the figure's used title is attached as the `title` attribute.
+  Mirrors `normet-py` (PR #64).
+* **Manual**: both books gain the staggered-adoption section — the per-unit
+  fits with the other treated units excluded from every run's donor pool,
+  the cross-unit permutation test and why its reference is donor-only (a
+  permuted treated identity is contaminated by the true effect, and with two
+  treated units the single non-identity permutation is exactly the
+  contaminated one) — naming the R function `nm_run_scm_staggered`; the SCM
+  Studio figures are re-walked with the Spatial tab in place and both PDFs
+  rebuilt. Mirrors `normet-py` (PR #67).
 * **Agent / MCP**: `normet_trend` and `normet_trend_breaks` join the tools the
   assistant drives normet with (and the MCP server serves): the trend test of
   one column of a result table, synchronous, with the same readings the window
