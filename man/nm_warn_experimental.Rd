@@ -10,10 +10,10 @@ nm_warn_experimental(message, ...)
 \item{message}{Character. The warning message.}
 
 \item{...}{Additional data fields stored on the condition object, passed
-through to \code{\link[rlang:warn]{rlang::warn()}}.}
+through to \code{\link[rlang:abort]{rlang::warn()}}.}
 }
 \value{
-Invisibly \code{NULL}; signals a warning via \code{\link[rlang:warn]{rlang::warn()}}.
+Invisibly \code{NULL}; signals a warning via \code{\link[rlang:abort]{rlang::warn()}}.
 }
 \description{
 Signals a classed warning (\code{"nm_experimental_warning"}) so it can be

@@ -156,8 +156,76 @@ def main_figures():
     win._run_decompose()
     emi = win.results["decompose"]
     print("  columns:", list(emi.columns))
+    # The ticked 'Run after each emission decomposition' started the emission part's
+    # trend (its tab is on screen now): back to the decomposition for its figure.
+    win.tabs.setCurrentWidget(win.tab_decom)
     said(win.tab_decom)
     grab(win, "ui_decompose_emission.png")
+
+    print("trend: the emission part")
+    win.trend_series.setCurrentText("emission part (emi_total)")
+    win.tre_seasonal.setCurrentText("auto")
+    win.tre_segments.setValue(1)
+    win.tre_n_bootstrap.setValue(1000)
+    win._run_trend()
+    tr = win._trend_raw
+    print("  MK S", tr.test.S, "z", round(tr.test.z, 4), "p", tr.test.p, "seasonal", tr.test.seasonal)
+    print(
+        "  slope", round(tr.slope.slope, 6),
+        "ci", round(tr.slope.ci_low, 6), round(tr.slope.ci_high, 6),
+        "per_yr", None if tr.slope.slope_per_year is None else round(tr.slope.slope_per_year, 4),
+    )
+    print(
+        "  ar1", round(tr.ar1_acf, 4),
+        "autocorr", tr.ar_autocorrelated,
+        "boot_se", None if tr.boot_slope_se is None else round(tr.boot_slope_se, 6),
+        "p_wald", None if tr.p_wald_boot is None else round(tr.p_wald_boot, 5),
+        "block", tr.block_length,
+    )
+    said(win.tab_trend)
+    grab(win, "ui_trend.png")
+
+    print("trend: the segmented long-term")
+    win.tre_segments.setValue(2)  # moves the default emission-part choice to the long-term trend
+    win.tre_n_bootstrap.setValue(1000)
+    win._run_trend()
+    br = win._trend_raw
+    print("  series", win.trend_series.currentText(), "segments", br.n_segments, "break", br.best_break)
+    print(
+        "  sse", round(br.sse_single, 4), "->", round(br.sse_segmented, 4),
+        "improvement", None if br.improvement_pct is None else round(br.improvement_pct, 2),
+    )
+    print(
+        "  bic", round(br.bic_single, 1), "->", round(br.bic_segmented, 1),
+        "p", None if br.p_value is None else round(br.p_value, 5),
+        "sig", br.significant, "block", br.block_length,
+    )
+    for i, sg in enumerate(br.segments, 1):
+        print(
+            f"  seg{i} n", sg.n,
+            "slope", round(sg.slope, 6),
+            "ci", round(sg.ci_low, 6), round(sg.ci_high, 6),
+            "per_yr", None if sg.slope_per_year is None else round(sg.slope_per_year, 4),
+        )
+    said(win.tab_trend)
+    grab(win, "ui_trend_breaks.png")
+
+    print("uncertainty")
+    win.unc_models.setValue(3)
+    win.unc_samples.setValue(50)
+    win.unc_backend.setCurrentText("lightgbm")
+    win._run_unc()
+    unc = win._unc_raw
+    s = unc.summary().set_index("source")
+    print(
+        "  members", unc.n_models, "x draws", unc.n_weather_draws,
+        "| median shares: weather", round(100 * float(s.loc["weather", "pct_median"])),
+        "model", round(100 * float(s.loc["model", "pct_median"])),
+        "interaction", round(100 * float(s.loc["interaction", "pct_median"])),
+        "| median total variance", round(float(s.loc["total", "var_median"]), 1),
+    )
+    said(win.tab_unc)
+    grab(win, "ui_uncertainty.png")
 
     print("decompose: meteorology, four groups")
     win.decom_method.setCurrentText("meteorology")

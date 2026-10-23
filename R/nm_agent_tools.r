@@ -132,6 +132,78 @@ NULL
   .nm_data_reading(.nm_agent_table(path), target, name = basename(path))
 }
 
+# -- the trend (synchronous: it is statistics on a table, it is no job) --------------
+
+.nm_agent_trend <- function(agent, path, column = NULL, seasonal = NULL,
+                            n_bootstrap = 1000, seed = 7654321, name = NULL) {
+  df <- .nm_agent_table(.nm_agent_path(agent, path))
+  if (is.null(column)) {
+    column <- intersect(c("emi_total", "met_total", "normalised", "observed"), names(df))
+    if (!length(column)) {
+      stop(sprintf(
+        "%s has no trendable column in it: give column=<one it has>", basename(path)
+      ), call. = FALSE)
+    }
+    column <- column[1]
+  }
+  if (!column %in% names(df)) {
+    stop(sprintf("%s has no '%s' column", basename(path), column), call. = FALSE)
+  }
+  series <- if ("date" %in% names(df)) {
+    d <- df[, c("date", column), drop = FALSE]
+    names(d)[2] <- column
+    d
+  } else {
+    df[[column]]
+  }
+  res <- nm_trend(
+    series, value_col = if ("date" %in% names(df)) column else NULL,
+    name = name %||% column,
+    seasonal_period = if (is.null(seasonal)) NULL else as.integer(seasonal),
+    n_bootstrap = as.integer(n_bootstrap), seed = seed
+  )
+  .nm_trend_reading(res, name = name %||% column)
+}
+
+.nm_agent_trend_breaks <- function(agent, path, column = NULL, segments = 2,
+                                   n_bootstrap = 500, seed = 7654321, name = NULL) {
+  df <- .nm_agent_table(.nm_agent_path(agent, path))
+  column <- if (is.null(column)) "long-term" else column
+  if (column == "long-term") {
+    for (col in c("date_unix", "emi_base")) {
+      if (!col %in% names(df)) {
+        stop(sprintf(
+          "%s has no '%s' column: it is not an emission decomposition, so it has no separated long-term component; give column=<one it has>",
+          basename(path), col
+        ), call. = FALSE)
+      }
+    }
+    col_name <- "long-term"
+  } else {
+    column <- if (column == "emission") "emi_total" else column
+    if (!column %in% names(df)) {
+      stop(sprintf("%s has no '%s' column", basename(path), column), call. = FALSE)
+    }
+    col_name <- column
+  }
+  # "long-term" is computed natively by nm_trend_breaks (date_unix + emi_base), so
+  # the table goes to it as it is; without a date column the record is positional.
+  series <- if ("date" %in% names(df)) {
+    df
+  } else if (col_name == "long-term") {
+    as.numeric(df$date_unix + df$emi_base)
+  } else {
+    df[[col_name]]
+  }
+  res <- nm_trend_breaks(
+    series, value_col = if ("date" %in% names(df)) col_name else NULL,
+    name = name %||% col_name,
+    max_segments = as.integer(segments),
+    n_bootstrap = as.integer(n_bootstrap), seed = seed
+  )
+  .nm_trend_breaks_reading(res, name = name %||% col_name)
+}
+
 # -- jobs ---------------------------------------------------------------------------
 
 #' A value as R writes it in a script.

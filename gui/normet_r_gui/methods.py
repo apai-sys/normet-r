@@ -246,6 +246,60 @@ def methods_paragraph(info: dict[str, Any], lang: str = "en") -> str | None:
             out.append(
                 f"Partial-dependence curves were computed for {_names(vs, 'en')} ({g} grid points)."
             )
+    if "trend_call" in ran:
+        call = ran["trend_call"]
+        seq = "seasonal (Sen 1968)" if call.get("seasonal_period") else "classical"
+        nm = call.get("series_name") or (call.get("args") or ["the series"])[1]
+        if zh:
+            out.append(
+                f"趋势检验（Mann–Kendall 与 Theil–Sen，残差自相关时以块自助法校正）施加于{nm}，"
+                f"采用{seq}形式。"
+            )
+        else:
+            out.append(
+                f"A Mann-Kendall test with a Theil-Sen slope, corrected by a moving-block "
+                f"bootstrap where the residuals are autocorrelated (nm_trend), was "
+                f"applied to {nm}, in its {seq} form."
+            )
+    if "trend_breaks_call" in ran:
+        call = ran["trend_breaks_call"]
+        nm = call.get("series_name") or (call.get("args") or ["the series"])[1]
+        k = call.get("max_segments", 2)
+        if zh:
+            out.append(
+                f"分段趋势检验（每个分量以 Theil–Sen 拟合，断点以块自助法在全部候选位置下检验，"
+                f"nm_trend_breaks，最多 {k} 段）施加于{nm}。"
+            )
+        else:
+            out.append(
+                f"A segmented trend test (nm_trend_breaks, up to {k} segments, "
+                f"each segment fitted with Theil-Sen, the break's position gated against "
+                f"the same search under a block bootstrap) was applied to {nm}."
+            )
+
+    # -- the uncertainty's attribution -----------------------------------------
+    if "decompose_uncertainty" in ran:
+        call = ran["decompose_uncertainty"]
+        n = call.get("n_samples")
+        k = call.get("n_models")
+        backend = call.get("backend", "lightgbm")
+        cite = REFERENCES["lightgbm"] if backend == "lightgbm" else REFERENCES["h2o"]
+        cites.append(cite)
+        if zh:
+            out.append(
+                f"不确定度分解（nm_decompose_uncertainty）将总方差按来源分摊：以 "
+                f"{k} 个成员，各用 {backend} 在各自种子上训练，共同使用同一组 {n} 次"
+                f"气象重采样，逐时刻的响应被正交地拆为气象、模型形式与二者交互三项。"
+            )
+        else:
+            out.append(
+                "The total per-date spread was attributed to its sources "
+                "(nm_decompose_uncertainty): an ensemble of "
+                f"{k} {backend} members, each trained on its own seed, predicts the same "
+                f"{n} met resamples shared across members, and each timestamp's response "
+                "is split orthogonally into the weather, the model form and their "
+                "interaction."
+            )
 
     refs = sorted(set(cites)) + (
         REFERENCES["en"] if "normalise" in ran else []

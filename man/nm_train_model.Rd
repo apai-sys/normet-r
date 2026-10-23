@@ -36,10 +36,8 @@ Examples: \code{list(max_runtime_secs = 60, include_algos = c("GBM"), nfolds = 5
 \item{cache_dir}{Character. Directory for on-disk model caching (see
 \code{\link{nm_make_cache}}). If NULL (default), caching is
 disabled. Repeat calls with the same data (hashed on \code{covariates}
-\itemize{
-\item \code{target} + any \code{set} column), \code{model_config}, \code{seed}, and
-\code{backend} are served from disk instead of retraining.
-}}
++ \code{target} + any \code{set} column), \code{model_config}, \code{seed}, and
+\code{backend} are served from disk instead of retraining.}
 }
 \value{
 The trained model object from the specified backend.

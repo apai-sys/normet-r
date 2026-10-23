@@ -30,6 +30,7 @@ log = logging.getLogger(__name__)
 VERSION = 1
 SUFFIX = ".normet"
 #: The steps whose result is a table handed back to its handler, in the order they ran.
+#: The trend step keeps its whole result (its banner is of more than its table).
 _STEPS = ("normalise", "decompose", "rolling", "pdp")
 
 
@@ -70,6 +71,22 @@ class SavedResultsMixin(QMainWindow):
             "trained_features": list(self.trained_features),
             "results": {k: v for k, v in self.results.items() if k in _STEPS},
             "multiscale": getattr(self, "_multiscale_raw", None),
+            # The trend test as it ran, not just its table: (result, name, note,
+            # the table and column it came from) -- the last one so its figure's
+            # series is drawn again from the saved run's own table, not the new one.
+            "trend": (
+                (
+                    self._trend_raw,
+                    self._trend_name,
+                    self._trend_note,
+                    self._trend_table,
+                )
+                if getattr(self, "_trend_raw", None) is not None
+                else None
+            ),
+            # The uncertainty run as it came back: its figure and the tab's words
+            # are of the dataclass, not of its table -- so it is kept whole.
+            "uncertainty": getattr(self, "_unc_raw", None),
             # Both methods' decompositions where both ran on this model.
             "decompositions": {
                 method: view[1]
@@ -274,6 +291,31 @@ class SavedResultsMixin(QMainWindow):
                     getattr(self, f"_{step}_done")(res)
                 if bundle.get("multiscale") is not None:
                     self._multiscale_done(bundle["multiscale"])
+                if bundle.get("trend") is not None:
+                    kept = bundle["trend"]
+                    # What the session held: (result, name, note) -- or with the
+                    # table it ran on, so the figure's series comes back from the
+                    # saved run's own table. Old files hold the 3-tuple.
+                    res = kept[0] if isinstance(kept, (tuple, list)) else kept
+                    name = kept[1] if isinstance(kept, (tuple, list)) and len(kept) > 1 else ""
+                    note = kept[2] if isinstance(kept, (tuple, list)) and len(kept) > 2 else ""
+                    kept_table = (
+                        kept[3]
+                        if isinstance(kept, tuple) and len(kept) > 3 and isinstance(kept[3], tuple)
+                        else self._trend_table
+                    )
+                    self._trend_name, self._trend_note = name or "", note or ""
+                    self._trend_table = kept_table
+                    # A saved segment fit hands back to its own handler (its banner,
+                    # figure and table are of the break, not of the single slope).
+                    handler = (
+                        self._trend_breaks_done
+                        if type(res).__name__ == "TrendBreaks"
+                        else self._trend_done
+                    )
+                    handler(res)
+                if bundle.get("uncertainty") is not None:
+                    self._unc_done(bundle["uncertainty"])
             self.command_log.entries = list(bundle.get("commands") or [])
             self._ran = dict(bundle.get("ran") or {})
             self._refresh_command_log()

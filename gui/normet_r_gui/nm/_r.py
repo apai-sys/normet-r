@@ -21,6 +21,7 @@ import pandas as pd
 
 from .. import _rpc
 from .._rpc import RObject
+from .analysis import TrendBreaks, TrendResult, TrendSlope, TrendTest, UncDecomposition
 
 log = logging.getLogger(__name__)
 
@@ -358,6 +359,240 @@ def pdp(
         n_cores=n_cores,
         verbose=verbose,
     )
+
+
+# -- trend -------------------------------------------------------------------------------
+
+
+def _trend_input(series: Any, value_col: str | None) -> tuple[Any, str | None]:
+    """The series as the R package reads it, and the column to read of it.
+
+    A datetime-indexed series goes as the frame it came from -- a ``date`` column
+    and the series' own column -- because a bare vector would lose its index on
+    the way; a positional one crosses as its values and is read on the 0..n-1
+    grid. R reads a data frame's ``value_col`` itself, so the column the series
+    is kept under is what is passed.
+    """
+    if isinstance(series, pd.DataFrame):
+        if value_col is None:
+            raise ValueError("`value_col` is required when passing a DataFrame.")
+        if value_col not in series.columns:
+            raise ValueError(f"Column '{value_col}' not in DataFrame.")
+        return series, value_col
+    if isinstance(series.index, pd.DatetimeIndex):
+        col = series.name if isinstance(series.name, str) and series.name else "value"
+        frame = pd.DataFrame({col: series.to_numpy()})
+        frame.insert(0, "date", series.index)
+        return frame, col
+    return series.to_numpy(dtype=float), None
+
+
+def _as_list(value: Any) -> list[Any]:
+    """A list field the wire unboxed: one item where the list held one, or a
+    datetime index read back as its timestamps."""
+    if value is None:
+        return []
+    if isinstance(value, (list, pd.DatetimeIndex, pd.Index)):
+        return list(value)
+    return [value]
+
+
+def _trend_test(out: dict[str, Any]) -> TrendTest:
+    return TrendTest(
+        S=int(out["S"]),
+        var_S=float(out["var_S"]),
+        z=float(out["z"]),
+        p=float(out["p"]),
+        n=int(out["n"]),
+        seasonal=bool(out.get("seasonal", False)),
+        n_periods=None if out.get("n_periods") is None else int(out["n_periods"]),
+    )
+
+
+def _trend_slope(out: dict[str, Any]) -> TrendSlope:
+    return TrendSlope(
+        slope=float(out["slope"]),
+        ci_low=float(out["ci_low"]),
+        ci_high=float(out["ci_high"]),
+        n=int(out["n"]),
+        time_unit=out.get("time_unit") or "step",
+        slope_per_year=None if out.get("slope_per_year") is None else float(out["slope_per_year"]),
+        ci_low_per_year=None if out.get("ci_low_per_year") is None else float(out["ci_low_per_year"]),
+        ci_high_per_year=None if out.get("ci_high_per_year") is None else float(out["ci_high_per_year"]),
+    )
+
+
+def _trend_result(out: dict[str, Any]) -> TrendResult:
+    return TrendResult(
+        name=out.get("name") or "series",
+        n=int(out["n"]),
+        n_dropped=int(out["n_dropped"]),
+        test=_trend_test(out["test"]),
+        slope=_trend_slope(out["slope"]),
+        ar1_acf=float(out["ar1_acf"]),
+        ar1_p=float(out["ar1_p"]),
+        ar_autocorrelated=bool(out["ar_autocorrelated"]),
+        boot_slope_se=None if out.get("boot_slope_se") is None else float(out["boot_slope_se"]),
+        boot_ci_low=None if out.get("boot_ci_low") is None else float(out["boot_ci_low"]),
+        boot_ci_high=None if out.get("boot_ci_high") is None else float(out["boot_ci_high"]),
+        p_wald_boot=None if out.get("p_wald_boot") is None else float(out["p_wald_boot"]),
+        block_length=None if out.get("block_length") is None else int(out["block_length"]),
+        n_bootstrap=None if out.get("n_bootstrap") is None else int(out["n_bootstrap"]),
+        notes=_as_list(out.get("notes")),
+    )
+
+
+def _trend_breaks(out: dict[str, Any]) -> TrendBreaks:
+    return TrendBreaks(
+        name=out.get("name") or "series",
+        n=int(out["n"]),
+        n_dropped=int(out["n_dropped"]),
+        time_unit=out.get("time_unit") or "step",
+        starts=_as_list(out.get("starts")),
+        ends=_as_list(out.get("ends")),
+        segments=[_trend_slope(s) for s in _as_list(out.get("segments"))],
+        n_segments=int(out["n_segments"]),
+        best_break=out.get("best_break"),
+        best_split_pct=float(out.get("best_split_pct") or 0.0),
+        sse_single=None if out.get("sse_single") is None else float(out["sse_single"]),
+        sse_segmented=None if out.get("sse_segmented") is None else float(out["sse_segmented"]),
+        improvement_pct=None if out.get("improvement_pct") is None else float(out["improvement_pct"]),
+        bic_single=None if out.get("bic_single") is None else float(out["bic_single"]),
+        bic_segmented=None if out.get("bic_segmented") is None else float(out["bic_segmented"]),
+        p_value=None if out.get("p_value") is None else float(out["p_value"]),
+        significant=bool(out.get("significant", False)),
+        alpha=float(out.get("alpha") or 0.05),
+        max_segments=int(out.get("max_segments") or 2),
+        min_segment=None if out.get("min_segment") is None else int(out["min_segment"]),
+        block_length=None if out.get("block_length") is None else int(out["block_length"]),
+        n_bootstrap=None if out.get("n_bootstrap") is None else int(out["n_bootstrap"]),
+        notes=_as_list(out.get("notes")),
+    )
+
+
+def trend(
+    series: pd.Series | pd.DataFrame,
+    *,
+    value_col: str | None = None,
+    name: str | None = None,
+    seasonal_period: int | None = None,
+    test_alpha: float = 0.05,
+    block_length: int | None = None,
+    n_bootstrap: int = 1000,
+    seed: int = 7654321,
+    **_ignored: Any,
+) -> TrendResult:
+    """``nm_trend``: the Mann-Kendall test, the Theil-Sen slope with its Sen (1968)
+    interval, and the block-bootstrap interval and Wald p where the residuals
+    are autocorrelated (the classical MK p is anti-conservative there)."""
+    payload, col = _trend_input(series, value_col)
+    out = _rpc.call(
+        "nm_trend",
+        payload,
+        value_col=col,
+        name=name,
+        seasonal_period=seasonal_period,
+        test_alpha=test_alpha,
+        block_length=block_length,
+        n_bootstrap=int(n_bootstrap),
+        seed=seed,
+    )
+    return _trend_result(out)
+
+
+def detect_trend_breaks(
+    series: pd.Series | pd.DataFrame,
+    *,
+    value_col: str | None = None,
+    name: str | None = None,
+    max_segments: int = 2,
+    min_segment: int | None = None,
+    alpha: float = 0.05,
+    block_length: int | None = None,
+    n_bootstrap: int = 500,
+    seed: int = 7654321,
+    **_ignored: Any,
+) -> TrendBreaks:
+    """``nm_trend_breaks``: where the trend breaks -- a greedy segmentation gated
+    by BIC and by the block-bootstrap p of the search over every candidate
+    position; each segment with its own Theil-Sen slope and Sen interval."""
+    payload, col = _trend_input(series, value_col)
+    out = _rpc.call(
+        "nm_trend_breaks",
+        payload,
+        value_col=col,
+        name=name,
+        max_segments=int(max_segments),
+        min_segment=min_segment,
+        alpha=alpha,
+        block_length=block_length,
+        n_bootstrap=int(n_bootstrap),
+        seed=seed,
+    )
+    return _trend_breaks(out)
+
+
+# -- uncertainty -------------------------------------------------------------------------
+
+
+def _unc_result(out: dict[str, Any]) -> UncDecomposition:
+    index = out.get("date")
+    if not isinstance(index, pd.DatetimeIndex):
+        index = pd.DatetimeIndex(pd.to_datetime(index))
+    return UncDecomposition(
+        var_weather=np.asarray(out["var_weather"], dtype=float),
+        var_model=np.asarray(out["var_model"], dtype=float),
+        var_interaction=np.asarray(out["var_interaction"], dtype=float),
+        var_total=np.asarray(out["var_total"], dtype=float),
+        index=index,
+        target=str(out["target"]),
+        n_models=int(out["n_models"]),
+        n_weather_draws=int(out["n_weather_draws"]),
+        seed=int(out["seed"]),
+        notes=_as_list(out.get("notes")),
+    )
+
+
+def decompose_uncertainty(
+    df: pd.DataFrame,
+    target: str,
+    *,
+    backend: str = "lightgbm",
+    covariates: list[str] | None = None,
+    variables_resample: list[str] | None = None,
+    split_method: str = "ts",
+    train_fraction: float = 0.75,
+    model_config: Mapping[str, Any] | None = None,
+    n_samples: int = 300,
+    n_models: int = 10,
+    seed: int = 7654321,
+    n_cores: int | None = None,
+    verbose: bool = False,
+    **_ignored: Any,
+) -> UncDecomposition:
+    """``nm_decompose_uncertainty``: of the band's total per-date spread, how much is
+    the met resampling, how much the model form and how much their interaction.
+    R trains the members and splits the (members x draws) response; the result is
+    normet-py's dataclass filled from it, so the window's tab, figure and verdict
+    read it as they read normet-py's own. ``backend`` is R's: lightgbm or h2o."""
+    _note_backend(backend)
+    out = _rpc.call(
+        "nm_decompose_uncertainty",
+        df,
+        target,
+        backend=backend,
+        covariates=list(covariates) if covariates else None,
+        variables_resample=list(variables_resample) if variables_resample else None,
+        split_method=split_method,
+        train_fraction=float(train_fraction),
+        model_config=dict(model_config) if model_config else None,
+        n_samples=int(n_samples),
+        n_models=int(n_models),
+        seed=int(seed),
+        n_cores=n_cores,
+        verbose=verbose,
+    )
+    return _unc_result(out)
 
 
 # -- data --------------------------------------------------------------------------------

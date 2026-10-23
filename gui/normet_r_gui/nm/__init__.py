@@ -8,10 +8,14 @@ This package answers those imports:
   plotting functions, table reading (``io.tables``), trajectory joins, the SCM
   diagnostics and bands' arithmetic, the agent's readings;
 - every analysis is the R package's: :mod:`._r` calls ``nm_build_model``,
-  ``nm_normalise``, ``nm_decompose``, ``nm_rolling``, ``nm_pdp``, the SCM estimators,
-  the fetchers and the trajectory functions through ``Rscript`` (:mod:`normet_r_gui._rpc`)
-  and hands back what normet-py's functions hand back -- the same tables, indexed and
-  named the same way -- so the window cannot tell the two apart.
+  ``nm_normalise``, ``nm_decompose``, ``nm_rolling``, ``nm_pdp``, the trend tests
+  (``nm_trend``, ``nm_trend_breaks``), the uncertainty decomposition
+  (``nm_decompose_uncertainty``), the SCM estimators, the fetchers and the
+  trajectory functions through ``Rscript`` (:mod:`normet_r_gui._rpc`) and hands back
+  what normet-py's functions hand back -- the same tables, indexed and named the same
+  way, the trend and uncertainty results in normet-py's own dataclasses
+  (:mod:`.analysis.trend`, :mod:`.analysis.uncertainty`) -- so the window cannot
+  tell the two apart.
 
 A model is an :class:`._r.RModel`: the R model saved in the session's folder, with its
 backend and features.
@@ -23,11 +27,14 @@ import re
 from typing import Any
 
 from . import figstyle, style  # noqa: F401 - the window imports them from here
+from .analysis import TrendBreaks, TrendResult, TrendSlope, TrendTest  # noqa: F401
 from ._r import (  # noqa: F401
     RModel,
     build_model,
     build_trajectory_features,
     decompose,
+    decompose_uncertainty,
+    detect_trend_breaks,
     fetch_era5_timeseries,
     fetch_gdas1,
     fetch_openmeteo_timeseries,
@@ -44,6 +51,7 @@ from ._r import (  # noqa: F401
     prepare_data,
     rolling,
     run_back_trajectories,
+    trend,
 )
 from .plotting import (  # noqa: F401
     cycle_profiles,
@@ -57,6 +65,7 @@ from .plotting import (  # noqa: F401
     time_series_plot,
     wind_rose,
 )
+from .causal import PreTrend, pre_trend_test, scm_diagnostics  # noqa: F401 - normet-py's readings reach them at the top level
 
 #: A rolling result's window columns: window_01, window_02, ... (R's names, normet-py's).
 _WINDOW_COLUMN = re.compile(r"window_\d+")

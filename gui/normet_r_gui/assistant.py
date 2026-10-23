@@ -72,15 +72,18 @@ the window holds and run its steps the way its buttons do.
 
 Work in the window's order, as the analyst asks: look at the data (inspect_data, with
 the target), agree the target and predictors (propose_setup), train (train), read the
-model (model_fit), normalise (normalise), read it (normalised), and decompose
-(decompose, then decomposition).
+model (model_fit), normalise (normalise), read it (normalised), decompose
+(decompose, then decomposition), and test the trend of a series (trend; its
+segmented form, where the trend breaks, is trend_breaks).
 
 Which tool does what the analyst asks:
 - The window's own steps are tools, each run as its button runs it, with the settings
   the analyst named (and no others): train (backend, budget, split, seed), normalise,
   decompose, rolling (rolling normalisation), multiscale, pdp (partial dependence),
-  polar_plot (a variable by wind direction and speed), and the SCM Studio's synthetic
-  control: scm_open, scm_fit, scm_placebo, scm_bands. results reads every result tab.
+  trend (the trend test of a series: Mann-Kendall, Theil-Sen slope, block-bootstrap
+  corrected), polar_plot (a variable by wind direction and speed), and the SCM
+  Studio's synthetic control: scm_open, scm_fit, scm_placebo, scm_bands. results
+  reads every result tab.
 - Everything else normet's API does goes to the analyst with carry_out: code on the
   table open, CODE_CONVENTIONS api_help("") lists the API and api_help(name) shows a
   call; write a call from what api_help shows. Do not say normet cannot do something
@@ -165,8 +168,10 @@ NEXT_TEXT = {
     "normalised": "decompose: 'emission' splits the normalised series by time scale, "
     "'meteorology' the weather's part by variable; rolling or multiscale show how the "
     "weather's part moves over the record",
-    "decomposition": "results reads every tab; pdp shows how the model answers each "
-    "variable; polar_plot where the target comes from by the wind",
+    "decomposition": "results reads each tab; trend tests the series for a trend "
+    "(Mann-Kendall, Theil-Sen, the block-bootstrap-corrected p where the record is "
+    "autocorrelated); pdp shows how the model answers each variable; polar_plot where "
+    "the target comes from by the wind",
     "rolling": "multiscale reads the bands between rolling widths (it needs the "
     "normalisation); results reads every tab",
     "pdp": "results reads every tab; polar_plot reads the target by wind direction",
@@ -368,6 +373,8 @@ class WindowTools:
         ("train", "data"),
         ("normalise", "model"),
         ("decompose", "model"),
+        ("trend", "decomposed"),
+        ("trend_breaks", "decomposed"),
         ("rolling", "model"),
         ("multiscale", "normalised"),
         ("pdp", "model"),
@@ -397,6 +404,11 @@ class WindowTools:
         "carry_out (api_help('normalise'))",
         "decompose": "a decomposition with any other setting is normet's decompose in "
         "carry_out (api_help('decompose'))",
+        "trend": "a trend of any other series is normet's trend in carry_out (api_help('trend'))",
+        "trend_breaks": (
+            "a segment split of any other series is normet's detect_trend_breaks in "
+            "carry_out (api_help('detect_trend_breaks'))"
+        ),
         "api_help": "name is one of normet's calls, as api_help('') lists them",
         "carry_out": "code is normet's calls on the table open; reasons are said to the analyst",
     }
@@ -428,6 +440,16 @@ class WindowTools:
         ("carry_out", "code"): "normet's calls on the table open (df), as api_help shows "
         "them, printing what the analyst should read",
         ("train", "budget"): "the search budget: seconds or trials, as the panel says",
+        ("trend", "series"): "'emission' (the decomposition's emission part), 'met' "
+        "(its weather part), or 'observed' (the target as recorded)",
+        ("trend", "seasonal"): "'auto' (the window's own choice), 'none' (the "
+        "classical test), or '24' (hourly), '7' (daily), '12' (monthly) calendar "
+        "periods",
+        ("trend_breaks", "series"): "'long-term' (the separated long-term trend, "
+        "the default -- the cycles already taken out), 'emission' (its emission "
+        "part), 'met' (its weather part) or 'observed' (the target as recorded)",
+        ("trend_breaks", "segments"): "2 to 4: the most segments the fit may split "
+        "the record into (it stops earlier where a split earns no keep)",
         ("scm_fit", "cutoff"): "the intervention date, YYYY-MM-DD",
     }
 
@@ -781,6 +803,79 @@ class WindowTools:
             lambda: readings.decomposition_reading(self.win.results["decompose"]),
         )
 
+    def trend(self, series: str = "emission", seasonal: str = "auto") -> str:
+        """The window's trend test (Mann-Kendall, Theil-Sen slope with its interval,
+        and the block-bootstrap-corrected p where the record is autocorrelated) on
+        series 'emission' (the decomposition's emission part), 'met' (its weather
+        part) or 'observed' (the target as recorded); seasonal is 'auto', 'none' or
+        the calendar period in steps of the record ('24', '7', '12'). Returns the
+        verdict -- which p stands for the trend."""
+        if series not in ("emission", "met", "observed"):
+            raise ValueError("series is 'emission', 'met' or 'observed'")
+        if seasonal not in ("auto", "none", "24", "7", "12"):
+            raise ValueError("seasonal is 'auto', 'none', '24', '7' or '12'")
+        def start() -> None:
+            # The single segment: this tool is the one-slope test (its segments go
+            # to trend_breaks), so a Segments row left higher is brought back.
+            self.win.tre_segments.setValue(1)
+            self.win.trend_series.setCurrentText(
+                {
+                    "emission": "emission part (emi_total)",
+                    "met": "meteorology part (met_total)",
+                    "observed": "observed target",
+                }[series]
+            )
+            self.win.tre_seasonal.setCurrentText(seasonal)
+            self.win._run_trend()
+
+        return self._step(
+            start,
+            lambda: self.win.results.get("trend"),
+            lambda: readings.trend_reading(
+                self.win._trend_raw, name=self.win._trend_name or "series"
+            ),
+        )
+
+    def trend_breaks(
+        self, series: str = "long-term", segments: int = 2, n_bootstrap: int | None = None
+    ) -> str:
+        """The window's segmented trend test (normet.detect_trend_breaks): where the
+        trend breaks, if it does, each segment with its own Theil-Sen slope and
+        interval, and the block-bootstrap p of the search. series is 'long-term'
+        (the decomposition's separated long-term component -- the cleaner input,
+        the default), 'emission' (its emission part), 'met' (its weather part) or
+        'observed' (the target as recorded); segments is 2 to 4; n_bootstrap the
+        replicates of the search under the null. Returns the verdict -- where the
+        break is, and which p stands for it."""
+        if series not in ("long-term", "emission", "met", "observed"):
+            raise ValueError("series is 'long-term' (the default), 'emission', 'met' or 'observed'")
+        if not 2 <= int(segments) <= 4:
+            raise ValueError("segments is 2 to 4")
+        def start() -> None:
+            # Segments first, then the series: raising the Segments row may move a
+            # default emission-part choice to the long-term one, and the series
+            # named here must be the one that stands.
+            self.win.tre_segments.setValue(int(segments))
+            self.win.trend_series.setCurrentText(
+                {
+                    "long-term": "long-term trend (separated)",
+                    "emission": "emission part (emi_total)",
+                    "met": "meteorology part (met_total)",
+                    "observed": "observed target",
+                }[series]
+            )
+            if n_bootstrap is not None:
+                self.win.tre_n_bootstrap.setValue(int(n_bootstrap))
+            self.win._run_trend()
+
+        return self._step(
+            start,
+            lambda: self.win.results.get("trend"),
+            lambda: readings.trend_breaks_reading(
+                self.win._trend_raw, name=self.win._trend_name or "series"
+            ),
+        )
+
     def rolling(
         self,
         window_days: int | None = None,
@@ -1049,6 +1144,8 @@ class WindowTools:
                 self.train,
                 self.normalise,
                 self.decompose,
+                self.trend,
+                self.trend_breaks,
                 self.rolling,
                 self.multiscale,
                 self.pdp,
@@ -1244,7 +1341,7 @@ def state_parts(win: MainWindow) -> list[str]:
     parts.append(f"backend: {win.backend_combo.currentText()}")
     if win.model is not None:
         parts.append(f"model trained on: {', '.join(win.trained_features)}")
-    made = [k for k in ("normalise", "decompose", "rolling", "pdp") if k in win.results]
+    made = [k for k in ("normalise", "decompose", "rolling", "pdp", "trend") if k in win.results]
     if made:
         from . import uilang
         from ._shell import report_language

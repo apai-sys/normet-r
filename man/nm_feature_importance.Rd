@@ -14,7 +14,11 @@ nm_feature_importance(model, verbose = FALSE, ...)
 \item{...}{Additional arguments passed to the implementation function.}
 }
 \value{
-A data frame containing variables and their importance metrics.
+A data frame containing variables and their importance metrics,
+largest first: \code{variable}, \code{relative_importance}, \code{scaled_importance} (relative
+to the largest) and \code{percentage} (a share of the total). For a LightGBM booster
+the importance is each feature's total gain (\code{lightgbm::lgb.importance}); a
+feature the booster never split on is listed with zero.
 }
 \description{
 Extracts variable importance values from a trained model and returns a standardized data frame.

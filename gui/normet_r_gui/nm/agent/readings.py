@@ -408,13 +408,19 @@ def scm_reading(result: pd.DataFrame, cutoff: str) -> str:
         ]
     pre_mean = df.loc[df.index < pd.Timestamp(cutoff), "observed"].mean()
     rows.append(["treated unit's pre-period mean", pre_mean])
-    return "\n".join(
-        [
-            f"Synthetic control, cutoff {cutoff} (normet.scm_diagnostics):",
-            "",
-            table(["", "value"], rows),
-        ]
-    )
+    pt = d.get("pre_trend") or {}
+    rows += [
+        ["pre-trend p-value (slope)", pt.get("p_slope")],
+        ["pre-trend drift (final third vs rest)", pt.get("rmpe_drift")],
+    ]
+    lines = [
+        f"Synthetic control, cutoff {cutoff} (normet.scm_diagnostics):",
+        "",
+        table(["", "value"], rows),
+    ]
+    if pt.get("verdict"):
+        lines += ["", f"pre-trend: {pt['verdict']}"]
+    return "\n".join(lines)
 
 
 def cv_reading(scores: pd.DataFrame) -> str:
@@ -426,4 +432,141 @@ def cv_reading(scores: pd.DataFrame) -> str:
     if numeric:
         means = ", ".join(f"{c} {num(df[c].mean())}" for c in numeric if c not in ("fold",))
         lines += ["", f"Means over the folds: {means}."]
+    return "\n".join(lines)
+
+
+def trend_reading(res: Any, name: str = "series") -> str:
+    """A trend test on a series (normet.trend result): its direction and the
+    Mann-Kendall test, the slope with its interval, and -- where the record is
+    autocorrelated -- the block-bootstrap interval and Wald p, which is the one
+    to quote (the classical MK p is anti-conservative there and says so)."""
+    t = res.test
+    s = res.slope
+    unit = "per day" if s.time_unit == "day" else "per step"
+    rows = [
+        ["series", res.name],
+        ["rows used", res.n],
+    ]
+    if res.n_dropped:
+        rows.append(["missing dropped", res.n_dropped])
+    rows += [
+        ["direction (5%)", t.direction],
+        ["Mann-Kendall S", res.test.S],
+        ["MK z", num(t.z, 3)],
+        ["MK p (two-sided, classical)", num(t.p, 4)],
+        [f"slope ({unit})", num(s.slope, 4)],
+        [f"slope 95% CI ({unit})", f"[{num(s.ci_low, 4)}, {num(s.ci_high, 4)}]"],
+    ]
+    if s.slope_per_year is not None:
+        rows.append(["slope per year", num(s.slope_per_year, 4)])
+    rows += [
+        ["AR(1) residual acf", num(res.ar1_acf, 3)],
+        ["AR(1) p", num(res.ar1_p, 4)],
+    ]
+    if res.ar_autocorrelated:
+        if res.boot_slope_se is not None:
+            rows += [
+                ["bootstrap SE (block)", num(res.boot_slope_se, 4)],
+                [
+                    f"bootstrap 95% CI ({unit})",
+                    f"[{num(res.boot_ci_low, 4)}, {num(res.boot_ci_high, 4)}]",
+                ],
+                ["p (Wald on block bootstrap)", num(res.p_wald_boot, 4)],
+                ["block length", res.block_length],
+                ["bootstrap replicates", res.n_bootstrap],
+            ]
+            rows.append(
+                [
+                    "quote",
+                    f"{res.name}: {t.direction} at 5%, slope {num(s.slope, 4)} {unit} "
+                    f"(bootstrap CI [{num(res.boot_ci_low, 4)}, {num(res.boot_ci_high, 4)}], "
+                    f"p_wald {num(res.p_wald_boot, 4)})",
+                ]
+            )
+        else:
+            rows.append(
+                ["quote", "AR(1) detected but the block bootstrap was unavailable — see the notes"]
+            )
+    lines = [f"Trend test on {name} (nm_trend):", ""]
+    lines.append(table(["", "value"], rows))
+    lines += ["", *res.notes]
+    return "\n".join(lines)
+
+
+def trend_breaks_reading(res: Any, name: str = "series") -> str:
+    """A segmented trend test on a series (normet.detect_trend_breaks result): where
+    the trend breaks, each segment with its own Theil-Sen slope and Sen (1968)
+    interval, and the block-bootstrap p of the search over every candidate
+    position -- the multiple-testing-corrected, autocorrelation-aware one to
+    quote; the record's reason for staying one regime where the gates refused a
+    split."""
+    unit = "per day" if res.time_unit == "day" else "per step"
+    rows = [
+        ["series", res.name],
+        ["rows used", res.n],
+        ["segments", res.n_segments],
+    ]
+    if res.n_dropped:
+        rows.append(["missing dropped", res.n_dropped])
+    header = ["start", "end", "n", f"slope ({unit})", "slope 95% CI", "slope per year"]
+    seg_rows = []
+    for start, end, seg in zip(res.starts, res.ends, res.segments, strict=False):
+        row = [
+            str(start)[:16],
+            str(end)[:16],
+            seg.n,
+            num(seg.slope, 4),
+            f"[{num(seg.ci_low, 4)}, {num(seg.ci_high, 4)}]",
+        ]
+        row.append(num(seg.slope_per_year, 3) if seg.slope_per_year is not None else "n/a")
+        seg_rows.append(row)
+    lines = [f"Segmented trend test on {name} (nm_trend_breaks):", ""]
+    if res.n_segments > 1:
+        from ..analysis.trend import _fmt_index
+
+        breaks = ", ".join(_fmt_index(v) for v in res.starts[1:])
+        rows += [
+            ["break(s)", breaks],
+            ["single-slope SSE", num(res.sse_single, 6)],
+            ["segmented SSE", num(res.sse_segmented, 6)],
+            ["SSE improvement", f"{num(res.improvement_pct, 1)} %"],
+            [
+                "BIC (single / segmented)",
+                f" {num(res.bic_single, 6)} / {num(res.bic_segmented, 6)}",
+            ],
+            ["p (block bootstrap of the search)", num(res.p_value, 4)],
+            ["alpha", res.alpha],
+        ]
+        if res.n_bootstrap is not None:
+            rows += [
+                ["bootstrap replicates", res.n_bootstrap],
+                ["block length", res.block_length],
+            ]
+        lines.append(table(["", "value"], rows))
+        lines += ["", table(header, seg_rows)]
+        lines += [
+            "",
+            f"Quote: {res.n_segments} segments, break(s) at {breaks}; "
+            f"p={num(res.p_value, 4)} (block bootstrap over {res.n_bootstrap} resamples "
+            f"is the multiple-testing-corrected, autocorrelation-aware test -- the one "
+            f"to quote). Each segment's Theil-Sen slope above, with its interval; "
+            "compare adjacent segments against their Sen intervals, do not re-test.",
+        ]
+    else:
+        rows += [
+            ["single-slope SSE", num(res.sse_single, 6)],
+            ["BIC (single / searched)", f" {num(res.bic_single, 6)} / {num(res.bic_segmented, 6)}"],
+        ]
+        if res.p_value is not None:
+            rows += [
+                [
+                    "best candidate cut",
+                    str(res.best_break)[:16] if res.best_break is not None else "n/a",
+                ],
+                ["best candidate SSE improvement", f"{num(res.best_split_pct, 1)} %"],
+                ["p (block bootstrap of the search)", num(res.p_value, 4)],
+            ]
+        lines.append(table(["", "value"], rows))
+        # the notes say where the search wanted to cut and why it was refused
+    lines += ["", *res.notes]
     return "\n".join(lines)

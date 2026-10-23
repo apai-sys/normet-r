@@ -242,6 +242,9 @@ _KNOWN: dict[str, tuple[str, str, tuple[str, ...]]] = {
     "decompose": ("Decompose", "decomposition", ()),
     "rolling": ("Rolling normalisation", "rolled", ()),
     "pdp": ("Partial dependence", "pd_values", ()),
+    "trend_call": ("Trend test", "trend_result", ()),
+    "trend_breaks_call": ("Segmented trend test", "trend_result", ()),
+    "decompose_uncertainty": ("Uncertainty decomposition", "uncertainty", ()),
 }
 
 
@@ -347,6 +350,29 @@ def task(
             "The bands are differences of these rolling means (the window's own helper).",
         )
         return Entry("Multi-scale decomposition", "\n".join(lines), notes=tuple(dict.fromkeys(notes)))
+    if name in ("trend_call", "trend_breaks_call"):
+        # The window builds a series out of the table it holds: the script reads that
+        # table's column instead -- R reads a frame's value_col itself, and
+        # "long-term" as the separated component it computes from the table's own
+        # columns. The window's constructed series is what the call above would send;
+        # the table and the column are what the script has.
+        calls = [c for c in _r_calls(fn, args, kwargs, all_calls=False) if c[0].startswith("nm_trend")]
+        if not calls:
+            return None
+        fn_name, _pos, rkwargs = calls[0]
+        frame, column = args[0], args[1]
+        keywords = [("value_col", literal(column))] + [
+            (k, render(v)) for k, v in rkwargs.items() if k != "value_col"
+        ]
+        if column == "long-term":
+            notes.append(
+                "'long-term' is the emission decomposition's separated component "
+                "(date_unix + emi_base), computed from the table's own columns."
+            )
+        title, target = _KNOWN[name][0], _KNOWN[name][1]
+        return Entry(
+            title, call(target, fn_name, [render(frame)], keywords), notes=tuple(dict.fromkeys(notes))
+        )
     known = _KNOWN.get(name)
     if known is None:
         return None

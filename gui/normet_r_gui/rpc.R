@@ -126,6 +126,24 @@ if (length(.rpc_args) < 1) stop("usage: Rscript rpc.R <request.json>")
 .rpc_encode <- function(x) {
   if (is.null(x)) return(NULL)
   if (is.data.frame(x)) return(.rpc_write_df(x))
+  # The trend results are read by the window's dataclasses, not held: they cross
+  # as plain lists (a classed object would become an .rds handle the window
+  # cannot read); their fields keep their own encoding, so the calendar times
+  # still cross as dates. The uncertainty result crosses the same way.
+  if (inherits(x, c("nm_trend_result", "nm_trend_breaks", "nm_trend_test", "nm_trend_slope"))) {
+    class(x) <- NULL
+    return(lapply(x, .rpc_encode))
+  }
+  if (inherits(x, "nm_unc_decomposition")) {
+    class(x) <- NULL
+    return(lapply(x, .rpc_encode))
+  }
+  # The pre-trend result rides inside nm_scm_diagnostics' plain list; it crosses
+  # the same way (a classed object would become an .rds handle the window cannot read).
+  if (inherits(x, "nm_pre_trend")) {
+    class(x) <- NULL
+    return(lapply(x, .rpc_encode))
+  }
   if (inherits(x, "POSIXt")) {
     if (length(x) == 1) return(list(`__date__` = format(as.POSIXct(x), "%Y-%m-%dT%H:%M:%OS6", tz = "UTC")))
     return(list(`__dates__` = as.list(format(as.POSIXct(x), "%Y-%m-%dT%H:%M:%OS6", tz = "UTC"))))

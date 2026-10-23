@@ -79,6 +79,7 @@ LIBRARY = [
     "utils/_lazy.py",
     "utils/progress.py",
     "causal/diagnostics.py",
+    "causal/prediagnostics.py",
     "causal/bands.py",
     "agent/llm.py",
     "agent/mcp_http.py",
@@ -91,9 +92,11 @@ def _imports_to_nm(text: str, depth: int) -> str:
     module sits below ``normet_r_gui`` (0 for the window's own modules)."""
     up = "." * (depth + 1)
     nm = f"{up}nm" if depth == 0 else "." * depth
+    # A dotted ``nm`` (a library module) already ends in the separator its path needs.
+    sep = "" if nm.endswith(".") else "."
     text = re.sub(r"^(\s*)from normet\.gui\.(\w+) import", rf"\1from {up}\2 import", text, flags=re.M)
     text = re.sub(r"^(\s*)from normet\.gui import", rf"\1from {up} import", text, flags=re.M)
-    text = re.sub(r"^(\s*)from normet\.([\w.]+) import", rf"\1from {nm}.\2 import", text, flags=re.M)
+    text = re.sub(r"^(\s*)from normet\.([\w.]+) import", rf"\1from {nm}{sep}\2 import", text, flags=re.M)
     text = re.sub(r"^(\s*)from normet import", rf"\1from {nm} import", text, flags=re.M)
     if depth == 0:
         text = re.sub(r"^(\s*)import normet as (\w+)$", r"\1from . import nm as \2", text, flags=re.M)

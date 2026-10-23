@@ -1,5 +1,62 @@
 # normet 1.0.0
 
+### Added
+
+* **Trend**: added `nm_trend()` — the Mann-Kendall test (with the seasonal
+  Sen 1968 variant) and the Theil-Sen slope with its Sen (1968) interval on a
+  series, plus `nm_mann_kendall()` and `nm_theil_sen()` as standalone exports.
+  Where the record's residuals carry AR(1) signal the Theil-Sen interval is
+  replaced by the block-bootstrap interval and a Wald p (the block is the
+  longer of the Politis-Romano 3 n^(1/3) heuristic and one calendar week for
+  sub-daily records), because the classical MK p is anti-conservative there.
+  Added `nm_trend_breaks()` — where the trend breaks: a greedy segmentation
+  gated by BIC, each segment with its own Theil-Sen slope and Sen interval,
+  and the block-bootstrap p of the search over every candidate position, the
+  multiple-testing-corrected, autocorrelation-aware test to quote. A result's
+  `value_col` may name `"long-term"`, the emission decomposition's separated
+  long-term component (`date_unix + emi_base`), computed natively. Mirrors
+  `normet-py` (PRs #52, #56); the deterministic statistics agree with it to
+  the last digit, the bootstrap draws differ (different RNG streams, same
+  math).
+* **Verification**: added probabilistic scoring — `nm_crps_from_quantiles()`
+  (the exact integral of the squared CDF distance, not a pinball sum),
+  `nm_crps_from_samples()` (each sample stands at its rank's level),
+  `nm_crps_observed()` and `nm_pinball_loss()`. A frame's `qNNN` columns name
+  their own levels. Mirrors `normet-py` (PR #53).
+* **Uncertainty decomposition**: added `nm_decompose_uncertainty()` — of the
+  total band around a de-weathered estimate, how much is the met resampling
+  and how much the model form. `n_models` members (each trained on its own
+  seed) predict on the *same* `n_samples` met draws (the user's seed, the
+  common-random-number anchor), and the per-date variance of the
+  (n_models, n_samples) response splits orthogonally into the weather, model
+  and interaction terms; the total is the three summands exactly, to
+  floating point. The result carries `summary()` (per-source median variance
+  and share), `as.data.frame()`, `plot()` (the stacked bands) and `print()`.
+  Mirrors `normet-py` (PR #57).
+* **Pre-trend test**: added `nm_pre_trend_test()` — whether the pre-period of
+  a synthetic-control fit was parallel: the OLS slope of the pre-period
+  residuals (observed minus synthetic) against the period index with its
+  classical two-sided t-test, and the RMSPE of the final third of the
+  pre-period over that of the first two thirds, read together as a traffic
+  light: `fail` when the slope is significant at the 1 % level, `caution`
+  when it is significant at `alpha` or the drift ratio exceeds 1.25, `ok`
+  otherwise. `nm_scm_diagnostics()` carries it under `pre_trend` and the
+  agent's SCM reading quotes it. Mirrors `normet-py` (PR #61).
+* **Event-study figure**: added `nm_plot_event_study()` — the visual
+  companion of `nm_pre_trend_test()`: the treated effect against event time
+  (periods, not calendar days), the pre-period in the neutral grey and the
+  post-period in the modelled red, an optional placebo band drawn over the
+  post-period only. Accepts an SCM `synthetic` frame or a `treated` list as
+  `nm_placebo_in_time()` returns it, and a band either aligned by row
+  position (`nm_effect_bands_time()`) or by date (`nm_effect_bands_space()`);
+  band columns are read as `ci_lo`/`ci_hi`, `lower`/`upper`, `low`/`high` or
+  `p10`/`p90`. Mirrors `normet-py` (PR #62).
+* **Agent / MCP**: `normet_trend` and `normet_trend_breaks` join the tools the
+  assistant drives normet with (and the MCP server serves): the trend test of
+  one column of a result table, synchronous, with the same readings the window
+  shows. The MCP instructions now say a trend is what `normet_trend` says, and
+  the corrected p it names is the one to quote.
+
 ### Changed (breaking)
 
 * **Public API argument rename**: to match the equivalent rename in the sibling

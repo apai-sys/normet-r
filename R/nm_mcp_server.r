@@ -29,7 +29,9 @@ NULL
   "  weak, and what would test it further (normet_start_cv).",
   "- The result: describe what the normalised series and its meteorological part show,",
   "  by year or month as the reading gives them; do not claim a trend or a cause the",
-  "  numbers do not show.",
+  "  numbers do not show. A trend is what normet_trend says (Mann-Kendall, Theil-Sen",
+  "  slope, the block-bootstrap-corrected p where the record is autocorrelated):",
+  "  quote the corrected p it names, not the classical one.",
   "- A synthetic control: propose the treated unit, the cutoff and the donor pool; judge",
   "  the pre-period fit before reading the effect.",
   "Quote normet's numbers as the tools give them; do not compute or invent others.",
@@ -48,7 +50,9 @@ NULL
   "   month. Say what they show and where the model is weak. normet_figure draws them.",
   "4. If the user wants the change split by time scale or by meteorological variable,",
   "   normet_start_decompose (method 'emission' or 'meteorology').",
-  "5. normet_write_report for the run.",
+  "5. If the user asks whether the tested series is increasing or decreasing and how fast,",
+  "   normet_trend on the result table (its emi_total or met_total).",
+  "6. normet_write_report for the run.",
   "",
   "Quote numbers only as the tools give them.",
   sep = "\n"
@@ -174,6 +178,36 @@ NULL
       kind = .p_str("'normalised', 'decomposition', 'scm' or 'cv'."),
       cutoff = .p_str("An SCM result's cutoff, YYYY-MM-DD.")
     ), c("path", "kind")),
+    .nm_tool("normet_trend", paste(
+      "The trend test of one column of a table (a decomposition's emi_total or met_total,",
+      "a normalised table's normalised, a raw table's target -- `column` names it where it",
+      "has to): Mann-Kendall, Theil-Sen slope with its interval, and the block-",
+      "bootstrap-corrected interval and p where the record is autocorrelated. `seasonal` is",
+      "the repeating calendar period in steps of the record (24 hourly, 7 daily, 12",
+      "monthly), else leave it out. Run once a table is made; it is not a job."
+    ), .nm_agent_trend, list(
+      path = .p_str("Path of the table."),
+      column = .p_str("The column (its first of emi_total, met_total, normalised, observed by default)."),
+      seasonal = .p_int("The repeating calendar period in steps (24 hourly, 7 daily)."),
+      n_bootstrap = .p_int("Bootstrap replicates (1000)."),
+      seed = .p_int("Random seed."),
+      name = .p_str("What the series is called in the reading.")
+    ), "path"),
+    .nm_tool("normet_trend_breaks", paste(
+      "Whether a column's trend breaks (nm_trend_breaks): where, each segment's Theil-Sen",
+      "slope with its interval, and the block-bootstrap p of the search over every",
+      "candidate position -- the one to quote. `column` names the column; 'long-term' (the",
+      "default) is the emission decomposition's separated long-term component (cycles",
+      "already taken out, the cleaner input), 'emission' its emi_total. `segments` 2 to 4.",
+      "Run once a table is made; it is not a job."
+    ), .nm_agent_trend_breaks, list(
+      path = .p_str("Path of the table."),
+      column = .p_str("'long-term' (the default) or 'emission', or a column it has."),
+      segments = .p_int("Segments searched (2)."),
+      n_bootstrap = .p_int("Bootstrap replicates (500)."),
+      seed = .p_int("Random seed."),
+      name = .p_str("What the series is called in the reading.")
+    ), "path"),
     .nm_tool("normet_figure", paste0(
       "One of normet's figures, as an image, of a run (run.rds) or a result table. kind: ",
       paste(sprintf("%s (%s)", names(.NM_AGENT_FIGURES), .NM_AGENT_FIGURES), collapse = "; "), "."

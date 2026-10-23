@@ -94,6 +94,42 @@ test_that("a do-all job runs, and its status reads the model and the series", {
   expect_match(.nm_agent_list_jobs(a), id, fixed = TRUE)
 })
 
+test_that("the trend tools read a result table, with py's defaults and refusals", {
+  a <- agent_in()
+  df <- read.csv(test_path("nm_trend_demo.csv"))
+  df$date <- as.POSIXct(df$date, tz = "UTC")
+  names(df)[2] <- "observed"
+  tab <- file.path(a$store$home, "tab.csv")
+  dir.create(dirname(tab), recursive = TRUE, showWarnings = FALSE)
+  write.csv(df, tab, row.names = FALSE)
+  out <- .nm_mcp_call(a, "normet_trend", list(path = tab, n_bootstrap = 50))
+  expect_match(out$text, "Trend test on observed (nm_trend):", fixed = TRUE)
+  expect_match(out$text, "Mann-Kendall S", fixed = TRUE)
+
+  # breaks: 'long-term' is the default, computed natively from the decomposition's
+  # date_unix + emi_base, so the table goes to the test as it is.
+  set.seed(11)
+  dec <- df
+  dec$date_unix <- as.numeric(dec$date)
+  dec$emi_base <- rnorm(nrow(dec))
+  dtab <- file.path(a$store$home, "decomp.csv")
+  write.csv(dec, dtab, row.names = FALSE)
+  out2 <- .nm_mcp_call(a, "normet_trend_breaks", list(path = dtab, n_bootstrap = 50))
+  expect_match(out2$text, "Segmented trend test on long-term (nm_trend_breaks):", fixed = TRUE)
+
+  # The refusals, in py's wording.
+  expect_error(.nm_mcp_call(a, "normet_trend", list(path = dtab, column = "nope")),
+               "has no 'nope' column")
+  raw <- dec[, c("date", "observed")]
+  names(raw)[2] <- "value"
+  rtab <- file.path(a$store$home, "raw.csv")
+  write.csv(raw, rtab, row.names = FALSE)
+  expect_error(.nm_mcp_call(a, "normet_trend", list(path = rtab)),
+               "no trendable column")
+  expect_error(.nm_mcp_call(a, "normet_trend_breaks", list(path = rtab, column = "emission")),
+               "has no 'emi_total' column")
+})
+
 test_that("the server speaks MCP over stdio", {
   home <- tempfile("normet-mcp-")
   msgs <- c(
@@ -119,7 +155,8 @@ test_that("the server speaks MCP over stdio", {
   expect_setequal(names, c(
     "normet_list_examples", "normet_inspect_data", "normet_start_do_all", "normet_start_decompose",
     "normet_start_scm", "normet_start_cv", "normet_job_status", "normet_cancel_job", "normet_list_jobs",
-    "normet_read_run", "normet_read_result", "normet_figure", "normet_write_report"
+    "normet_read_run", "normet_read_result", "normet_trend", "normet_trend_breaks",
+    "normet_figure", "normet_write_report"
   ))
   status <- replies[[2]]$result$tools[[which(names == "normet_job_status")]]$inputSchema
   expect_equal(status$required, list("job_id"))
