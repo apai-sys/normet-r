@@ -62,6 +62,8 @@
     "data_hash": "数据哈希",
     "config_hash": "配置哈希",
     "type": "类型",
-    "backend": "后端"
+    "backend": "后端",
+    "Log-scale fit: the model was fitted on log1p(value) and every column of the result is back-transformed through expm1, so the numbers below are in the original units (and non-negative by construction).": "对数尺度拟合：模型在 log1p(value) 上训练，结果的每一列都经 expm1 反变换回原单位（按构造非负）。",
+    " {s0} of the observations sit below 1 in the original units — the low-concentration tail where a linear fit spends most of its error budget on the high values instead.": " 原单位下有 {s0} 的观测低于 1——正是对数尺度所针对的低浓度尾部，线性拟合的误差预算大多花在了高值上。"
   }
 }

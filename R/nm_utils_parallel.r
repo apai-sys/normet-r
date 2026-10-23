@@ -24,6 +24,16 @@
 }
 
 
+# A PSOCK master port for this process. makeCluster(port = 0) draws the port
+# from R's RNG stream, and forked workers (parallel::mclapply) inherit the
+# parent's RNG state -- siblings then draw the *same* port and all but the
+# first fail to bind it ("creation of server socket failed"). The pid differs
+# per process, so a pid-derived port keeps sibling masters apart.
+.nm_sock_port <- function() {
+  as.integer(Sys.getpid() %% 49152) + 10240L
+}
+
+
 #' Upper Bound on PSOCK Workers Imposed by R's Connection Table (Internal)
 #'
 #' @description

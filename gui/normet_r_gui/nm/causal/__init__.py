@@ -26,6 +26,12 @@ from .bands import (  # noqa: F401 - arithmetic and figures, normet-py's own
 )
 from .diagnostics import scm_diagnostics  # noqa: F401
 from .prediagnostics import PreTrend, pre_trend_test  # noqa: F401
+from .spatial import (  # noqa: F401 - arithmetic on coordinates, normet-py's own
+    bearing,
+    donor_spatial_summary,
+    haversine,
+    spatial_summary,
+)
 
 
 def _design(df: Any, date_col: str, unit_col: str, outcome_col: str, treated_unit: Any,

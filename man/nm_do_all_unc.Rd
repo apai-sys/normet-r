@@ -23,7 +23,8 @@ nm_do_all_unc(
   n_cores = NULL,
   max_mem_size = NULL,
   verbose = TRUE,
-  cleanup_every = 5
+  cleanup_every = 5,
+  log_transform = FALSE
 )
 }
 \arguments{
@@ -64,6 +65,12 @@ nm_do_all_unc(
 \item{verbose}{Logical. Print progress?}
 
 \item{cleanup_every}{Integer. How often (in iterations) to clear H2O memory.}
+
+\item{log_transform}{Logical. If TRUE (default FALSE), every ensemble member
+trains and de-weathering on \code{log1p(value)} as in \code{\link{nm_do_all}},
+and the ensemble's means and bounds are back in the original units. Each
+member's weighting statistics (the \code{mod_stats} table) are computed on
+the same log scale the member was fitted on.}
 }
 \value{
 A list containing:

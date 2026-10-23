@@ -79,6 +79,55 @@ NULL
   paste0("<pre class=\"nm-meta\">", .nm_html_escape(s), "</pre>")
 }
 
+# The share of the run's observed series below 1 in the original units.
+# That population is what the log scale is for: below 1, expm1 is nearly
+# linear, so a log fit's relative accuracy is exactly what a linear fit's
+# absolute error budget would otherwise spend on the high values instead.
+# NULL when the result carries no usable observed column.
+.nm_low_value_share <- function(result) {
+  if (is.data.frame(result) && "observed" %in% colnames(result)) {
+    obs <- suppressWarnings(as.numeric(result[["observed"]]))
+    obs <- obs[!is.na(obs)]
+    if (length(obs) > 0) return(mean(obs < 1.0))
+  }
+  NULL
+}
+
+# A paragraph saying the run was fitted on the log scale and back-transformed.
+# The flag rides in the run's provenance -- metadata$config$log_transform when
+# the caller recorded its config, or metadata$log_transform -- and the note
+# adds the share of low observations the scale exists for, when the result
+# carries an observed column. "" when the flag is off, so a linear run's
+# report is byte-for-byte what it was before.
+.nm_log_scale_note <- function(run, say) {
+  meta <- run$metadata %||% list()
+  cfg <- meta$config
+  flag <- if (is.list(cfg)) cfg$log_transform else meta$log_transform
+  if (is.null(flag) || !isTRUE(flag)) return("")
+  text <- say(
+    paste0(
+      "Log-scale fit: the model was fitted on log1p(value) and every column of ",
+      "the result is back-transformed through expm1, so the numbers below are ",
+      "in the original units (and non-negative by construction)."
+    )
+  )
+  share <- .nm_low_value_share(run$result)
+  if (!is.null(share)) {
+    text <- paste0(
+      text,
+      say(
+        paste0(
+          " {s0} of the observations sit below 1 in the original units — ",
+          "the low-concentration tail where a linear fit spends most of its ",
+          "error budget on the high values instead."
+        ),
+        sprintf("%.0f%%", 100 * share)
+      )
+    )
+  }
+  sprintf('<p class="nm-note">%s</p>', .nm_html_escape(text))
+}
+
 .nm_fig_to_b64 <- function(plot_obj, width = 10, height = 6, dpi = 110) {
   nm_require("base64enc", hint = "install.packages('base64enc')")
   tmp <- tempfile(fileext = ".png")
@@ -236,6 +285,10 @@ nm_generate_html <- function(run, out_path, title = NULL, extra_plots = NULL,
   table_block <- .nm_df_table_html(run$result)
   meta_block <- .nm_json_pre(meta)
 
+  # A log-scale run gets one paragraph saying its numbers are back in the
+  # original units; a linear run's body is exactly what it was before.
+  scale_block <- .nm_log_scale_note(run, say)
+
   model_block <- ""
   if (!is.null(run$model)) {
     model_type <- class(run$model)[1]
@@ -259,6 +312,7 @@ nm_generate_html <- function(run, out_path, title = NULL, extra_plots = NULL,
     "</head><body>\n\n",
     "<h1>", .nm_html_escape(title), "</h1>\n",
     "<dl class=\"kv\">\n", kv_rows, "\n</dl>\n\n",
+    if (nzchar(scale_block)) paste0(scale_block, "\n\n") else "",
     "<h2>", say("Plot"), "</h2>\n", plot_block, "\n\n",
     "<h2>", say("Result preview"), "</h2>\n", table_block, "\n\n",
     "<h2>", say("Provenance"), "</h2>\n", meta_block, "\n",

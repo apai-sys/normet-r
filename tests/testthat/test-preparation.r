@@ -131,3 +131,37 @@ test_that("nm_split_into_sets splits correctly with different methods and fracti
   })
   expect_true(length(unique(starts)) > 1)
 })
+
+# ---------------------------------------------------------------------------
+# nm_log1p_target / nm_expm1_columns (the log-scale fit's transform pair)
+# Mirrors normet-py's PR #63 additions to tests/test_prepare.py.
+# ---------------------------------------------------------------------------
+
+test_that("nm_log1p_target transforms only the named column", {
+  df <- data.frame(value = c(0.0, 1.0, 10.0), other = 5.0)
+  out <- nm_log1p_target(df, "value")
+  expect_equal(out$value, log1p(df$value))
+  expect_true(all(out$other == 5.0))
+  # the input is not modified
+  expect_equal(df$value, c(0.0, 1.0, 10.0))
+})
+
+test_that("nm_log1p_target rejects negative values", {
+  df <- data.frame(value = c(0.0, -0.5, 3.0))
+  expect_error(nm_log1p_target(df, "value"), "non-negative")
+  # the message names how bad it is
+  df <- data.frame(value = c(0.0, -2.0, -0.5, 3.0))
+  expect_error(nm_log1p_target(df, "value"), "2 rows")
+})
+
+test_that("nm_log1p_target rejects a missing column", {
+  expect_error(nm_log1p_target(data.frame(value = 1.0), "nope"), "not found")
+})
+
+test_that("nm_expm1_columns inverts nm_log1p_target on all numeric columns", {
+  df <- data.frame(value = c(0.0, 1.0, 10.0), q500 = c(0.0, 2.0, 8.0), note = c("a", "b", "c"))
+  out <- nm_expm1_columns(nm_log1p_target(df, "value"))
+  expect_equal(out$value, df$value)
+  expect_equal(out$q500, expm1(df$q500))
+  expect_equal(out$note, c("a", "b", "c"))
+})

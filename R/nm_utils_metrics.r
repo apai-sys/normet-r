@@ -147,6 +147,22 @@ nm_modStats <- function(df, model, subset = NULL, statistic = NULL, verbose = FA
 
   if ("RMSE" %in% statistic) res$RMSE <- sqrt(mean(diff^2))
 
+  # Log-scale errors: accuracy in log1p space, where a fixed relative miss
+  # maps to a bounded error at every level while its absolute error grows
+  # without bound. This is the scale a log-transformed fit optimises, so
+  # these are the right yardsticks when comparing against a linear fit on
+  # skewed, multi-decade data. Pairs with either side below -1 -- outside
+  # log1p's domain, e.g. de-weathered residuals -- are dropped from these
+  # two metrics only; every other statistic keeps them.
+  if ("logMAE" %in% statistic || "logRMSE" %in% statistic) {
+    lmask <- (yhat > -1.0) & (yobs > -1.0)
+    if (any(lmask)) {
+      ldiff <- log1p(yhat[lmask]) - log1p(yobs[lmask])
+      if ("logMAE" %in% statistic) res$logMAE <- mean(abs(ldiff))
+      if ("logRMSE" %in% statistic) res$logRMSE <- sqrt(mean(ldiff^2))
+    }
+  }
+
   sum_obs <- sum(yobs)
   if ("NMB" %in% statistic) res$NMB <- if (sum_obs != 0) sum(diff) / sum_obs else NA_real_
 

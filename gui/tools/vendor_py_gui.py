@@ -81,6 +81,7 @@ LIBRARY = [
     "causal/diagnostics.py",
     "causal/prediagnostics.py",
     "causal/bands.py",
+    "causal/spatial.py",
     "agent/llm.py",
     "agent/mcp_http.py",
     "agent/readings.py",

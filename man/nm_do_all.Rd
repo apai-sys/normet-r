@@ -21,6 +21,7 @@ nm_do_all(
   max_mem_size = NULL,
   memory_save = TRUE,
   verbose = TRUE,
+  log_transform = FALSE,
   cache_dir = NULL,
   ...
 )
@@ -58,6 +59,13 @@ If NULL, defaults to all covariates except time variables.}
 \item{memory_save}{Logical. If TRUE, enables memory-efficient processing (batching/GC).}
 
 \item{verbose}{Logical. Should the function print progress messages?}
+
+\item{log_transform}{Logical. If TRUE (default FALSE), fit on \code{log1p(value)}:
+the model trains on the log scale, the de-weathering runs on that scale, and
+every result column (observed, normalised, quantiles) is back-transformed
+through \code{expm1}, so the output is in the original units and non-negative
+by construction. The \code{df_prep} returned is the frame the model was trained
+on (the log1p target). See \code{\link{nm_log1p_target}}.}
 
 \item{cache_dir}{Character. Directory for on-disk result caching. If NULL (default),
 caching is disabled. When set, a hit on a matching cache key skips training

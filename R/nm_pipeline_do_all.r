@@ -25,6 +25,12 @@
 #' @param max_mem_size Maximum memory for H2O (e.g., "16G"). If NULL, auto-detected.
 #' @param memory_save Logical. If TRUE, enables memory-efficient processing (batching/GC).
 #' @param verbose Logical. Should the function print progress messages?
+#' @param log_transform Logical. If TRUE (default FALSE), fit on \code{log1p(value)}:
+#'        the model trains on the log scale, the de-weathering runs on that scale, and
+#'        every result column (observed, normalised, quantiles) is back-transformed
+#'        through \code{expm1}, so the output is in the original units and non-negative
+#'        by construction. The \code{df_prep} returned is the frame the model was trained
+#'        on (the log1p target). See \code{\link{nm_log1p_target}}.
 #' @param cache_dir Character. Directory for on-disk result caching. If NULL (default),
 #'        caching is disabled. When set, a hit on a matching cache key skips training
 #'        and normalisation entirely.
@@ -62,6 +68,7 @@ nm_do_all <- function(df = NULL, target = "value", backend = "lightgbm", covaria
                       model_config = NULL, n_cores = NULL,
                       max_mem_size = NULL,
                       memory_save = TRUE, verbose = TRUE,
+                      log_transform = FALSE,
                       cache_dir = NULL, ...) {
   log <- nm_get_logger("workflow.do_all")
   start_time <- Sys.time()
@@ -79,7 +86,7 @@ nm_do_all <- function(df = NULL, target = "value", backend = "lightgbm", covaria
     cache_key <- nm_config_hash(
       nm_dataframe_hash(df, include_index = FALSE),
       target, backend, sort(covariates), sort(resample_vars), n_samples,
-      aggregate, seed, split_method, train_fraction, model_config
+      aggregate, seed, split_method, train_fraction, model_config, log_transform
     )
     cached <- nm_cache_load(cache_dir, cache_key)
     if (!is.null(cached)) {
@@ -95,17 +102,48 @@ nm_do_all <- function(df = NULL, target = "value", backend = "lightgbm", covaria
   }
 
   # --- 2) & 3) Prepare data and Train model ---
-  build_results <- nm_build_model(
-    df = df,
-    target = target,
-    backend = backend,
-    covariates = covariates,
-    split_method = split_method,
-    train_fraction = train_fraction,
-    model_config = model_config,
-    seed = seed,
-    verbose = verbose
-  )
+  # With a log-scale fit the target moves to log1p after the raw-scale
+  # prepare and before the fit, as in normet-py: the target is imputed and
+  # complete before the transform, the model, the de-weathering and their
+  # metrics all live on the log scale, and the result comes back through
+  # expm1 inside nm_normalise. The build's own (idempotent) prepare re-runs
+  # on the log frame with the same seed, so the rows and the split are
+  # exactly what they would be on the raw scale.
+  if (log_transform) {
+    # The same time-variable separation nm_build_model makes internally.
+    covariates_for_prep <- setdiff(covariates, c("date_unix", "day_julian", "weekday", "hour"))
+    df_for_build <- nm_log1p_target(
+      nm_prepare_data(
+        df = df, target = target, covariates = covariates_for_prep,
+        split_method = split_method, train_fraction = train_fraction,
+        seed = seed, verbose = FALSE
+      ),
+      target = "value"
+    )
+    build_results <- nm_build_model(
+      df = df_for_build,
+      target = "value",
+      backend = backend,
+      covariates = covariates,
+      split_method = split_method,
+      train_fraction = train_fraction,
+      model_config = model_config,
+      seed = seed,
+      verbose = verbose
+    )
+  } else {
+    build_results <- nm_build_model(
+      df = df,
+      target = target,
+      backend = backend,
+      covariates = covariates,
+      split_method = split_method,
+      train_fraction = train_fraction,
+      model_config = model_config,
+      seed = seed,
+      verbose = verbose
+    )
+  }
 
   df_prep <- build_results$df_prep
   model <- build_results$model
@@ -121,6 +159,7 @@ nm_do_all <- function(df = NULL, target = "value", backend = "lightgbm", covaria
     seed = seed,
     memory_save = memory_save,
     verbose = verbose,
+    log_transform = log_transform,
     ...
   )
 
@@ -177,6 +216,11 @@ nm_do_all <- function(df = NULL, target = "value", backend = "lightgbm", covaria
 #' @param max_mem_size Maximum memory for H2O (e.g., "16G"). If NULL, auto-detected.
 #' @param verbose Logical. Print progress?
 #' @param cleanup_every Integer. How often (in iterations) to clear H2O memory.
+#' @param log_transform Logical. If TRUE (default FALSE), every ensemble member
+#'        trains and de-weathering on \code{log1p(value)} as in \code{\link{nm_do_all}},
+#'        and the ensemble's means and bounds are back in the original units. Each
+#'        member's weighting statistics (the \code{mod_stats} table) are computed on
+#'        the same log scale the member was fitted on.
 #'
 #' @return A list containing:
 #' \describe{
@@ -191,7 +235,8 @@ nm_do_all_unc <- function(df = NULL, target = "value", backend = "lightgbm", cov
                           resample_vars = NULL, resample_df = NULL, n_samples = 300, n_models = 5,
                           memory_save = TRUE, confidence_level = 0.95, weighted_method = "r2", seed = 7654321,
                           split_method = "random", train_fraction = 0.75, model_config = NULL,
-                          n_cores = NULL, max_mem_size = NULL, verbose = TRUE, cleanup_every = 5) {
+                          n_cores = NULL, max_mem_size = NULL, verbose = TRUE, cleanup_every = 5,
+                          log_transform = FALSE) {
 
   log <- nm_get_logger("workflow.do_all_unc")
 
@@ -219,7 +264,8 @@ nm_do_all_unc <- function(df = NULL, target = "value", backend = "lightgbm", cov
         resample_vars = resample_vars, split_method = split_method, train_fraction = train_fraction,
         model_config = model_config, n_samples = n_samples, seed = current_seed,
         n_cores = NULL, resample_df = resample_df,
-        memory_save = memory_save, verbose = FALSE, aggregate = TRUE
+        memory_save = memory_save, verbose = FALSE, aggregate = TRUE,
+        log_transform = log_transform
       ),
       error = function(e) NULL
     )

@@ -125,6 +125,14 @@ nm_generate_resampled <- function(df, resample_vars, replace, seed, resample_df,
 #'        \code{n_samples} draws. The model is fingerprinted via
 #'        \code{nm_model_hash}, so a re-fit model (even with identical data
 #'        and config) correctly invalidates the cache.
+#' @param log_transform Logical. Default FALSE. When TRUE, \code{df} and the
+#'        model are on the \code{log1p} scale (a fit made with
+#'        \code{nm_do_all(log_transform = TRUE)}) and every numeric column of
+#'        the result -- \code{observed}, \code{normalised} and the quantiles --
+#'        is back-transformed through \code{expm1} before it is returned, so
+#'        the output is in the original units and non-negative by construction
+#'        (\code{\link{nm_expm1_columns}}). The flag joins the cache key, as
+#'        the result's scale is part of what is cached.
 #' @param ... Additional arguments passed to the implementation function
 #'        (e.g., `n_samples`, `aggregate`, `resample_vars` for H2O).
 #'
@@ -151,7 +159,7 @@ nm_generate_resampled <- function(df, resample_vars, replace, seed, resample_df,
 #' }
 #'
 #' @export
-nm_normalise <- function(df, model, verbose = TRUE, cache_dir = NULL, ...) {
+nm_normalise <- function(df, model, verbose = TRUE, cache_dir = NULL, log_transform = FALSE, ...) {
   log <- nm_get_logger("analysis.normalise")
 
   # --- 0. Optional Cache Check ---
@@ -200,6 +208,7 @@ nm_normalise <- function(df, model, verbose = TRUE, cache_dir = NULL, ...) {
     cache_key <- do.call(nm_config_hash, c(
       list(
         key_dots,
+        log_transform,
         nm_dataframe_hash(df, cols = key_cols, include_index = FALSE),
         nm_dataframe_hash(resample_pool, cols = resample_key_cols, include_index = FALSE),
         nm_model_hash(model)
@@ -229,6 +238,14 @@ nm_normalise <- function(df, model, verbose = TRUE, cache_dir = NULL, ...) {
     err_msg <- paste("Unsupported or unidentified model backend for normalisation:", backend_name)
     log$error(err_msg)
     stop(err_msg)
+  }
+
+  # A log-scale fit's result is in the original units: every column is a
+  # value of the same target, so they all come back through expm1 together.
+  # Applied before the cache save: what is cached is what is returned. The
+  # disk-offloading path returns file paths, not a frame -- nothing to invert.
+  if (log_transform && is.data.frame(result)) {
+    result <- nm_expm1_columns(result)
   }
 
   # --- 2. Optional Cache Save ---
@@ -655,7 +672,11 @@ nm_normalise_lgb <- function(df, model, resample_vars = NULL,
   # with it on, chunk_size of them.
   r_cores <- .nm_resolve_cores(n_cores, n_tasks = max(lengths(seed_chunks)), limit = 4L)
 
-  cl <- parallel::makeCluster(r_cores)
+  # A pid-derived port, not makeCluster's RNG draw: when this runs inside a
+  # parallel::mclapply worker (the lightgbm path of nm_do_all_unc), the
+  # siblings share the parent's RNG state and would all draw the same port,
+  # so every one after the first fails to bind it and its model is dropped.
+  cl <- parallel::makeCluster(r_cores, port = .nm_sock_port())
   .nm_propagate_libpaths(cl)
   on.exit(parallel::stopCluster(cl), add = TRUE)
   doSNOW::registerDoSNOW(cl)

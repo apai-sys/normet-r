@@ -1270,3 +1270,11 @@ patch(ZH, "unc caption",
       fill(r"""交互）的中位数总方差为 @unc_total@ (\ugm{})$^{2}$，图上方的结论说明它去往何处——@unc_w@\,\% 气象
 重采样、@unc_i@\,\% 交互、@unc_m@\,\% 模型形式（共享 50 次抽样的三个成员，lightgbm）。小于该区间的效果，"""))
 # The API table's row, as in the English book, rides in the scripting passage's rewrite.
+
+# ---- Staggered adoption (PR #67): the section's function is the R name ----
+patch(EN, "staggered R name",
+      r"""\code{run\_scm\_staggered} fits each treated unit on its own pre- and post-period, with""",
+      r"""\code{nm\_run\_scm\_staggered} fits each treated unit on its own pre- and post-period, with""")
+patch(ZH, "staggered R name",
+      r"""\code{run\_scm\_staggered} 为每个处理单元用各自的干预前/后时段单独拟合，并把""",
+      r"""\code{nm\_run\_scm\_staggered} 为每个处理单元用各自的干预前/后时段单独拟合，并把""")

@@ -321,6 +321,166 @@ The R GUI *is* normet-py's GUI code, vendored, with every analysis routed to R:
   `test_bands.py` additions (event-time split, ci_lo/ci_hi winning, date
   alignment, the four rejections).
 
+## Sync with normet-py main at 0083f53 (PR #65: donor spatial diagnostics)
+
+- PR #65 adds `causal/spatial.py` (haversine, bearing, the per-donor table and
+  the pool summary), a `spatial` section to `scm_diagnostics` (optional
+  `panel`/`donors`/`treated_unit`/coordinate arguments; absent them the output
+  is unchanged), the Spatial tab of the SCM Studio (Latitude/Longitude column
+  pickers, "Show donor layout" button, a compass map of the checked donors
+  around the treated unit), and 19 Chinese texts.
+- Window: `causal/spatial.py` joins the vendored library (LIBRARY); the
+  re-vendored `diagnostics.py` carries the spatial section, `scm_window.py`
+  the tab, `ui_zh.py` the texts. The window's `nm/causal/__init__.py` exports
+  the four names as normet-py's `causal` does; `nm/__init__`'s top level keeps
+  mirroring only what the readings reach, so they stop at the `causal` level.
+- R core: `R/nm_causal_spatial.r` — `nm_haversine()`, `nm_bearing()`
+  (vectorised, base R; R's `%%` gives the [0, 360) wrap for free),
+  `nm_donor_spatial_summary()` (one coordinate fix per unit, read as the
+  median of its rows) and `nm_spatial_summary()` (`sector_coverage` is a
+  named integer vector in bearing order — the R shape for normet-py's
+  (label, count) pairs). `nm_scm_diagnostics()` gains the same arguments and
+  the `spatial` element (`donors` table plus the pool scalars), skipping
+  exactly where normet-py skips. Two R gotchas cost a round each:
+  `as.numeric()`/`as.vector()` drop the names of a named vector (the donor
+  weights), and `as.integer()` on a `table` returns an unnamed vector, so the
+  coverage subset must come before the conversion.
+- Tests: `tests/testthat/test-causal-spatial.r` mirrors
+  `tests/test_causal_spatial.py` in full — the primitives against the values a
+  spherical Earth has to give, the constructed triangle (N/E/S about the
+  treated unit, a named-but-unfixed GHOST), the median-of-fixes reading, the
+  weight pass-through, the two rejections, the centroid/coverage readings,
+  and the `nm_scm_diagnostics` wiring on a fitted 160-day panel.
+
+## Sync with normet-py main at 0083f53 (PR #66: staggered adoption)
+
+- PR #66 adds `run_scm_staggered` to `causal/batch.py`: several treated units,
+  each with its own cutoff, each fit by its own `run_scm` with the other
+  treated units excluded from every run's donor pool; per-unit placebo-in-space
+  p-values and the cross-unit permutation test on the `mean` row (donor-only
+  reference). No GUI file, no manual file in this PR (the manual's section is
+  PR #67).
+- R core: `R/nm_causal_staggered.r` with `nm_run_scm_staggered()`, built on
+  `nm_run_scm()`. `cutoff_dates` is a named character vector (normet-py's dict
+  form) or an unnamed one aligned with `treated_units`; a value of another
+  shape is rejected. The real and placebo jobs share one pool, as in normet-py:
+  the `scm` backend runs it on a PSOCK cluster with the `nm_scm_all()` idiom
+  (makeCluster + doSNOW + foreach, failures come back flagged so the caller can
+  name the failed run); the other backends run the same jobs in order, because
+  their H2O lifecycle does not cross workers. `tests/testthat/test-causal-staggered.r`
+  mirrors `tests/test_causal_staggered.py` in full — the step read almost
+  exactly with the minimum p, the null at p = 1, the summary rows, the two
+  cutoff forms agreeing, the explicit pool at 0.2, `post_agg = "sum"`, and the
+  seven guards.
+- Window: nothing to take — normet-py's PR touches no GUI file, and the window
+  has no staggered surface of its own.
+
+## Sync with normet-py main at 0083f53 (PR #63: log-scale fits)
+
+- PR #63 adds `log1p_target`/`expm1_columns` to `utils/prepare.py`, a
+  `log_transform` flag to `normalise` (the flag joins the cache key; every
+  result column comes back through `expm1`), `do_all` (the prepared frame it
+  returns is the frame the model was trained on — the log1p target) and
+  `do_all_unc` (per-member weighting statistics on the same log scale),
+  `logMAE`/`logRMSE` to `modStats` (pairs with either side below -1 dropped
+  from those two metrics only), and a scale note in the HTML report when the
+  run's config carries the flag. No GUI file in this PR.
+- R core: `R/nm_utils_prepare.r` gains the exported transform pair
+  (`nm_log1p_target` rejects negatives with the row count and the minimum, as
+  in normet-py); `R/nm_utils_metrics.r`'s `.stats_from_arrays` gains the two
+  log metrics at the same position as normet-py's; `R/nm_norm_normalise.r`'s
+  `nm_normalise` takes `log_transform` (in the cache key; the back-transform
+  is applied before the cache save, and skipped when the result is the
+  disk-offloading path's file paths); `R/nm_pipeline_do_all.r`'s
+  `nm_do_all`/`nm_do_all_unc` take the flag and forward it. The log path
+  keeps normet-py's exact order: the raw-scale prepare (imputation, dropna,
+  the split) runs first, then `nm_log1p_target`, then the build, whose own
+  idempotent prepare re-runs on the log frame with the same seed — same rows,
+  same split. The chronos-2 zero-shot branch of normet-py's change has no R
+  counterpart and is out of scope.
+- Tests: `test-preparation.r` +4 (the transform pair), new `test-metrics.r`
+  (6, the log metrics, including the out-of-domain-drop and the bounded-
+  proportional-error reading), `test-normalisation.r` +3 (log path = linear
+  path on the same log frame with every column inverted; the default is bit
+  identical; the aggregate=FALSE wide table), new `test-pipeline-log.r` (4,
+  real lightgbm: original-units result, log-space prepared frame, the log fit
+  winning on logRMSE, the ensemble's original units) and new `test-report.r`
+  (the note appears only with the flag, with the low-value share, and in
+  Chinese). normet-py's `test_foundation_estimator` addition (the chronos-2
+  branch) is skipped with the rest of foundation.
+- A pre-existing bug the new pipeline test surfaced: `nm_do_all_unc`'s
+  lightgbm branch runs its members under `parallel::mclapply`, and each
+  member's `nm_normalise_lgb` creates its own PSOCK cluster. `makeCluster`'s
+  `port = 0` draws the port from R's RNG stream, which the forked siblings
+  share, so they all draw the same port and every one after the first fails
+  to bind it — the model is dropped silently (`"returned no results"`).
+  Reproduced with `log_transform = FALSE`, so it predates this sync; no R
+  test had ever exercised the lightgbm ensemble. Fixed with `.nm_sock_port()`
+  (`R/nm_utils_parallel.r`): a pid-derived port at the `nm_normalise_lgb`
+  cluster creation, unique per process.
+
+## Sync with normet-py main at 0083f53 (PR #64: embedding diagnostics)
+
+- PR #64 adds `foundation/embedding_diagnostics.py`: `silhouette_curve`
+  (KMeans `n_init=10` as a yardstick whose assignments are discarded before
+  the score; `NaN` rows for infeasible `k`; a deterministic 1000-point
+  subsample above 1000 points; lazy sklearn), `embedding_projection` (pure
+  numpy PCA: centre + truncated SVD; lazy umap-learn) and
+  `plot_embedding_diagnostics` (the two-panel figure). The module
+  deliberately emits no cluster memberships and no recommended k. No GUI
+  file in this PR.
+- R core: new `R/nm_foundation_embedding.r` with the three functions and the
+  shared `.nm_embedding_as_matrix` input check (named list of vectors or
+  numeric matrix; same error shapes as normet-py: empty mapping, fewer than
+  two vectors, non-finite values, wrong type). R-side decisions:
+  - The silhouette needs no sklearn equivalent: `stats::kmeans` (10 random
+    restarts, `set.seed` per call, matching KMeans' `random_state`) and
+    `cluster::silhouette`. Note: the `cluster` package has no
+    `silhouette.kmeans` method -- `silhouette(km)` dispatches to the default
+    method and breaks on the kmeans object; the working form is
+    `silhouette(km$cluster, dist)`, and the result's column is `sil_width`
+    (singleton-cluster points get width 0 in current R, so the mean is
+    always finite for feasible `k`; `na.rm = TRUE` is kept defensively).
+  - `metric` is restricted to `"euclidean"`/`"cosine"`: R's `dist()` has no
+    `"cosine"` method (unlike sklearn's metric names), so `.nm_cosine_diss`
+    builds 1 - cosine similarity by hand (zero vectors dissimilar to
+    everything, as sklearn's cosine metric does).
+  - `method = "umap"` stops with an error naming `umap-learn`: the R package
+    has no UMAP backend. PCA is base R (centre + `svd`); the centring uses
+    `sweep(mat, 2, colMeans(mat))` because `mat - colMeans(mat)` recycles
+    the vector column-major and would not centre correctly.
+  - The figure is ggplot2 + patchwork in the package's style
+    (`nm_theme_normet()`/`nm_colours`/`.pt_lw()`); the used title is
+    attached as the `title` attribute, since current patchwork is an S7
+    object whose annotation is not publicly introspectable. Two load-order
+    gotchas were verified: `+` on two ggplot objects dispatches to
+    patchwork's method only once the patchwork namespace is loaded (the
+    function's `nm_require("patchwork")` runs before any plot `+`), and
+    `[[` on the figure takes numeric indices only.
+- Tests: new `tests/testthat/test-foundation-embedding.r`, the 12
+  normet-py tests mirrored one-to-one (no sklearn-skip needed); the plot
+  assertions read the subplots via `fig[[1]]`/`fig[[2]]`, the legend via the
+  built scale's `labels`, and the title via the `title` attribute.
+
+## Sync with normet-py main at 0083f53 (PR #67: the manual's staggered section)
+
+- PR #67 is the manual: the staggered-adoption section in both books (the
+  per-unit fits, the cross-unit permutation test, and why its reference is
+  donor-only -- a permuted treated identity is contaminated by the true
+  effect, and with two treated units the single non-identity permutation is
+  exactly the contaminated one), the PDFs rebuilt. No code, no GUI file.
+- This window: `manual_patches.py` gains two name rewrites,
+  `run_scm_staggered` -> `nm_run_scm_staggered` (one per book). The section
+  otherwise stands as is, because the R mirror (PR #66, `nm_run_scm_staggered`)
+  matches what it describes point for point: the default `scm` backend, the
+  three-donor floor for the placebo fits, the NA p-values on smaller pools
+  while the effects are still read, and the donor-only reference for the
+  mean row's test. The SCM Studio figures (`ui_scm_panel/fit/placebo/bands`)
+  were re-walked with the Spatial tab in place (`walk_gui.py --only scm`,
+  English and Chinese) and both PDFs rebuilt: 59 pages (EN, pdflatex) and 60
+  (ZH, xelatex/ctex). A re-vendor after the patches is idempotent: only the
+  two tex files change.
+
 ## Local setup used here
 - R 4.3 + normet installed from this repo (`R CMD INSTALL .`), lightgbm R package
   built from GitHub source (`Rscript build_r.R` in microsoft/LightGBM).

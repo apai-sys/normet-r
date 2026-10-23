@@ -1235,7 +1235,9 @@ passage(
     "scm_window.py",
     "chronos: similarity controls",
     "        from . import _chronos\n\n        chronos_ok, chronos_why",
-    "\n        # ---- Estimator",
+    # Ends where the donor-spatial button (normet-py PR #65) begins: it is not
+    # chronos, and the passage must not take it down with the ranking's.
+    "        self.spatial_btn = run_button(",
     "",
 )
 patch(
@@ -1260,7 +1262,9 @@ passage(
     "scm_window.py",
     "chronos: similarity",
     "    def _run_similarity(self) -> None:",
-    "    def _run_all_units(self) -> None:",
+    # The donor-spatial run and its renderer (normet-py PR #65) sit between the
+    # similarity methods and the batch: keep them, take only the ranking's.
+    "    def _run_spatial(self) -> None:",
     "",
 )
 
