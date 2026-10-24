@@ -515,6 +515,29 @@ The R GUI *is* normet-py's GUI code, vendored, with every analysis routed to R:
   station, the count/Esc, double-click zoom).
 - `vendor_py_gui.py ../normet-py --check` afterwards: 0 of 91 files would change.
 
+## Sync with normet-py main at bc9cac2 (PR #81: the SCM Studio's fit checks)
+
+- Branch `gui/scm-inference-sync`, stacked on `gui/data-studio-world-sync` (#12):
+  the new *Fit Checks* tab with its three buttons (pre-trend + event study,
+  conformal interval, leave-one-donor-out), the fit's pre-trend rows on the Fit
+  tab and Abadie's RMSPE-ratio line on Placebo Space arrive with the vendored
+  `scm_window.py`.
+- `causal/inference.py` joins the vendor LIBRARY: `conformal_effect_interval`
+  and `rmspe_ratio_test` are arithmetic on a finished fit's or placebo run's
+  effect tables, so they run as copied Python, like the diagnostics.
+- The hand-written `nm/causal/__init__.py` gains those two imports and an
+  R-routed `loo_weight_stability` over `nm_loo_weight_stability`: R refits the
+  classic SCM per held-out donor and the drift table comes back in normet-py's
+  shape (the copied `diagnostics.py` cannot — its LOO refits through a `.scm`
+  module the R tree does not have, so that one is not exported from there).
+- Manual patches held as they were — the tab-list patch still matches after
+  normet-py's line gained `\tab{Fit Checks}`, and the three new Inference items
+  name no functions, so nothing needed an `nm_` rewrite. Both PDFs rebuilt:
+  59 pages (EN, pdflatex), 60 (ZH, xelatex/ctex).
+- Tests: the vendored `test_gui_scm_inference.py` — 6 passed against the R
+  window (the LOO drift comes back from R over the RPC); full
+  `python -m pytest gui/tests` → 213 passed, 1 skipped.
+
 ## Local setup used here
 - R 4.3 + normet installed from this repo (`R CMD INSTALL .`), lightgbm R package
   built from GitHub source (`Rscript build_r.R` in microsoft/LightGBM).
