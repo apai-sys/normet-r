@@ -343,6 +343,10 @@
   `\u2014` escape (the R code stays ASCII); `pnorm` is qualified as
   `stats::pnorm`; the ggplot `aes()` bindings of the embedding diagnostics
   and the event-study plot are declared.
+* **Windows test drift**: the deterministic pins of the segmented trend test
+  carry `tolerance = 1e-8` on the SSE-derived values (they sum to ~1e-10
+  differently under MSVC, so the 1e-12 pin was red CI on Windows without
+  catching any regression); the median-based pins stay exact.
 
 # normet 0.0.1
 
