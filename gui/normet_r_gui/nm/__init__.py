@@ -31,11 +31,13 @@ from . import figstyle, style  # noqa: F401 - the window imports them from here
 from .analysis import TrendBreaks, TrendResult, TrendSlope, TrendTest  # noqa: F401
 from ._r import (  # noqa: F401
     RModel,
+    anomaly_scores,
     build_model,
     build_trajectory_features,
     cv_score,
     decompose,
     decompose_uncertainty,
+    detect_events,
     detect_trend_breaks,
     fetch_era5_timeseries,
     fetch_gdas1,
