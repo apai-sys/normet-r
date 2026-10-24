@@ -62,7 +62,7 @@ SKIP_GUI = {"__init__.py", "__main__.py", "commandlog.py", "_script.py", "_code.
 GUI_ASSETS = ("assets/normet.png",)
 
 #: normet-py's GUI tests this window does not take: Chronos-2 is not in it.
-SKIP_TESTS = {"test_gui_chronos.py"}
+SKIP_TESTS = {"test_gui_chronos.py", "test_gui_chronos_crps.py"}
 
 #: normet-py's tests of its manual, which hold for this window's book as they are, and
 #: of the progress reports and the task clock that shows them.
@@ -81,6 +81,8 @@ LIBRARY = [
     "style.py",
     "figstyle.py",
     "plotting.py",
+    "exceptions.py",
+    "analysis/verification.py",
     "io/_http.py",
     "io/eea.py",
     "io/openaq.py",

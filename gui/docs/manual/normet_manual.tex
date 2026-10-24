@@ -953,7 +953,11 @@ is \code{nm\_modStats} for the training rows, the testing rows and all rows
 prediction, square, with the 1:1 line and, in its corner, the number of rows, the slope of
 predicted on observed (below 1: the extremes are pulled in) and the mean bias --- as a
 density of hexagons where the rows run to thousands; the bars are the model's feature
-importance (each predictor's share of LightGBM's gain).
+importance (each predictor's share of LightGBM's gain). Under the table, one line reads the point
+forecast's \emph{CRPS reference} --- $\sqrt{\pi/2}\cdot\mathrm{MAE}$ over the held-out
+rows, the point forecast's score on the scale of the continuous ranked probability score.
+A forecast that carries a spread scores its own CRPS, and only a score below this
+reference says the spread is worth carrying.
 
 \screenshot{ui_model.png}{MY1 trained with LightGBM (10 search trials, random split):
 on the 1,449 held-out hours $R^2 = 0.991$ and RMSE $= 2.42$~\ugm{}, against
