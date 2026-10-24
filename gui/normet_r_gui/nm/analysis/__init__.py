@@ -12,6 +12,12 @@ from __future__ import annotations
 
 from .trend import TrendBreaks, TrendResult, TrendSlope, TrendTest
 from .uncertainty import UncDecomposition
+from .verification import (  # noqa: F401 - arithmetic, normet-py's own
+    crps_from_quantiles,
+    crps_from_samples,
+    crps_observed,
+    pinball_loss,
+)
 
 __all__ = [
     "TrendBreaks",
@@ -19,4 +25,8 @@ __all__ = [
     "TrendSlope",
     "TrendTest",
     "UncDecomposition",
+    "crps_from_quantiles",
+    "crps_from_samples",
+    "crps_observed",
+    "pinball_loss",
 ]

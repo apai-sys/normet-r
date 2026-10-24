@@ -538,6 +538,33 @@ The R GUI *is* normet-py's GUI code, vendored, with every analysis routed to R:
   window (the LOO drift comes back from R over the RPC); full
   `python -m pytest gui/tests` → 213 passed, 1 skipped.
 
+## Sync with normet-py main at 67aea0b (PR #82: the Model tab's CRPS scores)
+
+- Branch `gui/model-crps-sync`, stacked on `gui/scm-inference-sync` (#13):
+  the Model tab's point-forecast CRPS reference line (`crps_observed` on the
+  held-out rows) arrives with the vendored `_run_train.py` and works here —
+  it is arithmetic on the same parity-plot arrays. The Chronos-2 quantile
+  backtest (CRPS, its point reference, pinball per level) is dead code in
+  this window: `_chronos.py` is skipped and the chronos renderers are
+  patched out, and `quantile_backtest` returns None when the missing module
+  raises inside it (logged, tab unchanged).
+- `exceptions.py` and `analysis/verification.py` join the vendor LIBRARY:
+  the CRPS/pinball scoring is pure numpy/pandas; `verification.py` needs
+  `DataError`, so the small `exceptions.py` comes along (first LIBRARY entry
+  at the package root's top level). The hand-written `nm/analysis/__init__.py`
+  re-exports the four scorers; the vendored `_run_train.py`'s function-level
+  `from normet.analysis import …` rewrites to `.nm.analysis` as the rest do.
+- Tests: `test_gui_model_crps.py` is vendored (3 passed — the √(π/2)·MAE
+  identity, the empty-holdout None, the Model-tab line with `ml_predict` and
+  `modStats` patched); normet-py split the chronos backtest tests into
+  `test_gui_chronos_crps.py`, which joins `SKIP_TESTS` beside
+  `test_gui_chronos.py`. Full `python -m pytest gui/tests` → 216 passed, 1 skipped.
+- Manual: the Model section's CRPS sentence comes through; the Chronos-2
+  quantile-backtest paragraph sits inside the chronos passage the patches
+  remove, so this book stays chronos-free. Both PDFs rebuilt: 59 pages (EN),
+  60 (ZH).
+- `vendor_py_gui.py ../normet-py --check` afterwards: 0 of 96 files would change.
+
 ## Local setup used here
 - R 4.3 + normet installed from this repo (`R CMD INSTALL .`), lightgbm R package
   built from GitHub source (`Rscript build_r.R` in microsoft/LightGBM).
