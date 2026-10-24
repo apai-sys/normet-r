@@ -6,6 +6,11 @@
 \usage{
 \method{print}{nm_pre_trend}(x, ...)
 }
+\arguments{
+\item{x}{The result of \code{\link{nm_pre_trend_test}}.}
+
+\item{...}{Unused.}
+}
 \description{
 A one-line reading of the pre-trend test.
 }

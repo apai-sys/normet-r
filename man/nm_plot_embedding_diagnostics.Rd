@@ -17,7 +17,7 @@ nm_plot_embedding_diagnostics(
 \arguments{
 \item{vectors}{As in \code{\link{nm_silhouette_curve}}.}
 
-\item{method, }{k_range, metric, seed Forwarded to
+\item{method, k_range, metric, seed}{Forwarded to
 \code{\link{nm_embedding_projection}} and
 \code{\link{nm_silhouette_curve}}.}
 

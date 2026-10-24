@@ -7,6 +7,8 @@
 \method{plot}{nm_unc_decomposition}(x, title = NULL, ylabel = "Variance (target units^2)", ...)
 }
 \arguments{
+\item{x}{The result of \code{\link{nm_decompose_uncertainty}}.}
+
 \item{title}{Plot title. Default "Uncertainty: where the spread comes from".}
 
 \item{ylabel}{The y-axis label.}
