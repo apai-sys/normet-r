@@ -1,9 +1,10 @@
-"""Data Studio — fetch UK air-quality + meteorology and build a model-ready table.
+"""Data Studio — fetch air-quality + meteorology and build a model-ready table.
 
 Two-step workflow in the house style (parameter panel left, result tabs right):
 
 1. **Find stations** — pick a network, tick pollutants, list the sites that
-   measure them, browse/search the station table and pick one.
+   measure them, then pick one from the station table, by search, or by
+   clicking its point on the map.
 2. **Fetch & merge** — download the hourly measurements for every ticked
    pollutant at that site, fetch hourly meteorology for the site coordinates
    (Open-Meteo ERA5 archive by default — no API key; Copernicus CDS
@@ -12,21 +13,18 @@ Two-step workflow in the house style (parameter panel left, result tabs right):
 
 The merged table can be saved as CSV or sent straight to the main window.
 
-Data source
------------
-This window reads the openair-format ``.RData`` archives via
-:mod:`normet.io.ukaq`, covering all six UK networks (AURN, AQE, SAQN, WAQN,
-NI, LMAM) — around 1500 stations, whole calendar years, back to whenever
-each station opened.
+Data sources
+------------
+Three families behind one network picker:
 
-``normet.io.ukaq`` also exposes ``source="aurn_live"``, DEFRA's UK-AIR SOS
-REST API (AURN-only, ~210 stations, a rolling recent window rather than
-full history) -- not wired into this window's network picker, only used
-programmatically for now. It used to be a separate module
-(:mod:`normet.io.defra`) briefly deprecated on the theory that its
-backend had gone permanently offline; that theory turned out to be wrong
-(checked again 2026-08-05, it answers normally), so the two were merged
-as complementary sources behind one interface instead.
+- the six **UK networks** (AURN, AQE, SAQN, WAQN, NI, LMAM) via
+  :mod:`normet.io.ukaq` — openair ``.RData`` archives, ~1500 stations, whole
+  calendar years; no key.
+- the **EEA** (European Environment Agency) reporting network via
+  :mod:`normet.io.eea` — the ArcGIS station layer for listing and the
+  agency's public per-station Parquet blobs for the series; no key.
+- **OpenAQ** via :mod:`normet.io.openaq` — a free API key (``OPENAQ_API_KEY``
+  or the field in the panel), any country it hosts.
 """
 
 from __future__ import annotations
@@ -35,7 +33,7 @@ import logging
 import os
 
 import pandas as pd
-from PySide6.QtCore import QDate, Qt
+from PySide6.QtCore import QDate, QItemSelection, QItemSelectionModel, Qt
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QDateEdit,
@@ -63,6 +61,7 @@ from PySide6.QtWidgets import (
 from .nm import style as S
 
 from ._clock import TaskClock
+from ._station_map import StationMap
 from ._widgets import CanvasTab, NoWheelComboBox, hint_label, run_button
 from .workers import TaskRunner
 
@@ -75,7 +74,8 @@ log = logging.getLogger(__name__)
 POLLUTANTS = ["PM2.5", "PM10", "NO2", "NOXasNO2", "NO", "O3", "SO2", "CO"]
 DEFAULT_POLLUTANTS = {"PM2.5", "NO2", "O3"}
 
-# Label -> normet.io.ukaq source key. AURN first so it stays the default.
+# The six UK networks: picker label -> normet.io.ukaq source key. AURN first
+# so it stays the default.
 NETWORKS: dict[str, str] = {
     "AURN — UK national network": "aurn",
     "AQE — Air Quality England": "aqe",
@@ -85,11 +85,61 @@ NETWORKS: dict[str, str] = {
     "LMAM — DEFRA locally managed": "local",
 }
 
+# The non-UK networks: one entry per family, picked the same way in the
+# Network combo. Each carries a provider and any argument the picker needs.
+EEA_NETWORK = "EEA — European Environment Agency (all of Europe)"
+OPENAQ_NETWORK = "OpenAQ (most of the world, needs a free key)"
+
+# Provider keys: dispatch the find/fetch to the right adapter module.
+PROV_UK, PROV_EEA, PROV_OPENAQ = "uk", "eea", "openaq"
+
+# normet notation -> OpenAQ v3 parameter slug. Only the parameters the
+# adapter's `parameters_id` table can resolve — OpenAQ v3 does not serve
+# NO or NOx separately, so those tick them off in the other networks only.
+_OPENAQ_SLUG = {
+    "PM2.5": "pm25",
+    "PM10": "pm10",
+    "NO2": "no2",
+    "O3": "o3",
+    "SO2": "so2",
+    "CO": "co",
+}
+
 MET_OPEN_METEO = "Open-Meteo (ERA5, no key needed)"
 MET_CDS = "Copernicus CDS (needs ~/.cdsapirc)"
 
 
-def _find_stations(pollutants: list[str], source: str) -> pd.DataFrame:
+def _network_meta(text: str) -> tuple[str, str | None]:
+    """(provider, ukaq source) for a Network combo text; source is UK-only."""
+    if text in NETWORKS:
+        return PROV_UK, NETWORKS[text]
+    if text == EEA_NETWORK:
+        return PROV_EEA, None
+    if text == OPENAQ_NETWORK:
+        return PROV_OPENAQ, None
+    raise ValueError(f"Unknown network {text!r}")
+
+
+def _find_stations(
+    provider: str, source: str | None, country: str, pollutants: list[str], api_key: str | None
+) -> pd.DataFrame:
+    """One row per station measuring any of *pollutants*, for *provider*.
+
+    Columns (identical across providers): ``site``, ``code``, ``site_type``,
+    ``pollutants`` (which of the ticked ones it reports), ``n``, ``from``/
+    ``to`` (the covered period; blank when the source does not state one),
+    ``lat``, ``lon``. The picker and the fetch both read off these columns.
+    """
+    if provider == PROV_UK:
+        return _find_stations_uk(pollutants, source or "aurn")
+    if provider == PROV_EEA:
+        return _find_stations_eea(country, pollutants)
+    if provider == PROV_OPENAQ:
+        return _find_stations_openaq(country, pollutants, api_key)
+    raise ValueError(f"Unknown provider {provider!r}")
+
+
+def _find_stations_uk(pollutants: list[str], source: str) -> pd.DataFrame:
     """One row per station in *source* measuring any of *pollutants*.
 
     Columns: ``site``, ``code``, ``site_type``, ``pollutants`` (which of the
@@ -154,21 +204,84 @@ def _find_stations(pollutants: list[str], source: str) -> pd.DataFrame:
     return df.reset_index(drop=True)
 
 
-def _fetch_and_merge(
-    site: dict,
-    pollutants: list[str],
-    date_from: str,
-    date_to: str,
-    met_source: str,
-    source: str,
+def _find_stations_eea(country: str, pollutants: list[str]) -> pd.DataFrame:
+    """EEA stations from the ArcGIS layer, in the shared picker columns.
+
+    The per-pollutant ``from``/``to`` coverage is not per-station but is what
+    the layer's popup states for each pollutant, so the picker shows the
+    union across the ticked pollutants it reports.
+    """
+    from .nm.io.eea import list_eea_stations
+
+    df = list_eea_stations(country=country, pollutants=pollutants)
+    if df.empty:
+        return df
+    import json
+
+    spans = df["links"].map(
+        lambda s: {k: v for k, v in json.loads(s).items() if k in set(pollutants)}
+    )
+    lo = spans.map(lambda m: min((v["from"] for v in m.values()), default=None))
+    hi = spans.map(lambda m: max((v["to"] for v in m.values()), default=None))
+    # The layer dates its blobs by year; the full dates let the picker reuse
+    # its usual "from–to" snap logic unchanged.
+    df["from"] = [f"{y:04d}-01-01" if y is not None else "" for y in lo]
+    df["to"] = [f"{y:04d}-12-31" if y is not None else "" for y in hi]
+    return df.drop(columns=["links"])
+
+
+def _find_stations_openaq(country: str, pollutants: list[str], api_key: str | None) -> pd.DataFrame:
+    """OpenAQ locations for *country*, filtered to the ticked parameters.
+
+    The ticked slugs go to the server as a union filter, so a big country is
+    narrowed before paging rather than fetched whole and cut down client-side.
+    """
+    from .nm.io.openaq import openaq_locations
+
+    slugs = [s for s in (_OPENAQ_SLUG.get(p) for p in pollutants) if s]
+    unserved = [p for p in pollutants if p not in _OPENAQ_SLUG]
+    if unserved:
+        log.info("OpenAQ does not serve %s — skipped", ", ".join(unserved))
+    locs = (
+        openaq_locations(country=country or None, parameters=slugs, limit=5000, api_key=api_key)
+        if slugs
+        else pd.DataFrame()
+    )
+    if locs.empty:
+        return pd.DataFrame(
+            columns=["site", "code", "site_type", "pollutants", "n", "from", "to", "lat", "lon"]
+        )
+    slug_by_notation = _OPENAQ_SLUG
+    rows = []
+    for _, r in locs.iterrows():
+        have = [p for p in pollutants if slug_by_notation.get(p) in set(r.get("parameters", []))]
+        if not have:
+            continue
+        rows.append(
+            {
+                "site": str(r.get("name") or r.get("id")),
+                "code": str(r.get("id")),
+                "site_type": str(r.get("provider") or ""),
+                "pollutants": ", ".join(have),
+                "n": len(have),
+                "from": "",
+                "to": str(r.get("last_updated") or "")[:10],
+                "lat": r.get("lat"),
+                "lon": r.get("lon"),
+            }
+        )
+    df = pd.DataFrame(rows)
+    if df.empty:
+        return df
+    return df.sort_values(["n", "site"], ascending=[False, True]).reset_index(drop=True)
+
+
+def _fetch_uk(
+    site: dict, pollutants: list[str], t0: pd.Timestamp, t1: pd.Timestamp, source: str
 ) -> pd.DataFrame:
-    """Download AQ + met for one site and outer-join on the hourly timestamp."""
+    """UK networks via the openair archives — one file per station-year."""
     from .nm import fetch_ukaq_measurements
 
-    t0 = pd.Timestamp(date_from)
-    t1 = pd.Timestamp(date_to)
-    # The archives are one file per station-year, so whole years are fetched
-    # and then trimmed to the requested range.
     years = list(range(t0.year, t1.year + 1))
     log.info(
         "Fetching %s at %s (%s) for %d-%d…",
@@ -186,20 +299,113 @@ def _fetch_and_merge(
             f"No data returned for {site['site']} ({site['code']}) in "
             f"{years[0]}–{years[-1]} — try a different station or date range."
         )
-
     aq["date"] = pd.to_datetime(aq["date"], utc=True).dt.tz_localize(None)
-    aq = aq[(aq["date"] >= t0) & (aq["date"] <= t1 + pd.Timedelta(hours=23, minutes=59))]
+    return aq[(aq["date"] >= t0) & (aq["date"] <= t1 + pd.Timedelta(hours=23, minutes=59))]
+
+
+def _fetch_eea(
+    site: dict, pollutants: list[str], t0: pd.Timestamp, t1: pd.Timestamp, country: str
+) -> pd.DataFrame:
+    """EEA via one public Parquet blob per station and pollutant.
+
+    Each blob is the station's whole record (2013 to now), so a single
+    download per pollutant is the cheapest pull; the range is trimmed off
+    here, the same way the UK path trims its station-year files.
+    """
+    from .nm.io.eea import fetch_eea_station
+
+    wide: dict[str, pd.Series] = {}
+    for pol in pollutants:
+        try:
+            one = fetch_eea_station(station=site["code"], country=country, pollutant=pol)
+        except RuntimeError:
+            log.info("EEA: no %s blob for %s — skipped", pol, site["site"])
+            continue
+        if one.empty:
+            continue
+        s = pd.to_datetime(one["date"], utc=True).dt.tz_localize(None)
+        wide[pol] = pd.Series(one["value"].to_numpy(), index=s)
+    if not wide:
+        raise RuntimeError(
+            f"EEA returned no blobs for {site['site']} ({site['code']}) — "
+            "try a different station or pollutant."
+        )
+    aq = pd.DataFrame(wide)
+    aq = aq.reset_index().rename(columns={"index": "date"})
+    return aq[(aq["date"] >= t0) & (aq["date"] <= t1 + pd.Timedelta(hours=23, minutes=59))]
+
+
+def _fetch_openaq(
+    site: dict, pollutants: list[str], t0: pd.Timestamp, t1: pd.Timestamp, api_key: str | None
+) -> pd.DataFrame:
+    """OpenAQ via the per-sensor measurements endpoint (keyed)."""
+    from .nm.io.openaq import fetch_openaq_measurements
+
+    wide: dict[str, pd.Series] = {}
+    for pol in pollutants:
+        slug = _OPENAQ_SLUG.get(pol)
+        if slug is None:
+            log.info("OpenAQ does not serve %s — skipped at %s", pol, site["site"])
+            continue
+        one = fetch_openaq_measurements(
+            location_id=int(site["code"]),
+            parameter=slug,
+            date_from=t0,
+            date_to=t1,
+            api_key=api_key,
+        )
+        if one.empty:
+            continue
+        d = pd.to_datetime(one["date"], utc=True)
+        wide[pol] = pd.Series(one["value"].to_numpy(), index=d.dt.tz_localize(None))
+    if not wide:
+        raise RuntimeError(
+            f"OpenAQ returned nothing for {site['site']} ({site['code']}) — "
+            "check the key and date range, or try a different location."
+        )
+    aq = pd.DataFrame(wide)
+    aq = aq.reset_index().rename(columns={"index": "date"})
+    return aq
+
+
+def _fetch_and_merge(
+    site: dict,
+    pollutants: list[str],
+    date_from: str,
+    date_to: str,
+    met_source: str,
+    provider: str,
+    source: str | None,
+    country: str,
+    api_key: str | None,
+) -> pd.DataFrame:
+    """Download AQ + met for one site and outer-join on the hourly timestamp.
+
+    *provider* selects the air-quality adapter; the meteorology half is
+    shared (the station carries coordinates for every provider).
+    """
+    t0 = pd.Timestamp(date_from)
+    t1 = pd.Timestamp(date_to)
+    aq: pd.DataFrame
+    if provider == PROV_UK:
+        aq = _fetch_uk(site, pollutants, t0, t1, source or "aurn")
+    elif provider == PROV_EEA:
+        aq = _fetch_eea(site, pollutants, t0, t1, country)
+    elif provider == PROV_OPENAQ:
+        aq = _fetch_openaq(site, pollutants, t0, t1, api_key)
+    else:
+        raise ValueError(f"Unknown provider {provider!r}")
+
     pol_cols = [c for c in pollutants if c in aq.columns]
     if not pol_cols or aq.empty:
         raise RuntimeError(
-            "No air-quality data came back for this site/date range — "
-            "try different pollutants or dates."
+            f"No air-quality data came back for {site['site']} in "
+            f"{t0:%Y-%m-%d} to {t1:%Y-%m-%d} — try different pollutants or dates."
         )
     dropped = [p for p in pollutants if p not in pol_cols]
     if dropped:
         log.info("%s does not report %s — skipped", site["site"], ", ".join(dropped))
-    # Already wide (one column per species); collapse any duplicate hours
-    # that a station-year overlap could produce.
+    # Already wide (one column per species); collapse any duplicate hours.
     merged = aq.groupby("date")[pol_cols].mean().sort_index()
 
     if met_source == MET_OPEN_METEO:
@@ -233,12 +439,67 @@ def _fetch_and_merge(
     return merged
 
 
+def _fetch_many(
+    stations: list[dict],
+    pollutants: list[str],
+    date_from: str,
+    date_to: str,
+    met_source: str,
+    provider: str,
+    source: str | None,
+    country: str,
+    api_key: str | None,
+) -> pd.DataFrame:
+    """Fetch *stations* one by one and stack them into one table (a panel).
+
+    Each station gets its own measurements and its own meteorology (at its
+    coordinates), and the frames carry their ``site`` column, so the stack is
+    the long-format panel the modelling steps expect. A station that returns
+    nothing (closed, no coverage in the range) is logged and skipped rather
+    than aborting the batch; the batch fails only if every one of them does.
+    """
+    frames: list[pd.DataFrame] = []
+    failures: list[str] = []
+    for st in stations:
+        try:
+            frames.append(
+                _fetch_and_merge(
+                    st,
+                    pollutants,
+                    date_from,
+                    date_to,
+                    met_source,
+                    provider,
+                    source,
+                    country,
+                    api_key,
+                )
+            )
+        except Exception as exc:  # noqa: BLE001 - one station, not the batch
+            failures.append(f"{st.get('site', st.get('code', '?'))}: {exc}")
+            log.warning("Data Studio: skipped %s — %s", st.get("site"), exc)
+    if not frames:
+        detail = "; ".join(failures[:3])
+        raise RuntimeError(
+            f"None of the {len(stations)} selected stations returned data"
+            + (f" — {detail}" if detail else ".")
+        )
+    if failures:
+        log.warning("Data Studio: %d of %d stations skipped", len(failures), len(stations))
+    out = pd.concat(frames, ignore_index=True)
+    return out.sort_values(["site", "date"], kind="stable").reset_index(drop=True)
+
+
 class DataWindow(QMainWindow):
-    """'Get UK data' window: UK network measurements + reanalysis met, merged."""
+    """ "Get data" window: air-quality networks + reanalysis met, merged.
+
+    The UK networks, the EEA reporting network and OpenAQ all run through
+    the same pick-a-station → fetch & merge flow.
+    """
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Normet — Data Studio (UK AQ + met)")
+        self.setWindowTitle("Normet — Data Studio (AQ + met)")
         self.resize(1240, 820)
         self._main = parent
         self.stations: pd.DataFrame | None = None
@@ -282,19 +543,42 @@ class DataWindow(QMainWindow):
         panel = QWidget()
         v = QVBoxLayout(panel)
 
-        aq_box = QGroupBox("Air quality (UK networks)")
+        aq_box = QGroupBox("Air quality")
         av = QVBoxLayout(aq_box)
         av.addWidget(QLabel("Network"))
         self.net_combo = NoWheelComboBox()
-        self.net_combo.addItems(list(NETWORKS))
+        self.net_combo.addItems(list(NETWORKS) + [EEA_NETWORK, OPENAQ_NETWORK])
         self.net_combo.setToolTip(
-            "Which UK network to search.\n"
-            "AURN is the national network (~210 sites); the others are the\n"
-            "local-authority networks, which together hold most of the\n"
-            "roadside, rural and suburban background sites."
+            "Air-quality source to search.\n"
+            "The six UK networks (AURN national + the regional networks);\n"
+            "the EEA reporting network for all of Europe; or OpenAQ for\n"
+            "most of the world (needs a free API key, see below)."
         )
         self.net_combo.currentIndexChanged.connect(self._network_changed)
         av.addWidget(self.net_combo)
+
+        # Context fields shown only where the network needs one. EEA is a
+        # single reporting network keyed by country; OpenAQ needs its key.
+        ctx_box = QGroupBox("Source settings")
+        cv = QFormLayout(ctx_box)
+        cv.setLabelAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        self.country_edit = QLineEdit()
+        self.country_edit.setPlaceholderText("ISO-2, e.g. GB, DE, FR, PL, CN")
+        self.country_edit.setMaximumWidth(180)
+        cv.addRow("Country", self.country_edit)
+        self.openaq_key = QLineEdit()
+        self.openaq_key.setPlaceholderText("free key from explore.openaq.org (else OPENAQ_API_KEY)")
+        self.openaq_key.setEchoMode(QLineEdit.EchoMode.Password)
+        self.openaq_key.textEdited.connect(lambda *_: self._clear_key_tip())
+        cv.addRow("OpenAQ key", self.openaq_key)
+        self.openaq_hint = hint_label("", small=True)
+        cv.addRow(self.openaq_hint)
+        self.ctx_box = ctx_box
+        av.addWidget(ctx_box)
+        # Only the visibility rules here: the station table does not exist yet,
+        # so the full _network_changed would run before its widgets.
+        self._refresh_context()
+
         av.addWidget(QLabel("Pollutants"))
         self.pol_list = QListWidget()
         self.pol_list.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
@@ -407,12 +691,28 @@ class DataWindow(QMainWindow):
         sl.addLayout(search_row)
         self.station_table = QTableWidget()
         self.station_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.station_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        # Several stations fetch together into one table (a panel), so the list
+        # selects several; the map is the other way to make that selection.
+        self.station_table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.station_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.station_table.itemSelectionChanged.connect(self._station_selected)
-        sl.addWidget(self.station_table, 1)
+        self.station_table.itemDoubleClicked.connect(self._station_double_clicked)
+        # The map and the table show one list two ways: the map is where the
+        # stations are, the table is what each one measures and holds.
+        self.station_map = StationMap()
+        self.station_map.selectionChanged.connect(self._map_selection)
+        stations = QSplitter(Qt.Orientation.Vertical)
+        stations.addWidget(self.station_map)
+        stations.addWidget(self.station_table)
+        stations.setStretchFactor(0, 3)
+        stations.setStretchFactor(1, 2)
+        stations.setSizes([380, 260])
+        sl.addWidget(stations, 1)
         sl.addWidget(
-            hint_label("Click 🔍 Find stations to fill this table, then select the site to use.")
+            hint_label(
+                "Click 🔍 Find stations, then select the site(s) to use — a row, its\n"
+                "point on the map, or a box around several of them."
+            )
         )
         self.tabs.addTab(st_tab, "Stations")
 
@@ -441,7 +741,7 @@ class DataWindow(QMainWindow):
     def _sync_enabled(self) -> None:
         busy = self.runner.busy
         self.find_btn.setEnabled(not busy)
-        self.fetch_btn.setEnabled(not busy and self._selected_station() is not None)
+        self.fetch_btn.setEnabled(not busy and bool(self._selected_stations()))
         has_data = self.merged is not None
         self.save_btn.setEnabled(has_data)
         self.send_btn.setEnabled(has_data and self._main is not None)
@@ -467,15 +767,40 @@ class DataWindow(QMainWindow):
         log.error("%s", tb)
 
     # ---------------------------------------------------------------- actions
-    def _current_source(self) -> str:
-        return NETWORKS[self.net_combo.currentText()]
+    def _provider(self) -> tuple[str, str | None, str]:
+        """(provider, ukaq source, country) for the current network text."""
+        prov, src = _network_meta(self.net_combo.currentText())
+        country = self.country_edit.text().strip().upper()
+        return prov, src, country
+
+    def _openaq_key(self) -> str | None:
+        key = self.openaq_key.text().strip()
+        return key or (os.environ.get("OPENAQ_API_KEY") or None)
+
+    def _refresh_context(self) -> None:
+        """Show only the source fields the chosen network needs."""
+        prov = _network_meta(self.net_combo.currentText())[0]
+        self.country_edit.setVisible(prov in (PROV_EEA, PROV_OPENAQ))
+        self.openaq_key.setVisible(prov == PROV_OPENAQ)
+        self.openaq_hint.setText(
+            "Set OPENAQ_API_KEY or paste a free key to search OpenAQ."
+            if prov == PROV_OPENAQ
+            else ""
+        )
+        self.ctx_box.setVisible(prov != PROV_UK)
+
+    def _clear_key_tip(self) -> None:
+        if self.openaq_hint and self.openaq_key.text().strip():
+            self.openaq_hint.setText("")
 
     def _network_changed(self) -> None:
         """A station list belongs to one network; drop it when that changes."""
         self.stations = None
         self.station_table.clearContents()
         self.station_table.setRowCount(0)
+        self.station_map.set_stations(None)
         self.station_hint.setText("No station chosen yet")
+        self._refresh_context()
         self.statusBar().showMessage(
             f"Network set to {self.net_combo.currentText()} — click 🔍 Find stations."
         )
@@ -486,13 +811,35 @@ class DataWindow(QMainWindow):
         if not pollutants:
             QMessageBox.information(self, "No pollutants", "Tick at least one pollutant.")
             return
+        prov, src, country = self._provider()
+        if prov in (PROV_EEA, PROV_OPENAQ) and not country:
+            QMessageBox.information(
+                self,
+                "No country",
+                "Type an ISO-2 country code first (GB, DE, FR, …)."
+                if prov == PROV_EEA
+                else "Type an ISO-2 country code first (GB, US, BR, …).",
+            )
+            return
+        key = self._openaq_key()
+        if prov == PROV_OPENAQ and not key:
+            QMessageBox.information(
+                self,
+                "No OpenAQ key",
+                "OpenAQ needs a free API key — paste one above or set OPENAQ_API_KEY. "
+                "Register at https://explore.openaq.org/register.",
+            )
+            return
         self.runner.submit(
             "find stations",
             _find_stations,
             self._stations_done,
             self._show_error,
+            prov,
+            src,
+            country,
             pollutants,
-            self._current_source(),
+            key,
         )
 
     def _stations_done(self, df: pd.DataFrame) -> None:
@@ -500,7 +847,7 @@ class DataWindow(QMainWindow):
         self._fill_station_table(df)
         self.tabs.setCurrentIndex(0)
         self.statusBar().showMessage(
-            f"{len(df)} sites measure the ticked pollutants — search and select one."
+            f"{len(df)} sites measure the ticked pollutants — search, or pick one on the map."
         )
 
     def _fill_station_table(self, df: pd.DataFrame) -> None:
@@ -521,6 +868,7 @@ class DataWindow(QMainWindow):
                     item.setData(Qt.ItemDataRole.UserRole, int(row.name))
                 self.station_table.setItem(r, c, item)
         self.station_table.resizeColumnsToContents()
+        self.station_map.set_stations(df)
 
     def _filter_stations(self, text: str) -> None:
         if self.stations is None:
@@ -536,20 +884,74 @@ class DataWindow(QMainWindow):
             df = df[match]
         self._fill_station_table(df)
 
-    def _selected_station(self) -> dict | None:
+    def _selected_keys(self) -> list[int]:
+        """The station frame indices of the table's selected rows, in its order."""
+        rows = sorted({i.row() for i in self.station_table.selectedItems()})
+        keys = []
+        for r in rows:
+            item = self.station_table.item(r, 0)
+            if item is not None and item.data(Qt.ItemDataRole.UserRole) is not None:
+                keys.append(int(item.data(Qt.ItemDataRole.UserRole)))
+        return keys
+
+    def _selected_stations(self) -> list[dict]:
         if self.stations is None:
-            return None
-        items = self.station_table.selectedItems()
-        if not items:
-            return None
-        idx = self.station_table.item(items[0].row(), 0).data(Qt.ItemDataRole.UserRole)
-        if idx is None or idx not in self.stations.index:
-            return None
-        return self.stations.loc[idx].to_dict()
+            return []
+        return [
+            self.stations.loc[k].to_dict()
+            for k in self._selected_keys()
+            if k in self.stations.index
+        ]
+
+    def _station_double_clicked(self, item: QTableWidgetItem) -> None:
+        """Double-clicking a row zooms the map to that station."""
+        cell = self.station_table.item(item.row(), 0)
+        key = None if cell is None else cell.data(Qt.ItemDataRole.UserRole)
+        if key is not None:
+            self.station_map.zoom_to(int(key))
+
+    def _map_selection(self, keys: list[int]) -> None:
+        """A selection made on the map becomes the table's, and the row's path follows."""
+        wanted = set(keys)
+        sel = QItemSelection()
+        model = self.station_table.model()
+        first: int | None = None
+        for r in range(self.station_table.rowCount()):
+            item = self.station_table.item(r, 0)
+            key = None if item is None else item.data(Qt.ItemDataRole.UserRole)
+            if key in wanted:
+                sel.select(model.index(r, 0), model.index(r, self.station_table.columnCount() - 1))
+                if first is None:
+                    first = r
+                if item is not None:
+                    self.station_table.scrollToItem(
+                        item, QAbstractItemView.ScrollHint.PositionAtCenter
+                    )
+        if first is not None:  # the keyboard's row follows the first pick
+            self.station_table.setCurrentCell(first, 0, QItemSelectionModel.SelectionFlag.NoUpdate)
+        self.station_table.selectionModel().select(
+            sel,
+            QItemSelectionModel.SelectionFlag.ClearAndSelect
+            | QItemSelectionModel.SelectionFlag.Rows,
+        )
 
     def _station_selected(self) -> None:
-        st = self._selected_station()
-        if st:
+        keys = self._selected_keys()
+        self.station_map.highlight(keys)
+        st = self._selected_stations()[0] if keys else None
+        if len(keys) > 1:
+            sites = (
+                [str(x) for x in self.stations.loc[keys, "site"]]
+                if self.stations is not None
+                else []
+            )
+            names = ", ".join(sites[:3]) + (" …" if len(sites) > 3 else "")
+            self.station_hint.setText(
+                f"{len(keys)} stations selected: {names}\n"
+                "Fetch & merge downloads each one and joins them into one table."
+            )
+            self.station_hint.setStyleSheet("")
+        elif st:
             cov = f"{st.get('from', '')} → {st.get('to', '')}" if st.get("to") else "unknown"
             code = f" ({st['code']})" if st.get("code") else ""
             stype = f"\ntype: {st['site_type']}" if st.get("site_type") else ""
@@ -573,8 +975,8 @@ class DataWindow(QMainWindow):
         self._sync_enabled()
 
     def _run_fetch(self) -> None:
-        st = self._selected_station()
-        if st is None:
+        sites = self._selected_stations()
+        if not sites:
             QMessageBox.information(
                 self, "No station", "Find stations and select one in the table first."
             )
@@ -586,17 +988,22 @@ class DataWindow(QMainWindow):
             QMessageBox.information(self, "Bad range", "'From' must be before 'To'.")
             return
         met = self.met_combo.currentText()
+        prov, src, country = self._provider()
+        name = sites[0]["site"] if len(sites) == 1 else f"{len(sites)} stations"
         self.runner.submit(
-            f"fetch {st['site']}",
-            _fetch_and_merge,
+            f"fetch {name}",
+            _fetch_many,
             self._fetch_done,
             self._show_error,
-            st,
+            sites,
             pollutants,
             d_from,
             d_to,
             met,
-            self._current_source(),
+            prov,
+            src,
+            country,
+            self._openaq_key(),
         )
 
     def _fetch_done(self, df: pd.DataFrame) -> None:
@@ -604,10 +1011,12 @@ class DataWindow(QMainWindow):
         n_nan = int(df.isna().sum().sum())
         pol_cols = [c for c in df.columns if c in POLLUTANTS]
         met_cols = [c for c in df.columns if c in ("t2m", "ws", "wd", "sp", "rh2m")]
+        n_sites = int(df["site"].nunique()) if "site" in df.columns else 1
         self.preview_summary.setText(
-            f"{len(df):,} hourly rows × {df.shape[1]} columns   |   "
-            f"{df['date'].min():%Y-%m-%d} → {df['date'].max():%Y-%m-%d}   |   "
-            f"pollutants: {', '.join(pol_cols)}   |   missing cells: {n_nan:,}"
+            f"{len(df):,} hourly rows × {df.shape[1]} columns"
+            + (f"   |   {n_sites} stations" if n_sites > 1 else "")
+            + f"   |   {df['date'].min():%Y-%m-%d} → {df['date'].max():%Y-%m-%d}"
+            f"   |   pollutants: {', '.join(pol_cols)}   |   missing cells: {n_nan:,}"
         )
         self._fill_preview_table(df)
         self._draw_preview(df, pol_cols)
@@ -638,23 +1047,35 @@ class DataWindow(QMainWindow):
         n = max(1, len(pol_cols))
         fig, axes = plt.subplots(n, 1, figsize=(8, 1.5 * n + 0.4), sharex=True, squeeze=False)
         d = df.set_index("date")
+        sites = list(dict.fromkeys(d["site"])) if "site" in d.columns else [None]
+        # A panel of many stations would be a thicket: draw the first few and say so.
+        drawn = sites[:6]
+        lw = 0.5 if len(df) > 1500 * len(drawn) else 0.9
         shown = []
         for ax, pol in zip(axes.ravel(), pol_cols or [None], strict=False):
             if pol is None:
                 ax.axis("off")
                 continue
-            S.line(
-                ax,
-                d.index,
-                d[pol],
-                lw=0.5 if len(d) > 1500 else 0.9,
-                color=S.PALETTE[len(shown) % 4],
-            )
+            for i, site in enumerate(drawn):
+                part = d if site is None else d[d["site"] == site]
+                S.line(
+                    ax,
+                    part.index,
+                    part[pol],
+                    lw=lw,
+                    color=S.PALETTE[i % len(S.PALETTE)],
+                    label=str(site) if len(drawn) > 1 else None,
+                )
             cov = d[pol].notna().mean() * 100
-            ax.set_title(f"{S.formula(pol)} — {cov:.0f} % coverage")
+            title = f"{S.formula(pol)} — {cov:.0f} % coverage"
+            if len(sites) > len(drawn):
+                title += f" (first {len(drawn)} of {len(sites)} stations)"
+            ax.set_title(title, fontsize=8)
             ax.set_ylabel(S.formula(pol))
             ax.margins(x=0)
             S.grid(ax)
+            if len(drawn) > 1:
+                ax.legend(fontsize=6, ncol=2, frameon=False, loc="upper right")
             shown.append(ax)
         if shown and isinstance(d.index, pd.DatetimeIndex):
             S.format_time_axis(shown[-1])
@@ -664,7 +1085,9 @@ class DataWindow(QMainWindow):
             fig,
             verdict=(
                 "ok",
-                f"Fetched {len(df):,} hourly rows for {df['site'].iloc[0]}.",
+                f"Fetched {len(df):,} hourly rows for {df['site'].iloc[0]}."
+                if df["site"].nunique() == 1
+                else f"Fetched {len(df):,} hourly rows for {df['site'].nunique()} stations.",
             )
             if len(df)
             else ("warn", "Empty result."),
@@ -677,9 +1100,11 @@ class DataWindow(QMainWindow):
     def _save_csv(self) -> None:
         if self.merged is None:
             return
+        n_sites = int(self.merged["site"].nunique()) if len(self.merged) else 0
         site = str(self.merged["site"].iloc[0]).replace(" ", "_") if len(self.merged) else "data"
+        stem = site if n_sites <= 1 else f"{n_sites}_stations"
         path, _ = QFileDialog.getSaveFileName(
-            self, "Save merged CSV", f"normet_{site}.csv", "CSV (*.csv)"
+            self, "Save merged CSV", f"normet_{stem}.csv", "CSV (*.csv)"
         )
         if path:
             self.merged.to_csv(path, index=False)

@@ -454,14 +454,24 @@ patch(EN, "CDS", r"""\item \textbf{Meteorology.} Open-Meteo's ERA5 archive (no k
         (needs \code{\textasciitilde/.cdsapirc}).""", r"""\item \textbf{Meteorology.} Open-Meteo's ERA5 archive (no key), or the Copernicus CDS
         (needs the \code{ecmwfr} R package and a CDS key, set with
         \code{ecmwfr::wf\_set\_key}).""")
-patch(EN, "openair", r"""The archives are the openair \code{.RData} files R's \code{importUKAQ()} reads, parsed
-without R, so the data match an openair workflow. The Data Studio needs an internet
-connection; a table sent from it is held in memory, and the command log says so rather
-than writing a \code{read\_csv} it could not repeat.""", r"""The archives are the openair \code{.RData} files R's \code{importUKAQ()} reads, read by
+patch(EN, "openair", r"""The UK archives are the openair \code{.RData} files R's \code{importUKAQ()} reads, parsed
+without R, so the data match an openair workflow. The EEA path reads the agency's own
+station map and downloads one public Parquet file per station and pollutant --- a whole
+record in one download. OpenAQ answers per sensor; the \ugm{} sensor is preferred where a
+location registers several, so its values share the UK and EEA scale (a ppm-only location
+keeps its own unit, in the \code{unit} of its rows), and it carries the six common
+pollutants: a ticked NO or NO\textsubscript{x} is skipped for it, with a line in the log.
+The Data Studio needs an internet connection; a table sent from it is held in memory, and
+the command log says so rather than writing a \code{read\_csv} it could not repeat.""", r"""The UK archives are the openair \code{.RData} files R's \code{importUKAQ()} reads, read by
 the R package (\code{nm\_fetch\_ukaq\_measurements}), so the data match an openair
-workflow. The Data Studio needs an internet connection; a table sent from it is held in
-memory, and the command log says so rather than writing a \code{nm\_read\_time\_series} it
-could not repeat.""")
+workflow. The EEA path reads the agency's own station map and downloads one public Parquet
+file per station and pollutant --- a whole record in one download. OpenAQ answers per
+sensor; the \ugm{} sensor is preferred where a location registers several, so its values
+share the UK and EEA scale (a ppm-only location keeps its own unit, in the \code{unit} of
+its rows), and it carries the six common pollutants: a ticked NO or NO\textsubscript{x} is
+skipped for it, with a line in the log. The Data Studio needs an internet connection; a
+table sent from it is held in memory, and the command log says so rather than writing a
+\code{nm\_read\_time\_series} it could not repeat.""")
 patch(EN, "polar", r"""\code{nm.polar\_plot(df, target="NO2", ws\_col="ws", wd\_col="wd")}.""",
       r"""\code{nm\_plot\_polar(df, target = "NO2", ws\_col = "ws", wd\_col = "wd")} in R.""")
 
@@ -991,12 +1001,21 @@ patch(ZH, "read_time_series", r"""在脚本中，
 patch(ZH, "CDS", r"""Copernicus CDS（需要
         \code{\textasciitilde/.cdsapirc}）。""", r"""Copernicus CDS（需要
         \code{ecmwfr} R 包和用 \code{ecmwfr::wf\_set\_key} 设置的 CDS 密钥）。""")
-patch(ZH, "openair", r"""这些档案就是 R 的 \code{importUKAQ()} 读取的 openair \code{.RData} 文件，不经 R 直接解析，
-所以数据与 openair 工作流一致。数据工作室需要联网；从它发送来的表保存在内存中，命令日志会
-如实说明这一点，而不是写一条无法重复的 \code{read\_csv}。""", r"""这些档案就是 R 的 \code{importUKAQ()} 读取的 openair \code{.RData} 文件，由 R 包读取
-（\code{nm\_fetch\_ukaq\_measurements}），所以数据与 openair 工作流一致。数据工作室需要联网；
+patch(ZH, "openair", r"""英国的档案就是 R 的 \code{importUKAQ()} 读取的 openair \code{.RData} 文件，不经 R 直接
+解析，所以数据与 openair 工作流一致。EEA 通路读取该机构自己的站点图，并为每个站点、每种
+污染物下载一个公开的 Parquet 文件——一次下载就是整条记录。OpenAQ 按传感器作答；同一位置
+注册了多个传感器时优先取 \ugm{} 的那个，因此它的数值与英国、EEA 数据同量纲（只有 ppm
+传感器的位置保留自己的单位，写在该行的 \code{unit} 里），且它提供的是六种常见污染物：
+勾选的 NO 或 NO\textsubscript{x} 对它会被跳过，并在日志中记一行。数据工作室需要联网；
 从它发送来的表保存在内存中，命令日志会如实说明这一点，而不是写一条无法重复的
-\code{nm\_read\_time\_series}。""")
+\code{read\_csv}。""", r"""英国的档案就是 R 的 \code{importUKAQ()} 读取的 openair \code{.RData} 文件，由 R 包读取
+（\code{nm\_fetch\_ukaq\_measurements}），所以数据与 openair 工作流一致。EEA 通路读取该
+机构自己的站点图，并为每个站点、每种污染物下载一个公开的 Parquet 文件——一次下载就是整条
+记录。OpenAQ 按传感器作答；同一位置注册了多个传感器时优先取 \ugm{} 的那个，因此它的数值与
+英国、EEA 数据同量纲（只有 ppm 传感器的位置保留自己的单位，写在该行的 \code{unit} 里），
+且它提供的是六种常见污染物：勾选的 NO 或 NO\textsubscript{x} 对它会被跳过，并在日志中记
+一行。数据工作室需要联网；从它发送来的表保存在内存中，命令日志会如实说明这一点，而不是写
+一条无法重复的 \code{nm\_read\_time\_series}。""")
 patch(ZH, "polar", r"""用脚本表示：
 \code{nm.polar\_plot(df, target="NO2", ws\_col="ws", wd\_col="wd")}。""", r"""用 R 表示：
 \code{nm\_plot\_polar(df, target = "NO2", ws\_col = "ws", wd\_col = "wd")}。""")
