@@ -138,6 +138,9 @@ NULL
 #'
 #' @export
 nm_silhouette_curve <- function(vectors, k_range = 2:11, metric = "euclidean", seed = 0) {
+  if (!requireNamespace("cluster", quietly = TRUE)) {
+    stop("Package 'cluster' is required for the silhouette score. Install with: install.packages('cluster')")
+  }
   ab <- .nm_embedding_as_matrix(vectors)
   mat <- ab$mat
   n <- nrow(mat)
@@ -259,7 +262,7 @@ nm_embedding_projection <- function(vectors, method = "pca", n_components = 2, s
 #' verdict -- the figure deliberately marks no k.
 #'
 #' @param vectors As in \code{\link{nm_silhouette_curve}}.
-#' @param method, k_range, metric, seed Forwarded to
+#' @param method,k_range,metric,seed Forwarded to
 #'        \code{\link{nm_embedding_projection}} and
 #'        \code{\link{nm_silhouette_curve}}.
 #' @param groups Character vector, optional. One label per vector, in the

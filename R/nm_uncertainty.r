@@ -286,6 +286,8 @@ nm_decompose_uncertainty <- function(df, target, backend = "lightgbm",
 }
 
 #' The per-date rows as a data frame, report-ready and directly plottable.
+#' @param x The result of \code{\link{nm_decompose_uncertainty}}.
+#' @param ... Unused.
 #' @export
 as.data.frame.nm_unc_decomposition <- function(x, ...) {
   data.frame(
@@ -308,6 +310,8 @@ as.data.frame.nm_unc_decomposition <- function(x, ...) {
 #' record rather than means: a single extreme day does not re-weight the
 #' attribution. `interaction` is the residual the other two do not explain,
 #' reported like the others so its size is visible.
+#' @param object The result of \code{\link{nm_decompose_uncertainty}}.
+#' @param ... Unused.
 #' @export
 summary.nm_unc_decomposition <- function(object, ...) {
   data.frame(
@@ -329,6 +333,8 @@ summary.nm_unc_decomposition <- function(object, ...) {
 }
 
 #' A one-line reading of the decomposition (the median spread shares).
+#' @param x The result of \code{\link{nm_decompose_uncertainty}}.
+#' @param ... Unused.
 #' @export
 print.nm_unc_decomposition <- function(x, ...) {
   n <- length(x$date)
@@ -350,6 +356,7 @@ print.nm_unc_decomposition <- function(x, ...) {
 #' and each band's height is that source's share. The figure is the
 #' policy-evaluation deliverable: which band dominates the total, date by date
 #' and in the median.
+#' @param x The result of \code{\link{nm_decompose_uncertainty}}.
 #' @param title Plot title. Default "Uncertainty: where the spread comes from".
 #' @param ylabel The y-axis label.
 #' @param ... Passed to the ggplot2 theme.

@@ -324,6 +324,30 @@
   fitted with a pre-period R-squared of 0.47 from the bundled panel's 103
   donors). Mirrors `normet-py`.
 
+### Fixed
+
+* **`cluster` is declared**: `nm_silhouette_curve()` scores with
+  `cluster::silhouette()` but the package was undeclared, so `R CMD check`
+  failed its examples and tests on macOS and Windows (recommended packages
+  are not preinstalled there). `cluster` now sits in Suggests and the call
+  says what to install when it is absent.
+* **S3 signatures**: `summary.nm_trend_result()` and `summary.nm_trend_breaks()`
+  name their first argument `object`, as the generic does.
+* **Documentation**: grouped `@param a, b` lines parsed the first name only;
+  `nm_bearing()`, `nm_haversine()`, `nm_scm_diagnostics()`,
+  `nm_donor_spatial_summary()`, `nm_run_scm_staggered()` and
+  `nm_plot_embedding_diagnostics()` now document every argument, as do the
+  `print()`/`summary()`/`plot()`/`as.data.frame()` methods of the uncertainty
+  decomposition and the pre-trend test.
+* **Portability and check NOTEs**: an em dash in `nm_report()`'s HTML is a
+  `\u2014` escape (the R code stays ASCII); `pnorm` is qualified as
+  `stats::pnorm`; the ggplot `aes()` bindings of the embedding diagnostics
+  and the event-study plot are declared.
+* **Windows test drift**: the deterministic pins of the segmented trend test
+  carry `tolerance = 1e-8` on the SSE-derived values (they sum to ~1e-10
+  differently under MSVC, so the 1e-12 pin was red CI on Windows without
+  catching any regression); the median-based pins stay exact.
+
 # normet 0.0.1
 
 * Initial CRAN-like release.

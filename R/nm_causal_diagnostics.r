@@ -33,7 +33,7 @@ NULL
 #'        section is skipped.
 #' @param treated_unit Optional character, the treated unit the bearings are
 #'        taken from; required for the \code{spatial} section.
-#' @param unit_col, lat_col, lon_col Column names in \code{panel} for the unit
+#' @param unit_col,lat_col,lon_col Column names in \code{panel} for the unit
 #'        id, latitude and longitude.
 #' @param n_sectors Integer. Compass sectors the bearings are divided into
 #'        (8 = N/NE/E/...). Default 8.
