@@ -94,6 +94,7 @@ LIBRARY = [
     "utils/progress.py",
     "causal/diagnostics.py",
     "causal/prediagnostics.py",
+    "causal/inference.py",
     "causal/bands.py",
     "causal/spatial.py",
     "agent/llm.py",

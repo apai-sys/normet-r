@@ -2,11 +2,13 @@
 normet-py's shapes.
 
 The estimators, the placebo tests, the uncertainty bands and the batch over every unit
-are R's (``nm_scm``, ``nm_scm_abadie``, ``nm_placebo_in_space`` …). What is arithmetic on
-their results -- the diagnostics (``scm_diagnostics``, ``pre_trend_test``) and the bands
-drawn from a placebo test's effects (``effect_bands_space``/``effect_bands_time``) -- and
-the figures are normet-py's own, copied (``diagnostics.py``, ``prediagnostics.py``,
-``bands.py``).
+are R's (``nm_scm``, ``nm_scm_abadie``, ``nm_placebo_in_space`` …), and so is the
+leave-one-donor-out refit (``nm_loo_weight_stability``). What is arithmetic on
+their results -- the diagnostics (``scm_diagnostics``, ``pre_trend_test``), the conformal
+interval and RMSPE-ratio test (``conformal_effect_interval``, ``rmspe_ratio_test``) and
+the bands drawn from a placebo test's effects
+(``effect_bands_space``/``effect_bands_time``) -- and the figures are normet-py's own,
+copied (``diagnostics.py``, ``prediagnostics.py``, ``inference.py``, ``bands.py``).
 """
 
 from __future__ import annotations
@@ -25,6 +27,10 @@ from .bands import (  # noqa: F401 - arithmetic and figures, normet-py's own
     plot_uncertainty_bands,
 )
 from .diagnostics import scm_diagnostics  # noqa: F401
+from .inference import (  # noqa: F401 - arithmetic on R's results, normet-py's own
+    conformal_effect_interval,
+    rmspe_ratio_test,
+)
 from .prediagnostics import PreTrend, pre_trend_test  # noqa: F401
 from .spatial import (  # noqa: F401 - arithmetic on coordinates, normet-py's own
     bearing,
@@ -195,3 +201,20 @@ def scm_all(df: pd.DataFrame, date_col: str, outcome_col: str, unit_col: str, do
         **_inference_options(kwargs),
     )
     return out
+
+
+def loo_weight_stability(df: pd.DataFrame, *, date_col: str, unit_col: str,
+                         outcome_col: str, treated_unit: str, cutoff_date: str,
+                         donors: list[str], **scm_kwargs: Any) -> pd.DataFrame:
+    """``nm_loo_weight_stability``: the weights and the ATT when each donor drops.
+
+    R refits the classic SCM per held-out donor (the copied ``diagnostics.py``
+    cannot: its LOO refits through a ``.scm`` module the R tree does not have);
+    the drift columns come back in normet-py's own shape.
+    """
+    return _rpc.call(
+        "nm_loo_weight_stability",
+        df,
+        **_design(df, date_col, unit_col, outcome_col, treated_unit, cutoff_date, donors),
+        **_inference_options(scm_kwargs),
+    )
