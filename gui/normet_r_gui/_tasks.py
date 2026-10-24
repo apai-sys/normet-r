@@ -39,6 +39,12 @@ class TaskMixin(QMainWindow):
         self.trend_button.setEnabled(not busy and has_model)
         if not has_model:
             self.trend_button.setToolTip("Train a model first.")
+        # The event search scores whatever series the box points at; like the
+        # trend it needs a model only because that is what puts the observed
+        # target through the de-weathering the parts come from.
+        self.events_button.setEnabled(not busy and has_model)
+        if not has_model:
+            self.events_button.setToolTip("Train a model first.")
         # The uncertainty attribution trains its own members, so it needs a model
         # to exist at all and the feature set to vary a model form; chronos-2's
         # zero-shot forecasts carry neither to speak of.

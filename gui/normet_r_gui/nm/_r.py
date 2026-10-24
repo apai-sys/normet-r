@@ -569,6 +569,79 @@ def detect_trend_breaks(
     return _trend_breaks(out)
 
 
+# -- events & anomalies ------------------------------------------------------------------
+
+
+def anomaly_scores(
+    series: pd.Series | pd.DataFrame,
+    *,
+    value_col: str | None = None,
+    method: str = "iqr",
+    stl_period: int | None = None,
+    seed: int = 7654321,
+    **_ignored: Any,
+) -> pd.Series:
+    """``nm_anomaly_scores``: per-timestamp anomaly scores by ``iqr``,
+    ``isolation`` (an IsolationForest on lags, via solitude) or
+    ``stl_residual``. A datetime-indexed series keeps its index: R scores the
+    frame's column and the scores return on the series' own stamps."""
+    payload, col = _trend_input(series, value_col)
+    out = _rpc.call(
+        "nm_anomaly_scores",
+        payload,
+        value_col=col,
+        method=method,
+        stl_period=stl_period,
+        seed=seed,
+    )
+    values = np.asarray(out, dtype=float)
+    index = series.index if isinstance(series, pd.Series) else pd.RangeIndex(len(values))
+    return pd.Series(values, index=index, name="score")
+
+
+def detect_events(
+    series: pd.Series | pd.DataFrame,
+    *,
+    value_col: str | None = None,
+    method: str = "iqr",
+    k: float = 3.0,
+    min_length: int = 1,
+    stl_period: int | None = None,
+    seed: int = 7654321,
+    **_ignored: Any,
+) -> pd.DataFrame:
+    """``nm_detect_events``: the consecutive stretches whose score crosses the
+    threshold, ranked by their maximum. R reads a frame's ``date`` column as
+    the stamps; a bare vector's windows come back as 1-based positions, which
+    this maps onto the series' own index the way normet-py's ``detect_events``
+    would have them."""
+    payload, col = _trend_input(series, value_col)
+    out = _rpc.call(
+        "nm_detect_events",
+        payload,
+        value_col=col,
+        method=method,
+        k=float(k),
+        min_length=int(min_length),
+        stl_period=stl_period,
+        seed=seed,
+    )
+    events = out if isinstance(out, pd.DataFrame) else pd.DataFrame(columns=_EVENT_COLUMNS)
+    if len(events) and set(_EVENT_COLUMNS) <= set(events.columns):
+        events = events[_EVENT_COLUMNS]
+        if pd.api.types.is_numeric_dtype(events["start"]):
+            # R found no stamps to recover and numbered the windows on its
+            # 1-based vector grid; normet-py's table holds the record's own
+            # index values, so the positions are read back through it.
+            for edge in ("start", "end"):
+                index = series.index if isinstance(series, pd.Series) else pd.RangeIndex(len(series))
+                events[edge] = [index[int(v) - 1] for v in events[edge]]
+    return events
+
+
+_EVENT_COLUMNS = ["start", "end", "n", "max_score", "mean_score"]
+
+
 # -- uncertainty -------------------------------------------------------------------------
 
 
