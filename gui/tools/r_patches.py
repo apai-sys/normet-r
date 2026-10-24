@@ -169,6 +169,42 @@ patch(
             # H2O searches for as long as it is given: its share done is the time (LightGBM
             # reports its trials from R).''',
 )
+patch(
+    "_run_train.py",
+    "chronos: CV guard",
+    "        if self.model is None or self._is_chronos() or not self._check_data():",
+    "        if self.model is None or not self._check_data():",
+)
+patch(
+    "_run_train.py",
+    "CV config: H2O's budget, per fold",
+    r'''        model_config = (
+            {
+                "time_budget": self.budget_spin.value(),
+                "estimator_list": self._selected_estimators() or ["lgbm"],
+            }
+            if backend == "flaml"
+            else {"n_trials": self.budget_spin.value()}
+        )''',
+    r'''        model_config = (
+            {
+                "max_runtime_secs": self.budget_spin.value(),
+                "include_algos": self._selected_estimators() or ["GBM"],
+            }
+            if backend == "h2o"
+            else {"n_trials": self.budget_spin.value()}
+        )''',
+)
+patch(
+    "_run_train.py",
+    "CV task clock: H2O's budget",
+    r'''        if backend == "flaml":
+            # Every fold searches for the time budget: the clock expects the run's total.
+            self.task_clock.expect(self.budget_spin.value() * self.cv_folds_spin.value())''',
+    r'''        if backend == "h2o":
+            # H2O takes its budget once per fold: the clock expects the run's total.
+            self.task_clock.expect(self.budget_spin.value() * self.cv_folds_spin.value())''',
+)
 
 
 # -- the shell: the R menu, R's state, R cleaned up on close -------------------------------
@@ -1020,6 +1056,22 @@ patch(
             )
 """,
     "",
+)
+patch(
+    "_tasks.py",
+    "chronos: CV button",
+    r"""        self.cv_button.setEnabled(not busy and has_model and not self._is_chronos())
+        if not has_model:
+            self.cv_button.setToolTip("Train a model first.")
+        elif self._is_chronos():
+            self.cv_button.setToolTip(
+                "Not available for chronos-2 — its check is the quantile backtest on the Model tab."
+            )
+""",
+    """        self.cv_button.setEnabled(not busy and has_model)
+        if not has_model:
+            self.cv_button.setToolTip("Train a model first.")
+""",
 )
 patch(
     "assistant.py",

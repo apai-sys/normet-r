@@ -565,6 +565,31 @@ The R GUI *is* normet-py's GUI code, vendored, with every analysis routed to R:
   60 (ZH).
 - `vendor_py_gui.py ../normet-py --check` afterwards: 0 of 96 files would change.
 
+## Sync with normet-py main at 5c08f14 (PR #83: walk-forward CV on the Model tab)
+
+- Branch `gui/model-cv-sync`, stacked on `gui/model-crps-sync` (#14): the
+  Model tab gains a walk-forward CV run — a `CV folds` spin and a
+  `Walk-forward CV` button retrain the current backend on expanding windows
+  and the tab switches (`View` selector) between the split's figures and the
+  folds. The R routing is one bridge: `nm/_r.py::cv_score` → `nm_cv_score`
+  (exported from `nm/__init__.py`), shaped like the other model calls; R's
+  folds numbered from 1 and dated by string are what `cv_table` was written
+  to read.
+- `r_patches.py`: three new `_run_train.py` patches (the CV handler's chronos
+  guard, the H2O variant of the per-fold model config, H2O's budget on the
+  task clock) and one `_tasks.py` patch (the CV button's chronos branch). In
+  normet-py the CV config is an expression precisely so its patch cannot be
+  confused with the train handler's statement-form block — `patch()` demands
+  unique text. The panel additions sit outside every passage, and the
+  backend-change passage still matches around them.
+- Tests: `test_gui_model_cv.py` is vendored (11 passed — its chronos-branch
+  assertions carry a `hasattr(w, "_is_chronos")` guard, so this window runs
+  the rest). Full `python -m pytest gui/tests` → 227 passed, 1 skipped.
+- Manual: the walk-forward CV paragraph and both tab-summary lines come
+  through as they are — the CV story is the same on R. Both PDFs rebuilt:
+  60 pages (EN), 61 (ZH).
+- `vendor_py_gui.py ../normet-py --check` afterwards: 0 of 97 files would change.
+
 ## Local setup used here
 - R 4.3 + normet installed from this repo (`R CMD INSTALL .`), lightgbm R package
   built from GitHub source (`Rscript build_r.R` in microsoft/LightGBM).

@@ -227,6 +227,43 @@ def modStats(  # noqa: N802 - normet-py's name
     return _rpc.call("nm_modStats", df, model, subset=subset, statistic=statistic)
 
 
+def cv_score(
+    df: pd.DataFrame,
+    target: str = "value",
+    covariates: list[str] | None = None,
+    *,
+    backend: str = "lightgbm",
+    n_splits: int = 5,
+    gap: int = 0,
+    test_size: int | None = None,
+    max_train_size: int | None = None,
+    statistic: list[str] | None = None,
+    model_config: dict[str, Any] | None = None,
+    seed: int = 7654321,
+    verbose: bool = False,
+    **_ignored: Any,
+) -> pd.DataFrame:
+    """``nm_cv_score``: one row per walk-forward fold, the scores beside the
+    window each fold forecast. R numbers the folds from 1 and returns their
+    dates as strings; the Model tab's fold table reads both forms."""
+    _note_backend(backend)
+    return _rpc.call(
+        "nm_cv_score",
+        df,
+        target=target,
+        backend=backend,
+        covariates=list(covariates or []),
+        n_splits=n_splits,
+        gap=gap,
+        test_size=test_size,
+        max_train_size=max_train_size,
+        statistic=statistic,
+        model_config=model_config,
+        seed=seed,
+        verbose=verbose,
+    )
+
+
 # -- the analyses ------------------------------------------------------------------------
 
 
