@@ -270,6 +270,7 @@ Run decomposition     & a model                  & \code{decompose} \\
 Run rolling normalisation & an AutoML model      & \code{rolling} \\
 Multi-scale decomposition & an AutoML model, a normalisation & \code{rolling} $\times 3$ \\
 Trend test          & an AutoML model (a decomposition, where it tests one) & \code{trend} (1 segment), \code{detect\_trend\_breaks} (more) \\
+Find events         & a model (a decomposition, where it scores a part) & \code{anomaly\_scores}, \code{detect\_events} \\
 Compute PDP           & an AutoML model, one variable ticked & \code{pdp} \\""",
       r"""Train model           & a table, one predictor ticked & \code{nm\_build\_model} \\
 Run normalisation     & a model, one variable to resample & \code{nm\_normalise} \\
@@ -277,7 +278,13 @@ Run decomposition     & a model                  & \code{nm\_decompose} \\
 Run rolling normalisation & a model              & \code{nm\_rolling} \\
 Multi-scale decomposition & a model, a normalisation & \code{nm\_rolling} $\times 3$ \\
 Trend test          & a model (a decomposition, where it tests one) & \code{nm\_trend} (1 segment), \code{nm\_trend\_breaks} (more) \\
+Find events         & a model (a decomposition, where it scores a part) & \code{nm\_anomaly\_scores}, \code{nm\_detect\_events} \\
 Compute PDP           & a model, one variable ticked & \code{nm\_pdp} \\""")
+patch(EN, "events section names",
+      r"""events, the days the instruments misbehaved (\code{anomaly\_scores},
+\code{detect\_events}).""",
+      r"""events, the days the instruments misbehaved (\code{nm\_anomaly\_scores},
+\code{nm\_detect\_events}).""")
 patch(EN, "trend reference",
       r"""        whether the series the decomposition just drew is rising, falling or flat, and
         the \tab{Uncertainty} tab where the band's spread comes from (Section~\ref{sec:uncertainty}).""",
@@ -863,6 +870,7 @@ patch(ZH, "run buttons", r"""训练模型 / 载入 Chronos-2 & 一张表，至�
 运行滚动归一化        & 一个 AutoML 模型         & \code{rolling} \\
 多尺度分解            & 一个 AutoML 模型，一次归一化 & \code{rolling} $\times 3$ \\
 趋势检验              & 一个 AutoML 模型（有分解时检验分解的序列） & \code{trend}（1 段）/\code{detect\_trend\_breaks}（更多） \\
+查找事件              & 一个模型（给分量打分时须有分解） & \code{anomaly\_scores}、\code{detect\_events} \\
 计算 PDP              & 一个 AutoML 模型，至少勾选一个变量 & \code{pdp} \\""",
       r"""训练模型              & 一张表，至少勾选一个预测变量 & \code{nm\_build\_model} \\
 运行归一化            & 一个模型，至少一个重采样变量 & \code{nm\_normalise} \\
@@ -870,7 +878,11 @@ patch(ZH, "run buttons", r"""训练模型 / 载入 Chronos-2 & 一张表，至�
 运行滚动归一化        & 一个模型                 & \code{nm\_rolling} \\
 多尺度分解            & 一个模型，一次归一化     & \code{nm\_rolling} $\times 3$ \\
 趋势检验              & 一个模型（有分解时检验分解的序列） & \code{nm\_trend}（1 段）/\code{nm\_trend\_breaks}（更多） \\
+查找事件              & 一个模型（给分量打分时须有分解） & \code{nm\_anomaly\_scores}、\code{nm\_detect\_events} \\
 计算 PDP              & 一个模型，至少勾选一个变量 & \code{nm\_pdp} \\""")
+patch(ZH, "events section names",
+      r"""（\code{anomaly\_scores}、\code{detect\_events}）。""",
+      r"""（\code{nm\_anomaly\_scores}、\code{nm\_detect\_events}）。""")
 patch(ZH, "trend breaks name",
       r"""\emph{分段拟合}——即对所选序列运行 \code{detect\_trend\_breaks}。""",
       r"""\emph{分段拟合}——即对所选序列运行 \code{nm\_trend\_breaks}。""")
