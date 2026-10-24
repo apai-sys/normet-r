@@ -6,6 +6,11 @@
 \usage{
 \method{print}{nm_unc_decomposition}(x, ...)
 }
+\arguments{
+\item{x}{The result of \code{\link{nm_decompose_uncertainty}}.}
+
+\item{...}{Unused.}
+}
 \description{
 A one-line reading of the decomposition (the median spread shares).
 }

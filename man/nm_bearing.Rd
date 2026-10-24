@@ -7,7 +7,7 @@
 nm_bearing(lat1, lon1, lat2, lon2)
 }
 \arguments{
-\item{lat1, }{lon1, lat2, lon2 Numeric vectors of coordinates in degrees.}
+\item{lat1, lon1, lat2, lon2}{Numeric vectors of coordinates in degrees.}
 }
 \value{
 A numeric vector of bearings in degrees, in [0, 360).

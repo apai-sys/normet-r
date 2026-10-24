@@ -181,6 +181,8 @@ nm_pre_trend_test <- function(scm_result, cutoff_date, alpha = 0.05, min_periods
 }
 
 #' A one-line reading of the pre-trend test.
+#' @param x The result of \code{\link{nm_pre_trend_test}}.
+#' @param ... Unused.
 #' @export
 print.nm_pre_trend <- function(x, ...) {
   cat(sprintf(

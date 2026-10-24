@@ -117,7 +117,7 @@ NULL
       text,
       say(
         paste0(
-          " {s0} of the observations sit below 1 in the original units — ",
+          " {s0} of the observations sit below 1 in the original units \u2014 ",
           "the low-concentration tail where a linear fit spends most of its ",
           "error budget on the high values instead."
         ),

@@ -43,7 +43,7 @@ section is skipped.}
 \item{treated_unit}{Optional character, the treated unit the bearings are
 taken from; required for the \code{spatial} section.}
 
-\item{unit_col, }{lat_col, lon_col Column names in \code{panel} for the unit
+\item{unit_col, lat_col, lon_col}{Column names in \code{panel} for the unit
 id, latitude and longitude.}
 
 \item{n_sectors}{Integer. Compass sectors the bearings are divided into
