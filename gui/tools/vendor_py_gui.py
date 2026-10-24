@@ -5,7 +5,8 @@ The R GUI is normet-py's GUI, run on the R package. This script copies it across
 - every module of ``normet/gui`` into ``normet_r_gui/``;
 - the pure-Python library modules the window draws and reads with (figure style,
   plotting, table reading, trajectory joins, SCM diagnostics, the agent's readings and
-  language-model client) into ``normet_r_gui/nm/``, the window's ``normet``;
+  language-model client, and the EEA/OpenAQ adapters the Data Studio lists stations
+  with) into ``normet_r_gui/nm/``, the window's ``normet``;
 
 - normet-py's GUI tests (``tests/test_gui_*.py``) into ``gui/tests/``, pointed at
   this window;
@@ -40,8 +41,14 @@ NM = GUI / "nm"
 TESTS = HERE.parent / "tests"
 MANUAL = HERE.parent / "docs" / "manual"
 
-#: normet-py's manual: the two books and the script that builds them.
-MANUAL_FILES = ("normet_manual.tex", "normet_manual_zh.tex", "build.sh")
+#: normet-py's manual: the two books, the script that builds them, and the captured
+#: EEA search its Data Studio figure is drawn from (the same stations in both windows).
+MANUAL_FILES = (
+    "normet_manual.tex",
+    "normet_manual_zh.tex",
+    "build.sh",
+    "data_studio_stations.json",
+)
 
 #: normet-py's GUI modules this window does not take: its own entry points stay, and
 #: the modules that write or read the session's code, which here is R (``commandlog``
@@ -61,6 +68,10 @@ SKIP_TESTS = {"test_gui_chronos.py"}
 #: of the progress reports and the task clock that shows them.
 TEST_MANUAL = ("test_manual.py", "test_progress.py")
 
+#: Tests of vendored GUI modules that are not named ``test_gui_*``: the basemap's tile
+#: geometry (no Qt), which the station map draws on.
+TEST_EXTRA = ("test_basemap.py",)
+
 #: Test helpers copied beside the tests, under a name of their own where this window's
 #: tests already have one of that name.
 TEST_HELPERS = {"_uilang_smoke.py": "_py_uilang_smoke.py"}
@@ -70,6 +81,9 @@ LIBRARY = [
     "style.py",
     "figstyle.py",
     "plotting.py",
+    "io/_http.py",
+    "io/eea.py",
+    "io/openaq.py",
     "io/tables.py",
     "io/trajectory.py",
     "io/gdas.py",
@@ -152,7 +166,7 @@ def build(py_root: Path) -> dict[Path, str]:
         f = src / rel
         depth = rel.count("/") + 1  # nm/x.py is one level below normet_r_gui, nm/io/x.py two
         out[NM / rel] = _imports_to_nm(f.read_text(encoding="utf-8"), depth)
-    for f in [*sorted((py_root / "tests").glob("test_gui_*.py")), *(py_root / "tests" / n for n in TEST_MANUAL)]:
+    for f in [*sorted((py_root / "tests").glob("test_gui_*.py")), *(py_root / "tests" / n for n in (*TEST_MANUAL, *TEST_EXTRA))]:
         if f.name not in SKIP_TESTS:
             out[TESTS / f.name] = _test_imports(f.read_text(encoding="utf-8"))
     for name, ours in TEST_HELPERS.items():

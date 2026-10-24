@@ -52,6 +52,9 @@ hiddenimports += collect_submodules("normet_r_gui")
 # pandas reaches its table readers by name at run time (Open Data's Parquet, Feather,
 # Excel), which PyInstaller's import scan cannot see.
 hiddenimports += ["pyarrow", "openpyxl", "xlrd"]
+# The Data Studio's adapters reach these by name through normet's lazy `require`
+# (requests) and import Pillow inside the basemap's fetch, so list them too.
+hiddenimports += ["requests", "PIL.Image"]
 
 datas = [
     (os.path.join(GUI_DIR, "normet_r_gui", "rpc.R"), "normet_r_gui"),
