@@ -1059,6 +1059,20 @@ patch(
 )
 patch(
     "_tasks.py",
+    "chronos: events tooltip",
+    r"""        elif self._is_chronos() and self.events_series.currentText().startswith(
+            ("emission", "long-term")
+        ):
+            self.events_button.setToolTip(
+                "The emission part and its separated long-term trend need the "
+                "emission decomposition, which chronos-2 cannot make: choose the "
+                "observed target, or train with flaml or lightgbm."
+            )
+""",
+    "",
+)
+patch(
+    "_tasks.py",
     "chronos: CV button",
     r"""        self.cv_button.setEnabled(not busy and has_model and not self._is_chronos())
         if not has_model:
