@@ -481,6 +481,40 @@ The R GUI *is* normet-py's GUI code, vendored, with every analysis routed to R:
   (ZH, xelatex/ctex). A re-vendor after the patches is idempotent: only the
   two tex files change.
 
+## Sync with normet-py `gui/station-map` at 4b9bfd6 (PR #79: the Data Studio's station map)
+
+- PR #77 (EEA + OpenAQ networks), #78 (both books' Data Studio chapters) and #79
+  (station map, basemap, box select, multi-station fetch, friendlier controls) are
+  here in one vendor pass. The window now offers the six UK networks, the EEA
+  reporting network for Europe and OpenAQ for most of the world (free key, from the
+  panel's *Source settings* or `OPENAQ_API_KEY`); the Stations tab draws the sites on
+  a map (OpenStreetMap, Esri Light Gray or Esri Imagery; wheel/+/-/Fit zoom, hand or
+  middle-button pan, box select, ⌘/Ctrl-click add, double-click zoom, right-click
+  menu, Esc/Deselect, a live "N stations · M selected" count), and *Fetch & merge*
+  downloads every selected station and stacks them into one table with a `site`
+  column. UK fetching still goes through R (`nm_fetch_ukaq_measurements`); the
+  meteorology half is unchanged.
+- The EEA station layer and the OpenAQ v3 adapter are vendored as Python
+  (`nm/io/eea.py`, `nm/io/openaq.py`, `nm/io/_http.py`): the R package's
+  `nm_fetch_eea_data` / `nm_fetch_openaq_measurements` are bulk fetchers, and the
+  picker needs a per-country station listing and a per-station download the R side
+  does not expose. `vendor_py_gui.py` now copies them, plus `tests/test_basemap.py`
+  and the manual's captured EEA search (`docs/manual/data_studio_stations.json`).
+- `requests` and `Pillow` join the GUI's dependencies (the adapters and the tile
+  stitch) and the PyInstaller spec's hidden imports.
+- Manual: both books take normet-py's new Data Studio chapter; `manual_patches.py`
+  rewrites only what R changes (the UK archives are read by
+  `nm_fetch_ukaq_measurements`; the command log writes `nm_read_time_series`). The
+  figure is this window's own: `walk_gui.py --only data` searches EEA/DE from the
+  same captured stations, selects three and fetches the OSM tiles before grabbing
+  (the tiles are cached in the real `~/.normet/osm_tiles`, not the walker's temp
+  home). Both PDFs rebuilt: 59 pages (EN, pdflatex), 60 (ZH, xelatex/ctex).
+- Tests: `python -m pytest gui/tests` → 207 passed, 1 skipped, including the
+  vendored `test_basemap.py` (tile geometry, no Qt, no network) and the new Data
+  Studio tests (map selection, box select, ⌘-add, `_fetch_many` with a failing
+  station, the count/Esc, double-click zoom).
+- `vendor_py_gui.py ../normet-py --check` afterwards: 0 of 91 files would change.
+
 ## Local setup used here
 - R 4.3 + normet installed from this repo (`R CMD INSTALL .`), lightgbm R package
   built from GitHub source (`Rscript build_r.R` in microsoft/LightGBM).
