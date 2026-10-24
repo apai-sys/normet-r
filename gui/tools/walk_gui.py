@@ -28,9 +28,12 @@ sys.path.insert(0, os.path.join(HERE, ".."))
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 # The window keeps recent tables and its run history under ~/.normet: a home of its own,
-# with matplotlib pointed back at the real font cache.
+# with matplotlib pointed back at the real font cache. The Data Studio figure shows its
+# OpenStreetMap basemap: keep those tiles with the real cache, so a rebuild does not
+# fetch them again into a temp home.
 _REAL_HOME = os.path.expanduser("~")
 os.environ.setdefault("MPLCONFIGDIR", os.path.join(_REAL_HOME, ".matplotlib"))
+os.environ.setdefault("NORMET_TILE_CACHE", os.path.join(_REAL_HOME, ".normet", "osm_tiles"))
 _HOME = tempfile.mkdtemp(prefix="normet-r-walk-home-")
 os.environ["HOME"] = _HOME
 os.environ["USERPROFILE"] = _HOME
@@ -354,12 +357,37 @@ def transport_figures():
 
 
 def data_studio_figure():
-    from normet_r_gui.data_window import DataWindow
+    import json
+
+    import pandas as pd
+
+    from normet_r_gui.data_window import EEA_NETWORK, DataWindow
 
     print("data studio")
     w = DataWindow(parent=None)
     w.resize(*SIZE)
+    # Show the non-UK provider: the Source settings group (country code) is the
+    # new face of the window, and DE has enough stations to matter.
+    w.net_combo.setCurrentText(EEA_NETWORK)
+    w.country_edit.setText("DE")
+    # The stations of a real EEA search for DE (captured 2026-10-24, 55 of 787,
+    # spread over the country), the same capture normet-py's manual uses: the map
+    # and table show what a search fills them with. Their OpenStreetMap tiles are
+    # fetched when the figure is built (and cached under ~/.normet/osm_tiles);
+    # offline the map falls back to its grid.
+    manual = os.path.join(HERE, "..", "docs", "manual")
+    with open(os.path.join(manual, "data_studio_stations.json"), encoding="utf-8") as fh:
+        stations = pd.DataFrame(json.load(fh))
+    w.stations = stations
+    w._fill_station_table(stations)
+    # Three of them selected, as a box drawn on the map would: the rings, the
+    # table's highlighted rows and the count all show the multi-station fetch.
+    picked = [int(i) for i in stations.index[:5:2]]
+    w.station_map.selectionChanged.emit(picked)
     w.show()
+    # The tiles are fetched on a timer once the search is shown; the figure is
+    # grabbed now, so fetch them here (cached, a handful) instead of waiting.
+    w.station_map._load_basemap(True)
     grab(w, "ui_data_studio.png")
     return w
 

@@ -20,6 +20,9 @@ dependencies = [
     "pyarrow>=10.0.1",
     "openpyxl>=3.1",
     "xlrd>=2.0",
+    # The Data Studio's EEA and OpenAQ adapters and its OpenStreetMap basemap.
+    "requests>=2.31",
+    "Pillow>=9.0",
 ]
 
 [project.optional-dependencies]
