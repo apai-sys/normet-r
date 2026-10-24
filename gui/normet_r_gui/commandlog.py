@@ -244,6 +244,7 @@ _KNOWN: dict[str, tuple[str, str, tuple[str, ...]]] = {
     "pdp": ("Partial dependence", "pd_values", ()),
     "trend_call": ("Trend test", "trend_result", ()),
     "trend_breaks_call": ("Segmented trend test", "trend_result", ()),
+    "events_call": ("Find events", "scores, events", ()),
     "decompose_uncertainty": ("Uncertainty decomposition", "uncertainty", ()),
 }
 
@@ -350,6 +351,33 @@ def task(
             "The bands are differences of these rolling means (the window's own helper).",
         )
         return Entry("Multi-scale decomposition", "\n".join(lines), notes=tuple(dict.fromkeys(notes)))
+    if name == "events_call":
+        # The window builds a series out of the table it holds and scores it twice,
+        # once per call: the script reads that table's column instead (R reads a
+        # frame's value_col itself, and "long-term" as the separated component the
+        # note spells out). Written from what the task was started with, not by
+        # capture: the two calls are fixed, and the window's test runs the task on
+        # stand-ins that make no R call to capture.
+        frame, column = args[0], args[1]
+        method = literal(kwargs.get("method", "iqr"))
+        seed = literal(kwargs.get("seed", 7654321))
+        at = [("value_col", literal(column)), ("method", method)]
+        lines = [
+            call("scores", "nm_anomaly_scores", [render(frame)], [*at, ("seed", seed)]),
+            call(
+                "events",
+                "nm_detect_events",
+                [render(frame)],
+                [*at, ("k", literal(kwargs.get("k", 3.0))),
+                 ("min_length", literal(kwargs.get("min_length", 1))), ("seed", seed)],
+            ),
+        ]
+        if column == "long-term":
+            notes.append(
+                "'long-term' is the emission decomposition's separated component "
+                "(date_unix + emi_base), computed from the table's own columns."
+            )
+        return Entry(_KNOWN[name][0], "\n".join(lines), notes=tuple(dict.fromkeys(notes)))
     if name in ("trend_call", "trend_breaks_call"):
         # The window builds a series out of the table it holds: the script reads that
         # table's column instead -- R reads a frame's value_col itself, and

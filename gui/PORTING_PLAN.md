@@ -590,6 +590,37 @@ The R GUI *is* normet-py's GUI code, vendored, with every analysis routed to R:
   60 pages (EN), 61 (ZH).
 - `vendor_py_gui.py ../normet-py --check` afterwards: 0 of 97 files would change.
 
+## Sync with normet-py main at 86a9e12 (PRs #84/#85: events & anomalies)
+
+- Branch `gui/events-sync`, stacked on `gui/model-cv-sync` (#15): the window
+  gains the event search — an *Events & anomalies* box under the Trend test
+  (Series, Method `iqr`/`isolation`/`stl_residual`, Threshold k, Min length)
+  and an Events tab of anomaly scores with the flagged windows shaded beside
+  the event table. The R routing is two bridges: `nm/_r.py::anomaly_scores` /
+  `detect_events` → `nm_anomaly_scores` / `nm_detect_events` (exported from
+  `nm/__init__.py`), both reusing `_trend_input` — a datetime-indexed series
+  crosses as a `date`-column frame so R recovers the stamps, and a positional
+  one comes back from R's 1-based window grid re-mapped through the series'
+  own index (detected by numeric dtype; py returns index values).
+- `commandlog.py` (this window's own module) gains the `events_call` entry.
+  Unlike the trend helpers it is written from the task's arguments, not by
+  capture: the two R calls it logs are fixed, and the vendored wiring test
+  runs the task on stand-ins that send no R (the window's CI has no Rscript).
+  The script replays as `scores <- nm_anomaly_scores(df_prep, value_col = …)`
+  plus `events <- nm_detect_events(…)`; `long-term` carries the note.
+- `r_patches.py`: one patch (the events button's chronos tooltip branch).
+  `manual_patches.py`: the run-buttons table patches were whole-block, so
+  both old strings grew normet-py's new `Find events`/`查找事件` row and both
+  new strings the `nm_`-named one; two more patches rename the pair in the
+  new section's body, EN and ZH.
+- Tests: `test_gui_events.py` is vendored (10 passed; its chronos assertion
+  carries the `hasattr(w, "_is_chronos")` guard and its e2e run patches
+  `nm.anomaly_scores`/`nm.detect_events`, upstreamed as normet-py PR #85).
+  Full `python -m pytest gui/tests` → 237 passed, 1 skipped.
+- Manual: the new *Events & anomalies* section and the three table rows come
+  through patched as above. Both PDFs rebuilt: 61 pages (EN), 62 (ZH).
+- `vendor_py_gui.py ../normet-py --check` afterwards: 0 of 98 files would change.
+
 ## Local setup used here
 - R 4.3 + normet installed from this repo (`R CMD INSTALL .`), lightgbm R package
   built from GitHub source (`Rscript build_r.R` in microsoft/LightGBM).
