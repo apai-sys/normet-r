@@ -8,7 +8,8 @@ This package answers those imports:
   plotting functions, table reading (``io.tables``), trajectory joins, the SCM
   diagnostics and bands' arithmetic, the agent's readings;
 - every analysis is the R package's: :mod:`._r` calls ``nm_build_model``,
-  ``nm_normalise``, ``nm_decompose``, ``nm_rolling``, ``nm_pdp``, the trend tests
+  ``nm_normalise``, ``nm_decompose``, ``nm_rolling``, ``nm_pdp``, the walk-forward
+  cross-validation (``nm_cv_score``), the trend tests
   (``nm_trend``, ``nm_trend_breaks``), the uncertainty decomposition
   (``nm_decompose_uncertainty``), the SCM estimators, the fetchers and the
   trajectory functions through ``Rscript`` (:mod:`normet_r_gui._rpc`) and hands back
@@ -32,6 +33,7 @@ from ._r import (  # noqa: F401
     RModel,
     build_model,
     build_trajectory_features,
+    cv_score,
     decompose,
     decompose_uncertainty,
     detect_trend_breaks,
