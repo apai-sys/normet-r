@@ -6,6 +6,11 @@
 \usage{
 \method{summary}{nm_unc_decomposition}(object, ...)
 }
+\arguments{
+\item{object}{The result of \code{\link{nm_decompose_uncertainty}}.}
+
+\item{...}{Unused.}
+}
 \description{
 The shares are the headline of a policy evaluation ("of the band, this
 fraction is weather, that one is model form"), so they are medians across the

@@ -16,5 +16,9 @@ utils::globalVariables(c(
   "synthetic", "synthetic_low", "synthetic_high",
   "effect_low", "effect_high", "contribution", "pdp_std", "theta_rad", "r",
   "weight", "donor", "site", ".x", "theta", "bin", "series", "low", "high",
-  "rolling_mean", "band_low", "band_high"
+  "rolling_mean", "band_low", "band_high",
+  # the embedding diagnostics' scatter and silhouette curve (aes() bindings)
+  "x", "y", "group", "k", "silhouette",
+  # the SCM event-study plot (aes() binding)
+  "period"
 ))

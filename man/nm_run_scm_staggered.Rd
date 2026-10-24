@@ -23,7 +23,7 @@ nm_run_scm_staggered(
 \item{df}{A long-format data.frame with at least the \code{date_col},
 \code{unit_col} and \code{outcome_col} columns.}
 
-\item{date_col, }{unit_col, outcome_col Column names in the panel.}
+\item{date_col, unit_col, outcome_col}{Column names in the panel.}
 
 \item{treated_units}{Character vector: the units that received the
 intervention, in the order the summary rows are read.}

@@ -23,7 +23,7 @@ nm_donor_spatial_summary(
 
 \item{treated_unit}{The treated unit the bearings and distances are taken from.}
 
-\item{unit_col, }{lat_col, lon_col Column names in \code{df}.}
+\item{unit_col, lat_col, lon_col}{Column names in \code{df}.}
 
 \item{n_sectors}{Compass sectors the bearing is divided into (8 = N/NE/E/...).}
 
