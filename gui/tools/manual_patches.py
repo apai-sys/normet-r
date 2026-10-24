@@ -285,6 +285,23 @@ patch(EN, "events section names",
 \code{detect\_events}).""",
       r"""events, the days the instruments misbehaved (\code{nm\_anomaly\_scores},
 \code{nm\_detect\_events}).""")
+patch(EN, "events caption",
+      r"""\screenshot{ui_events.png}{The \tab{Events} tab on MY1's emission part
+(Section~\ref{sec:emission}): the iqr score of every timestamp, the $k=2$
+threshold as a line --- the box's default $k=3$ flags no window on this
+de-weathered series, so 2 is the first value that does --- and the 26 flagged
+windows shaded, the table of them ranked by the maximum score above the figure,
+the largest scoring 2.36. The shading is simply where the curve crosses the
+line; at a low threshold the ordinary-weather tails are what get flagged, and
+the top of the table is the 2020-03-10 07:00--18:00 stretch, a full day.}{fig:events}""",
+      r"""\screenshot{ui_events.png}{The \tab{Events} tab on MY1's emission part
+(Section~\ref{sec:emission}): the iqr score of every timestamp, the $k=2$
+threshold as a line --- the box's default $k=3$ flags no window on this
+de-weathered series, so 2 is the first value that does --- and the 11 flagged
+windows shaded, the table of them ranked by the maximum score above the figure,
+the largest scoring 2.35. The shading is simply where the curve crosses the
+line; at a low threshold the ordinary-weather tails are what get flagged, and
+the top of the table is the 2020-03-04 15:00--19:00 stretch.}{fig:events}""")
 patch(EN, "trend reference",
       r"""        whether the series the decomposition just drew is rising, falling or flat, and
         the \tab{Uncertainty} tab where the band's spread comes from (Section~\ref{sec:uncertainty}).""",
@@ -883,6 +900,17 @@ patch(ZH, "run buttons", r"""训练模型 / 载入 Chronos-2 & 一张表，至�
 patch(ZH, "events section names",
       r"""（\code{anomaly\_scores}、\code{detect\_events}）。""",
       r"""（\code{nm\_anomaly\_scores}、\code{nm\_detect\_events}）。""")
+patch(ZH, "events caption",
+      r"""\screenshot{ui_events.png}{MY1 排放分量（第~\ref{sec:emission}~节）的\tab{事件}标签页：每个时刻的
+iqr 分数，$k=2$ 阈值画成一条线——方框默认的 $k=3$ 在这条去气象化序列上一个窗口都标不出，
+所以取 2 作为第一个能标出的值——被标记的 26 个窗口以阴影显示，图上方是按最高分排序的窗口表，
+最高分 2.36。阴影恰好是曲线越过那条线的地方：阈值低时，被标出的正是普通天气的尾部，
+表顶是 2020-03-10 07:00--18:00 那一段，整整一天。}{fig:events}""",
+      r"""\screenshot{ui_events.png}{MY1 排放分量（第~\ref{sec:emission}~节）的\tab{事件}标签页：每个时刻的
+iqr 分数，$k=2$ 阈值画成一条线——方框默认的 $k=3$ 在这条去气象化序列上一个窗口都标不出，
+所以取 2 作为第一个能标出的值——被标记的 11 个窗口以阴影显示，图上方是按最高分排序的窗口表，
+最高分 2.35。阴影恰好是曲线越过那条线的地方：阈值低时，被标出的正是普通天气的尾部，
+表顶是 2020-03-04 15:00--19:00 那一段。}{fig:events}""")
 patch(ZH, "trend breaks name",
       r"""\emph{分段拟合}——即对所选序列运行 \code{detect\_trend\_breaks}。""",
       r"""\emph{分段拟合}——即对所选序列运行 \code{nm\_trend\_breaks}。""")

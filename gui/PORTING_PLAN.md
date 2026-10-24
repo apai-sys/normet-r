@@ -621,6 +621,23 @@ The R GUI *is* normet-py's GUI code, vendored, with every analysis routed to R:
   through patched as above. Both PDFs rebuilt: 61 pages (EN), 62 (ZH).
 - `vendor_py_gui.py ../normet-py --check` afterwards: 0 of 98 files would change.
 
+## Sync with normet-py main at 7111625 (the manual's screenshots)
+
+normet-py regenerated every manual screenshot on its current window and added
+the Events tab's figure: `make_figures.py` gains an events step -- the emission
+part, iqr at k=2 (the box's default 3 flags nothing on the de-weathered series),
+26 windows, the largest 2020-03-10 07:00--18:00. Both books gain
+`\screenshot{ui_events.png}` in *Events & anomalies*.
+
+- `walk_gui.py` gains the same events step, on this window's R run: 11 windows,
+  max 2.35, the largest 2020-03-04 15:00--19:00. All 23 figures are redrawn EN
+  and ZH; every other number the books quote is unchanged (the walk's own
+  printout still reads test R2 0.883, RMSE 8.66, train 0.976).
+- `manual_patches.py`: two patches rewrite the new caption's numbers to the R
+  run's (EN and ZH), as the trend-breaks caption already is.
+- Both PDFs rebuilt: 61 pages (EN), 63 (ZH).
+- `vendor_py_gui.py ../normet-py --check` afterwards: 0 of 98 files would change.
+
 ## Local setup used here
 - R 4.3 + normet installed from this repo (`R CMD INSTALL .`), lightgbm R package
   built from GitHub source (`Rscript build_r.R` in microsoft/LightGBM).
