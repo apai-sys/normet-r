@@ -6,6 +6,11 @@
 \usage{
 \method{as.data.frame}{nm_unc_decomposition}(x, ...)
 }
+\arguments{
+\item{x}{The result of \code{\link{nm_decompose_uncertainty}}.}
+
+\item{...}{Unused.}
+}
 \description{
 The per-date rows as a data frame, report-ready and directly plottable.
 }

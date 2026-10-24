@@ -244,7 +244,7 @@ nm_mann_kendall <- function(series, value_col = NULL, seasonal_period = NULL) {
     return(.nm_trend_test(0, 0, 0, 1, length(x), FALSE, n_periods_out))
   }
   z <- if (S > 0) (S - 1) / sqrt(var_S) else if (S < 0) (S + 1) / sqrt(var_S) else 0
-  p <- 2 * (1 - pnorm(abs(z)))
+  p <- 2 * (1 - stats::pnorm(abs(z)))
   .nm_trend_test(S, var_S, z, p, length(x), !is.null(seasonal_period), n_periods_out)
 }
 
@@ -451,7 +451,7 @@ nm_theil_sen <- function(series, value_col = NULL) {
   if (denom <= 0) return(c(0, 1))
   acf1 <- sum(resid[2:n] * resid[1:(n - 1)]) / denom
   z <- acf1 * sqrt(n)
-  c(acf1, 2 * (1 - pnorm(abs(z))))
+  c(acf1, 2 * (1 - stats::pnorm(abs(z))))
 }
 
 #' Moving-block length: the longer of 3 n^(1/3) and one calendar week (sub-daily
@@ -1049,7 +1049,7 @@ nm_trend <- function(series, value_col = NULL, name = NULL, seasonal_period = NU
     result$boot_ci_low <- q[1]
     result$boot_ci_high <- q[2]
     z_wald <- slope$slope / se
-    result$p_wald_boot <- 2 * (1 - pnorm(abs(z_wald)))
+    result$p_wald_boot <- 2 * (1 - stats::pnorm(abs(z_wald)))
   }
   result$notes <- c(
     result$notes,
@@ -1071,44 +1071,44 @@ nm_trend <- function(series, value_col = NULL, name = NULL, seasonal_period = NU
 # ---------------------------------------------------------------------------
 
 #' @export
-summary.nm_trend_result <- function(obj, ...) {
+summary.nm_trend_result <- function(object, ...) {
   rows <- list(
-    list("n", as.character(obj$n)),
-    list("n_missing_dropped", as.character(obj$n_dropped)),
-    list("MK_S", as.character(obj$test$S)),
-    list("MK_z", format(round(obj$test$z, 3), trim = TRUE)),
-    list("MK_p_two_sided", format(round(obj$test$p, 5), trim = TRUE)),
-    list("direction", .nm_trend_direction(obj$test)),
+    list("n", as.character(object$n)),
+    list("n_missing_dropped", as.character(object$n_dropped)),
+    list("MK_S", as.character(object$test$S)),
+    list("MK_z", format(round(object$test$z, 3), trim = TRUE)),
+    list("MK_p_two_sided", format(round(object$test$p, 5), trim = TRUE)),
+    list("direction", .nm_trend_direction(object$test)),
     list(
-      if (obj$slope$time_unit == "day") "slope_per_day" else "slope_per_step",
-      as.character(obj$slope$slope)
+      if (object$slope$time_unit == "day") "slope_per_day" else "slope_per_step",
+      as.character(object$slope$slope)
     ),
     list(
       "slope_95ci",
       sprintf(
         "[%.4g, %.4g]%s",
-        obj$slope$ci_low, obj$slope$ci_high,
-        if (obj$slope$time_unit == "day") " /day" else " /step"
+        object$slope$ci_low, object$slope$ci_high,
+        if (object$slope$time_unit == "day") " /day" else " /step"
       )
     ),
-    list("ar1_residual_acf", format(round(obj$ar1_acf, 3), trim = TRUE)),
-    list("ar1_p", format(round(obj$ar1_p, 5), trim = TRUE))
+    list("ar1_residual_acf", format(round(object$ar1_acf, 3), trim = TRUE)),
+    list("ar1_p", format(round(object$ar1_p, 5), trim = TRUE))
   )
-  if (obj$ar_autocorrelated) {
+  if (object$ar_autocorrelated) {
     rows <- c(rows, list(
       list("bootstrap_SE",
-           if (is.null(obj$boot_slope_se)) "NA" else format(round(obj$boot_slope_se, 4), trim = TRUE)),
+           if (is.null(object$boot_slope_se)) "NA" else format(round(object$boot_slope_se, 4), trim = TRUE)),
       list(
         "bootstrap_95ci",
-        if (is.null(obj$boot_ci_low)) "NA" else
-          sprintf("[%.4g, %.4g]", obj$boot_ci_low, obj$boot_ci_high)
+        if (is.null(object$boot_ci_low)) "NA" else
+          sprintf("[%.4g, %.4g]", object$boot_ci_low, object$boot_ci_high)
       ),
       list(
         "p_wald_block_bootstrap",
-        if (is.null(obj$p_wald_boot)) "NA" else format(round(obj$p_wald_boot, 5), trim = TRUE)
+        if (is.null(object$p_wald_boot)) "NA" else format(round(object$p_wald_boot, 5), trim = TRUE)
       ),
-      list("block_length", as.character(obj$block_length)),
-      list("n_bootstrap", as.character(obj$n_bootstrap))
+      list("block_length", as.character(object$block_length)),
+      list("n_bootstrap", as.character(object$n_bootstrap))
     ))
   }
   data.frame(metric = vapply(rows, `[[`, character(1), 1),
@@ -1147,21 +1147,21 @@ format.nm_trend_result <- function(x, ...) {
 }
 
 #' @export
-summary.nm_trend_breaks <- function(obj, ...) {
-  per_year <- obj$time_unit == "day"
+summary.nm_trend_breaks <- function(object, ...) {
+  per_year <- object$time_unit == "day"
   df <- data.frame(
-    start = vapply(obj$starts, .nm_fmt_index, character(1)),
-    end = vapply(obj$ends, .nm_fmt_index, character(1)),
-    n = vapply(obj$segments, function(s) as.character(s$n), character(1)),
-    slope = vapply(obj$segments, function(s) as.character(s$slope), character(1)),
-    ci_low = vapply(obj$segments, function(s) as.character(s$ci_low), character(1)),
-    ci_high = vapply(obj$segments, function(s) as.character(s$ci_high), character(1)),
+    start = vapply(object$starts, .nm_fmt_index, character(1)),
+    end = vapply(object$ends, .nm_fmt_index, character(1)),
+    n = vapply(object$segments, function(s) as.character(s$n), character(1)),
+    slope = vapply(object$segments, function(s) as.character(s$slope), character(1)),
+    ci_low = vapply(object$segments, function(s) as.character(s$ci_low), character(1)),
+    ci_high = vapply(object$segments, function(s) as.character(s$ci_high), character(1)),
     stringsAsFactors = FALSE
   )
   if (per_year) {
-    df$slope_per_year <- vapply(obj$segments, function(s) as.character(s$slope_per_year), character(1))
-    df$ci_low_per_year <- vapply(obj$segments, function(s) as.character(s$ci_low_per_year), character(1))
-    df$ci_high_per_year <- vapply(obj$segments, function(s) as.character(s$ci_high_per_year), character(1))
+    df$slope_per_year <- vapply(object$segments, function(s) as.character(s$slope_per_year), character(1))
+    df$ci_low_per_year <- vapply(object$segments, function(s) as.character(s$ci_low_per_year), character(1))
+    df$ci_high_per_year <- vapply(object$segments, function(s) as.character(s$ci_high_per_year), character(1))
   }
   df
 }

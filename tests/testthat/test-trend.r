@@ -121,15 +121,21 @@ test_that("the segmented test finds the two regimes and pins the deterministic p
   expect_equal(brk$time_unit, "day")
   # Where it breaks: the regime change at 2024-01-09 00:00.
   expect_equal(brk$best_break, as.POSIXct("2024-01-09 00:00:00", tz = "UTC"))
-  expect_equal(brk$best_split_pct, 7.937714048475485e+01, tolerance = 1e-12)
+  expect_equal(brk$best_split_pct, 7.937714048475485e+01, tolerance = 1e-6)
   expect_equal(brk$starts, as.POSIXct(c("2024-01-01 00:00:00", "2024-01-09 00:00:00"), tz = "UTC"))
   expect_equal(brk$ends, as.POSIXct(c("2024-01-08 23:00:00", "2024-01-20 23:00:00"), tz = "UTC"))
-  # The fit the grid found, exactly.
-  expect_equal(brk$sse_single, 5.484440048993731, tolerance = 1e-12)
-  expect_equal(brk$sse_segmented, 1.131048366501820, tolerance = 1e-12)
-  expect_equal(brk$improvement_pct, 7.937714048475483e+01, tolerance = 1e-12)
-  expect_equal(brk$bic_single, -2.127976771167126e+03, tolerance = 1e-12)
-  expect_equal(brk$bic_segmented, -2.867265032166779e+03, tolerance = 1e-12)
+  # The fit the grid found. The SSE-derived quantities carry a tolerance of
+  # 1e-6 rather than the 1e-12 the median-based ones below keep: SSE is a sum
+  # over 480 residuals, and Windows accumulates it ~7e-8 (relative) differently
+  # from mac/linux (MSVC's pairwise summation), so a tighter pin is red CI on
+  # Windows without catching any regression -- a real change moves these by
+  # orders of magnitude more. The median-based slopes below are exact on every
+  # platform, so they keep the tight pin.
+  expect_equal(brk$sse_single, 5.484440048993731, tolerance = 1e-6)
+  expect_equal(brk$sse_segmented, 1.131048366501820, tolerance = 1e-6)
+  expect_equal(brk$improvement_pct, 7.937714048475483e+01, tolerance = 1e-6)
+  expect_equal(brk$bic_single, -2.127976771167126e+03, tolerance = 1e-6)
+  expect_equal(brk$bic_segmented, -2.867265032166779e+03, tolerance = 1e-6)
   # The two segments, each with its own Theil-Sen slope and Sen interval.
   expect_equal(brk$segments[[1]]$n, 192L)
   expect_equal(brk$segments[[1]]$slope, 4.944000246864251e-02, tolerance = 1e-12)

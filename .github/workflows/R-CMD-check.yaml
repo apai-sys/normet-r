@@ -41,6 +41,13 @@ jobs:
             any::testthat
           needs: check
 
+      - name: Streamed tests (Linux, one file at a time)
+        if: ${{ matrix.config.os == 'ubuntu-latest' }}
+        timeout-minutes: 30
+        run: |
+          R CMD INSTALL --no-docs --no-byte-compile . > /tmp/install.log 2>&1 || { tail -30 /tmp/install.log; exit 1; }
+          cd tests && Rscript ../tools/debug_stream_tests.R
+
       - uses: r-lib/actions/check-r-package@v2
         with:
           upload-snapshots: true

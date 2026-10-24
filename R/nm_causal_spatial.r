@@ -21,7 +21,7 @@ NULL
 #' 6371 km. Elementwise and vectorised; the operation broadcasts like the
 #' Python original.
 #'
-#' @param lat1, lon1, lat2, lon2 Numeric vectors of coordinates in degrees.
+#' @param lat1,lon1,lat2,lon2 Numeric vectors of coordinates in degrees.
 #' @return A numeric vector of distances in km.
 #' @export
 nm_haversine <- function(lat1, lon1, lat2, lon2) {
@@ -43,7 +43,7 @@ nm_haversine <- function(lat1, lon1, lat2, lon2) {
 #' (initial) azimuth -- over long arcs the great circle curves away from it.
 #' Elementwise and vectorised, like the Python original.
 #'
-#' @param lat1, lon1, lat2, lon2 Numeric vectors of coordinates in degrees.
+#' @param lat1,lon1,lat2,lon2 Numeric vectors of coordinates in degrees.
 #' @return A numeric vector of bearings in degrees, in [0, 360).
 #' @export
 nm_bearing <- function(lat1, lon1, lat2, lon2) {
@@ -101,7 +101,7 @@ nm_bearing <- function(lat1, lon1, lat2, lon2) {
 #'   \code{lon_col} columns (a long-format panel).
 #' @param donors Character vector of donor units to place.
 #' @param treated_unit The treated unit the bearings and distances are taken from.
-#' @param unit_col, lat_col, lon_col Column names in \code{df}.
+#' @param unit_col,lat_col,lon_col Column names in \code{df}.
 #' @param n_sectors Compass sectors the bearing is divided into (8 = N/NE/E/...).
 #' @param weights Optional named numeric vector of donor weights; when given a
 #'   \code{weight} column is added to the table.
