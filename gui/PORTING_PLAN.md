@@ -663,6 +663,22 @@ for the Events step's stl_residual/isolation.
   0 of 98 files would change. Full `python -m pytest gui/tests` → 237 passed,
   1 skipped.
 
+## Sync with normet-py main at 27328e2 (step bar theme, shorter Decompose boxes)
+
+normet-py made the left panel's step bar theme-aware (its local QTabBar::tab
+padding rule made Qt draw the tab faces with fixed light colours -- the bar
+sat white on a dark window; the rule now takes palette colours) and moved
+each Decompose-page box's description sentence from under its title into the
+title's hover tooltip (Trend and Uncertainty gain Chinese translations).
+
+- All three changes come through vendoring (`_pages.py`,
+  `_panel_analyse.py`, `ui_zh.py`). No R-own file changes this round.
+- All 23 figures are redrawn EN and ZH (the step bar and the shorter
+  Decompose page are on every main-window screenshot); the numbers are
+  unchanged. Both PDFs rebuilt (61 EN / 63 ZH pages).
+- `python -m pytest gui/tests` → 237 passed, 1 skipped; `vendor --check`:
+  0 of 98 files would change.
+
 ## Local setup used here
 - R 4.3 + normet installed from this repo (`R CMD INSTALL .`), lightgbm R package
   built from GitHub source (`Rscript build_r.R` in microsoft/LightGBM).
