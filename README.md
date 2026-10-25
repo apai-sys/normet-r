@@ -477,14 +477,19 @@ it isn't on `PATH`.
 
 **Main window** — the same numbered-step workflow as the Quick Start above
 (Data → Columns → Train → Normalise → Decompose → Rolling → PDP), with
-results in tabs that activate as each step finishes and a traffic-light
-verdict banner summarising model quality. The Train step exposes the H2O
+results in tabs that activate as each step finishes. The result tabs and the
+status-bar step lights follow the workflow's order — Data, Model, Normalise,
+Decompose, then the questions the decomposition invites (Multi-scale, Trend,
+Events, Uncertainty), then the separate steps Rolling and PDP — and a
+traffic-light verdict banner summarising model quality. The Train step
+exposes the H2O
 AutoML algorithm picker (GBM/DRF/GLM/DeepLearning/StackedEnsemble/XGBoost)
 when that backend is selected; the H2O cluster is started once per GUI
 session and shut down on exit. An adjacent **Multi-scale decomposition**
 panel differences rolling-deweathered series at increasing window widths
 against Step 4's full-record baseline, isolating the meteorological residual
-specific to each timescale.
+specific to each timescale. An energy-by-band ranking (σ) names the dominant
+timescale at a glance, each band drawn in its own cascade colour.
 
 **Data Studio** (🌐 toolbar button) — assemble a model-ready dataset without
 leaving the app: pick a network — the six UK networks (AURN, AQE, SAQN, WAQN,

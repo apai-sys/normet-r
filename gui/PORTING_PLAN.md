@@ -679,6 +679,26 @@ title's hover tooltip (Trend and Uncertainty gain Chinese translations).
 - `python -m pytest gui/tests` → 237 passed, 1 skipped; `vendor --check`:
   0 of 98 files would change.
 
+## Sync with normet-py main at 36f1919 (result tabs in workflow order, per-band colours)
+
+normet-py reordered the result tabs (and the status-bar step lights) to follow
+the workflow: the questions the decomposition invites (Multi-scale, Trend,
+Events, Uncertainty) now sit directly after Decompose, with the separate steps
+Rolling and PDP after them. The step lights gained the Events light they were
+missing (its result existed; the light did not). The multi-scale "Energy by
+band (σ)" bars and the band panels now take the cascade's light-to-dark colour
+per band (D_fast lightest, D_slow darkest) instead of one colour, which read
+as a single block.
+
+- All changes come through vendoring (`_shell.py`, `_session.py`,
+  `_multiscale_plots.py`, `tests/test_gui_smoke.py`). This window's own manual
+  sentences for the step lights are updated to the new order (EN and ZH).
+- All 23 figures are redrawn EN and ZH (the tab bar and the per-band energy
+  panel are on every main-window screenshot); the numbers are unchanged. Both
+  PDFs rebuilt (61 EN / 63 ZH pages).
+- `python -m pytest gui/tests` → 237 passed, 1 skipped; `vendor --check`:
+  0 of 98 files would change.
+
 ## Local setup used here
 - R 4.3 + normet installed from this repo (`R CMD INSTALL .`), lightgbm R package
   built from GitHub source (`Rscript build_r.R` in microsoft/LightGBM).
