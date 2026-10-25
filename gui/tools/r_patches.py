@@ -401,8 +401,8 @@ patch(
 patch(
     "methods.py",
     "trend breaks: R's name (en)",
-    '''                f"A segmented trend test (normet.detect_trend_breaks, up to {k} segments, "''',
-    '''                f"A segmented trend test (nm_trend_breaks, up to {k} segments, "''',
+    '''                f"A segmented trend analysis (normet.detect_trend_breaks, up to {k} segments, "''',
+    '''                f"A segmented trend analysis (nm_trend_breaks, up to {k} segments, "''',
 )
 patch(
     "methods.py",
@@ -767,21 +767,21 @@ patch(
 patch(
     "nm/agent/readings.py",
     "R's trend name",
-    '''    lines = [f"Trend test on {name} (normet.trend):", ""]''',
-    '''    lines = [f"Trend test on {name} (nm_trend):", ""]''',
+    '''    lines = [f"Trend analysis on {name} (normet.trend):", ""]''',
+    '''    lines = [f"Trend analysis on {name} (nm_trend):", ""]''',
 )
 patch(
     "nm/agent/readings.py",
     "R's trend breaks name",
-    '''    lines = [f"Segmented trend test on {name} (normet.detect_trend_breaks):", ""]''',
-    '''    lines = [f"Segmented trend test on {name} (nm_trend_breaks):", ""]''',
+    '''    lines = [f"Segmented trend analysis on {name} (normet.detect_trend_breaks):", ""]''',
+    '''    lines = [f"Segmented trend analysis on {name} (nm_trend_breaks):", ""]''',
 )
 # The Assistant's trend reading, which that test reads back, says R's name.
 patch(
     "tests/test_gui_trend.py",
     "the Assistant's trend reading, in R",
-    '''    assert "Trend test on NO2 — emission part (normet.trend)" in said, said[:400]''',
-    '''    assert "Trend test on NO2 — emission part (nm_trend)" in said, said[:400]''',
+    '''    assert "Trend analysis on NO2 — emission part (normet.trend)" in said, said[:400]''',
+    '''    assert "Trend analysis on NO2 — emission part (nm_trend)" in said, said[:400]''',
 )
 
 

@@ -638,6 +638,31 @@ part, iqr at k=2 (the box's default 3 flags nothing on the de-weathered series),
 - Both PDFs rebuilt: 61 pages (EN), 63 (ZH).
 - `vendor_py_gui.py ../normet-py --check` afterwards: 0 of 98 files would change.
 
+## Sync with normet-py main at cb4db3f (Trend test → Trend analysis, no auto-trend)
+
+normet-py renamed the *Trend test* box *Trend analysis* (box title, button,
+status bar, command log, assistant/agent wording, both books), made its
+*Run after each emission decomposition* tick unticked by default, and named
+the dynamically imported submodules in its PyInstaller spec so the frozen app
+no longer says *"'statsmodels.tsa.seasonal' is required but not installed"*
+for the Events step's stl_residual/isolation.
+
+- The rename comes through vendoring (12 files: the GUI modules,
+  `nm/agent/readings.py`, `tests/test_gui_trend.py`, the two books). This
+  window's own `commandlog.py` is edited the same way.
+- `r_patches.py`: the three trend-name patches (methods.py, readings.py,
+  the Assistant's trend reading in test_gui_trend.py) now stand on the
+  renamed lines and keep R's `nm_` names.
+- `manual_patches.py`: the run-buttons tables and the appendix's trend row,
+  EN and ZH, renamed to 趋势分析 / Trend analysis.
+- `walk_gui.py`: the trend step always ran the test explicitly, so the tick
+  going unticked by default changes nothing for it; its comment about the
+  auto-trend says so now. All 23 figures are redrawn EN and ZH; the numbers
+  are unchanged (the walk's own printout still reads what the books quote).
+- Both PDFs rebuilt. `vendor_py_gui.py ../normet-py --check` afterwards:
+  0 of 98 files would change. Full `python -m pytest gui/tests` → 237 passed,
+  1 skipped.
+
 ## Local setup used here
 - R 4.3 + normet installed from this repo (`R CMD INSTALL .`), lightgbm R package
   built from GitHub source (`Rscript build_r.R` in microsoft/LightGBM).

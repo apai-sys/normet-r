@@ -269,7 +269,7 @@ Run normalisation     & a model, one variable to resample & \code{normalise} \\
 Run decomposition     & a model                  & \code{decompose} \\
 Run rolling normalisation & an AutoML model      & \code{rolling} \\
 Multi-scale decomposition & an AutoML model, a normalisation & \code{rolling} $\times 3$ \\
-Trend test          & an AutoML model (a decomposition, where it tests one) & \code{trend} (1 segment), \code{detect\_trend\_breaks} (more) \\
+Trend analysis      & an AutoML model (a decomposition, where it tests one) & \code{trend} (1 segment), \code{detect\_trend\_breaks} (more) \\
 Find events         & a model (a decomposition, where it scores a part) & \code{anomaly\_scores}, \code{detect\_events} \\
 Compute PDP           & an AutoML model, one variable ticked & \code{pdp} \\""",
       r"""Train model           & a table, one predictor ticked & \code{nm\_build\_model} \\
@@ -277,7 +277,7 @@ Run normalisation     & a model, one variable to resample & \code{nm\_normalise}
 Run decomposition     & a model                  & \code{nm\_decompose} \\
 Run rolling normalisation & a model              & \code{nm\_rolling} \\
 Multi-scale decomposition & a model, a normalisation & \code{nm\_rolling} $\times 3$ \\
-Trend test          & a model (a decomposition, where it tests one) & \code{nm\_trend} (1 segment), \code{nm\_trend\_breaks} (more) \\
+Trend analysis      & a model (a decomposition, where it tests one) & \code{nm\_trend} (1 segment), \code{nm\_trend\_breaks} (more) \\
 Find events         & a model (a decomposition, where it scores a part) & \code{nm\_anomaly\_scores}, \code{nm\_detect\_events} \\
 Compute PDP           & a model, one variable ticked & \code{nm\_pdp} \\""")
 patch(EN, "events section names",
@@ -581,7 +581,7 @@ Function & Does \\
 \code{nm\_detect\_events}, \code{nm\_anomaly\_scores} & events in a normalised series \\
 \code{nm\_plot\_normalise}, \code{nm\_plot\_decomposition\_stack}, \code{nm\_plot\_scm\_dashboard} & figures (ggplot2) \\
 \code{nm\_make\_run}, \code{nm\_save\_run}, \code{nm\_generate\_html} & provenance and reports \\
-\code{nm\_trend}               & the trend test with the block-bootstrap correction (the \tab{Trend} tab, Section~\ref{sec:trend}) \\
+\code{nm\_trend}               & the trend analysis with the block-bootstrap correction (the \tab{Trend} tab, Section~\ref{sec:trend}) \\
 \code{nm\_trend\_breaks}       & segmented trend: where the level or slope breaks (BIC + block-bootstrap gate) \\
 \code{nm\_decompose\_uncertainty} & the total spread attributed to weather, model form and their interaction (the \tab{Uncertainty} tab, Section~\ref{sec:uncertainty}) \\
 \code{nm\_make\_cache}        & on-disk caching \\
@@ -886,7 +886,7 @@ patch(ZH, "run buttons", r"""训练模型 / 载入 Chronos-2 & 一张表，至�
 运行分解              & 一个模型                 & \code{decompose} \\
 运行滚动归一化        & 一个 AutoML 模型         & \code{rolling} \\
 多尺度分解            & 一个 AutoML 模型，一次归一化 & \code{rolling} $\times 3$ \\
-趋势检验              & 一个 AutoML 模型（有分解时检验分解的序列） & \code{trend}（1 段）/\code{detect\_trend\_breaks}（更多） \\
+趋势分析              & 一个 AutoML 模型（有分解时检验分解的序列） & \code{trend}（1 段）/\code{detect\_trend\_breaks}（更多） \\
 查找事件              & 一个模型（给分量打分时须有分解） & \code{anomaly\_scores}、\code{detect\_events} \\
 计算 PDP              & 一个 AutoML 模型，至少勾选一个变量 & \code{pdp} \\""",
       r"""训练模型              & 一张表，至少勾选一个预测变量 & \code{nm\_build\_model} \\
@@ -894,7 +894,7 @@ patch(ZH, "run buttons", r"""训练模型 / 载入 Chronos-2 & 一张表，至�
 运行分解              & 一个模型                 & \code{nm\_decompose} \\
 运行滚动归一化        & 一个模型                 & \code{nm\_rolling} \\
 多尺度分解            & 一个模型，一次归一化     & \code{nm\_rolling} $\times 3$ \\
-趋势检验              & 一个模型（有分解时检验分解的序列） & \code{nm\_trend}（1 段）/\code{nm\_trend\_breaks}（更多） \\
+趋势分析              & 一个模型（有分解时检验分解的序列） & \code{nm\_trend}（1 段）/\code{nm\_trend\_breaks}（更多） \\
 查找事件              & 一个模型（给分量打分时须有分解） & \code{nm\_anomaly\_scores}、\code{nm\_detect\_events} \\
 计算 PDP              & 一个模型，至少勾选一个变量 & \code{nm\_pdp} \\""")
 patch(ZH, "events section names",
@@ -1130,7 +1130,7 @@ curves <- nm_pdp(df_prep, model, var_list = c("ws", "temp"))
 \code{nm\_detect\_events}, \code{nm\_anomaly\_scores} & 归一化序列中的事件 \\
 \code{nm\_plot\_normalise}, \code{nm\_plot\_decomposition\_stack}, \code{nm\_plot\_scm\_dashboard} & 图（ggplot2） \\
 \code{nm\_make\_run}, \code{nm\_save\_run}, \code{nm\_generate\_html} & 溯源和报告 \\
-\code{nm\_trend}               & 趋势检验及其块自助法修正（\tab{趋势}标签页，第~\ref{sec:trend}~节） \\
+\code{nm\_trend}               & 趋势分析及其块自助法修正（\tab{趋势}标签页，第~\ref{sec:trend}~节） \\
 \code{nm\_trend\_breaks}       & 分段趋势：水平或斜率在哪处断掉（BIC + 块自助法门槛） \\
 \code{nm\_decompose\_uncertainty} & 把总离散分摊到气象、模型形式及二者交互（\tab{不确定性}标签页，第~\ref{sec:uncertainty}~节） \\
 \code{nm\_make\_cache}        & 磁盘缓存 \\

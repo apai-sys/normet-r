@@ -159,8 +159,9 @@ def main_figures():
     win._run_decompose()
     emi = win.results["decompose"]
     print("  columns:", list(emi.columns))
-    # The ticked 'Run after each emission decomposition' started the emission part's
-    # trend (its tab is on screen now): back to the decomposition for its figure.
+    # The 'Run after each emission decomposition' tick is unticked by default, so
+    # the decomposition's end did not start the trend: its tab is up, and this
+    # grab shows the decomposition itself.
     win.tabs.setCurrentWidget(win.tab_decom)
     said(win.tab_decom)
     grab(win, "ui_decompose_emission.png")
@@ -214,7 +215,7 @@ def main_figures():
     grab(win, "ui_trend_breaks.png")
 
     print("events (emission part)")
-    # The Events & anomalies box under Trend, on the emission part the Trend test
+    # The Events & anomalies box under Trend, on the emission part the Trend analysis
     # just ran (the box's default choice), the iqr score at threshold 2 and
     # minimum length 3. The score strip with its flagged windows shaded and the
     # event table land on the Events tab; the numbers the manual quotes are this

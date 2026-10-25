@@ -242,8 +242,8 @@ _KNOWN: dict[str, tuple[str, str, tuple[str, ...]]] = {
     "decompose": ("Decompose", "decomposition", ()),
     "rolling": ("Rolling normalisation", "rolled", ()),
     "pdp": ("Partial dependence", "pd_values", ()),
-    "trend_call": ("Trend test", "trend_result", ()),
-    "trend_breaks_call": ("Segmented trend test", "trend_result", ()),
+    "trend_call": ("Trend analysis", "trend_result", ()),
+    "trend_breaks_call": ("Segmented trend analysis", "trend_result", ()),
     "events_call": ("Find events", "scores, events", ()),
     "decompose_uncertainty": ("Uncertainty decomposition", "uncertainty", ()),
 }
