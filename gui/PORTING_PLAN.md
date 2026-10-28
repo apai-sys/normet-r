@@ -699,6 +699,21 @@ as a single block.
 - `python -m pytest gui/tests` → 237 passed, 1 skipped; `vendor --check`:
   0 of 98 files would change.
 
+## Sync with normet-py main at 5dd2b4a (hpc-agent models and servers of one's own)
+- Vendored: `assistant.py`, `nm/agent/llm.py`, `ui_zh.py`. No R patch needed: the new code
+  is provider/address plumbing, so none of `r_patches.py`'s anchors moved.
+- The Assistant lists the models hpc-agent forwards from CSF3/Bede (`bede:<model>`), resolves
+  the port from `~/.config/hpc-agent/forwards.json` at each message, and Key… takes the
+  address of a server of one's own (`name:model`). A forwarded model's key: Key…/keychain,
+  `BEDE_API_KEY`, then the copy hpc-agent keeps in OpenCode's config (a provider in
+  `disabled_providers` is skipped; ports are reused).
+- Tests: the shared logic is covered by normet-py's `tests/test_assistant.py` (not vendored);
+  this repo's own `tests/test_r_assistant.py` gets two (forward lookup by cluster and the
+  panel's list/server flow).
+- `python -m pytest gui/tests` -> 239 passed, 1 skipped (237 + the two new);
+  `vendor --check`: 0 of 98 files would change. No figure walk or manual rebuild: the walk hides the
+  Assistant panel (`walk_gui.py` line 126), so no figure shows the model row or the Key… dialog.
+
 ## Local setup used here
 - R 4.3 + normet installed from this repo (`R CMD INSTALL .`), lightgbm R package
   built from GitHub source (`Rscript build_r.R` in microsoft/LightGBM).
