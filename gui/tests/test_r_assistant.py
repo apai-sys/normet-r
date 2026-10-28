@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import os
+import socket
 import time
 
 import pandas as pd
@@ -67,3 +69,64 @@ def test_carry_out_runs_r_from_the_card(qapp, monkeypatch, tmp_path):
         assert f"[1] {len(win.df_raw)}" in dock.notes[-1]
     finally:
         win.close()
+
+
+def _forward(tmp_path, monkeypatch, cluster="bede", model="hf.co/unsloth/GLM-5.3-Flash-GGUF:UD-Q4_K_XL"):
+    """A registry with one live forward (a listening socket), and no OpenCode config."""
+    from normet_r_gui.nm.agent import llm
+
+    sock = socket.socket()
+    sock.bind(("127.0.0.1", 0))
+    sock.listen()
+    port = sock.getsockname()[1]
+    reg = tmp_path / "forwards.json"
+    reg.write_text(json.dumps([{"cluster": cluster, "model": model, "local": port}]))
+    monkeypatch.setenv("NORMET_HPC_FORWARDS", str(reg))
+    monkeypatch.setattr(llm, "OPENCODE_DIR", str(tmp_path / "no-opencode"))
+    return sock, port, model
+
+
+def test_a_model_hpc_agent_forwards_is_found_by_cluster(monkeypatch, tmp_path):
+    from normet_r_gui.nm.agent import llm
+
+    sock, port, model = _forward(tmp_path, monkeypatch)
+    try:
+        assert llm.hpc_models() == [f"bede:{model}"]
+        m = llm.Model("bede:glm", api_key="k")
+        assert (m.model, m.base_url, m.key) == (model, f"http://127.0.0.1:{port}/v1", "k")
+        reg = tmp_path / "forwards.json"  # the job restarted on another port
+        reg.write_text(json.dumps([{"cluster": "bede", "model": model, "local": 4242}]))
+        assert llm.Model("bede:glm", api_key="k").base_url == "http://127.0.0.1:4242/v1"
+    finally:
+        sock.close()
+
+
+def test_the_panel_offers_forwards_and_keeps_a_server_of_the_analysts_own(
+    qapp, monkeypatch, tmp_path
+):
+    from PySide6.QtCore import QSettings
+
+    from normet_r_gui import assistant
+    from normet_r_gui.main_window import MainWindow
+    from normet_r_gui.nm.agent import llm
+
+    ini = str(tmp_path / "normet-r-gui.ini")
+    monkeypatch.setattr(assistant, "_settings", lambda: QSettings(ini, QSettings.Format.IniFormat))
+    monkeypatch.setattr(assistant, "keychain_get", lambda provider: None)
+    monkeypatch.setattr(assistant, "keychain_store", lambda provider, key: False)
+    sock, port, model = _forward(tmp_path, monkeypatch)
+    win = MainWindow()
+    try:
+        dock = win.assistant
+        items = [dock.model_box.itemText(i) for i in range(dock.model_box.count())]
+        assert f"bede:{model}" in items
+        dock.model_box.setCurrentText("lab:qwen3")
+        assert dock.key_btn.isEnabled()
+        assert "kept at http://10.0.0.5:8080/v1" in dock.apply_server("lab", "k1", "http://10.0.0.5:8080/v1")
+        m = dock._model()
+        assert (m.model, m.base_url, m.key) == ("qwen3", "http://10.0.0.5:8080/v1", "k1")
+        assert "removed" in dock.apply_server("lab", "", "")
+    finally:
+        win.close()
+        llm.forget_provider("lab")
+        sock.close()
