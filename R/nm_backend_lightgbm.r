@@ -74,6 +74,14 @@ nm_train_lgb <- function(df, target = "value", covariates = NULL,
 
   nm_require("lightgbm", hint = "install.packages('lightgbm')")
   log <- nm_get_logger("model.train.lgb")
+
+  # Only the training split may inform the model. nm_prepare_data() marks rows
+  # with set = "training"/"testing"; the h2o backend filters internally too, so
+  # training on the full frame here would silently leak the test split.
+  if ("set" %in% colnames(df) && any(df$set == "training")) {
+    df <- df[df$set == "training", , drop = FALSE]
+  }
+
   set.seed(seed)
 
   cfg <- list(
