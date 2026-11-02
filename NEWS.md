@@ -1,3 +1,18 @@
+# normet 1.0.1
+
+### Changed
+
+* **H2O initialisation now uses the whole allocation.** `nm_init_h2o()` sized
+  the cluster at `max(1, cores - 2)`, which on a 4-core job handed H2O two of
+  the four cores while the LightGBM backend used all of them. The R side
+  (resample, then upload) and the JVM (predict) run in sequential phases and
+  never compete, so the reserve bought nothing: on the 4-core reference
+  benchmark it made H2O normalisation 2.1x slower at 26,280 rows and 1.5x
+  slower at 87,600 rows. The default is now the full allocation as reported by
+  `.nm_available_cores()` -- still the *allocation*, not the machine, so a
+  4-core SLURM job gets 4 and not the node's 166. H2O's own default
+  (`nthreads = -1`) has always meant "all". Pass `n_cores` to override.
+
 # normet 1.0.0
 
 ### Added

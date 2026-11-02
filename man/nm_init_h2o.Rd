@@ -15,7 +15,11 @@ nm_init_h2o(
 }
 \arguments{
 \item{n_cores}{Number of CPU cores to use.
-If NULL (default), uses (Total Physical Cores - 2).}
+If NULL (default), uses the whole allocation as reported by
+\code{.nm_available_cores()} -- the minimum of the CPU affinity mask,
+the scheduler's core allocation and the cgroup limit, falling back to
+the physical core count. Under SLURM that means
+\code{--cpus-per-task}, not the node's total.}
 
 \item{max_mem_size}{Maximum memory allocation (e.g. "16G").
 If NULL (default), it attempts to auto-allocate 75 percent of physical RAM.}
@@ -39,7 +43,9 @@ Handles connection failures, retries initialization, and logs cluster info robus
 This function performs the following steps:
 \enumerate{
 \item \strong{Check Existing Connection}: If H2O is already running, it reuses the connection.
-\item \strong{Hardware Detection}: Auto-detects available cores (System - 1) and RAM (if configured).
+\item \strong{Hardware Detection}: Uses every core this process may actually run
+on (affinity mask, scheduler allocation or cgroup limit, never the raw
+machine core count) and auto-allocates RAM when configured.
 \item \strong{Retry Logic}: Attempts to start the JVM multiple times if the first attempt fails.
 \item \strong{Logging}: Captures and logs cluster metadata (version, memory, cores) without duplicating output to the console.
 }

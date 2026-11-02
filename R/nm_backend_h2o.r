@@ -21,13 +21,19 @@
 #' This function performs the following steps:
 #' \enumerate{
 #'   \item **Check Existing Connection**: If H2O is already running, it reuses the connection.
-#'   \item **Hardware Detection**: Auto-detects available cores (System - 1) and RAM (if configured).
+#'   \item **Hardware Detection**: Uses every core this process may actually run
+#'     on (affinity mask, scheduler allocation or cgroup limit, never the raw
+#'     machine core count) and auto-allocates RAM when configured.
 #'   \item **Retry Logic**: Attempts to start the JVM multiple times if the first attempt fails.
 #'   \item **Logging**: Captures and logs cluster metadata (version, memory, cores) without duplicating output to the console.
 #' }
 #'
 #' @param n_cores Number of CPU cores to use.
-#'        If NULL (default), uses (Total Physical Cores - 2).
+#'        If NULL (default), uses the whole allocation as reported by
+#'        \code{.nm_available_cores()} -- the minimum of the CPU affinity mask,
+#'        the scheduler's core allocation and the cgroup limit, falling back to
+#'        the physical core count. Under SLURM that means
+#'        \code{--cpus-per-task}, not the node's total.
 #' @param max_mem_size Maximum memory allocation (e.g. "16G").
 #'        If NULL (default), it attempts to auto-allocate 75 percent of physical RAM.
 #' @param verbose Whether to print progress and cluster info. Default is TRUE.
@@ -44,7 +50,7 @@ nm_init_h2o <- function(n_cores = NULL, max_mem_size = NULL,
   log <- nm_get_logger("h2o.init")
   nm_require("h2o", hint = "install.packages('h2o')")
 
-  # --- Logic 1: Determine number of threads (Cores - 2) ---
+  # --- Logic 1: Determine number of threads (the whole allocation) ---
   if (!is.null(n_cores)) {
     nthreads <- as.integer(n_cores)
     user_specified_cores <- TRUE
@@ -58,9 +64,12 @@ nm_init_h2o <- function(n_cores = NULL, max_mem_size = NULL,
     # logical where physical detection fails.
     sys_cores <- .nm_available_cores()
 
-    # Reserve 2 cores for R/OS to prevent system freeze
-    # Ensure at least 1 core is allocated to H2O
-    nthreads <- max(1, sys_cores - 2)
+    # Use the whole allocation. This was `sys_cores - 2` to "leave room for R",
+    # which bought nothing and cost throughput: the R side (resample, then
+    # upload) and the JVM (predict) work in sequential phases, never at the same
+    # time, so on a 4-core job the old rule handed H2O half the machine. H2O's
+    # own default is nthreads = -1, i.e. everything, for the same reason.
+    nthreads <- max(1L, as.integer(sys_cores))
 
     if (verbose) log$info("Auto-configured H2O cores: %d (Available: %d)", nthreads, sys_cores)
   }
