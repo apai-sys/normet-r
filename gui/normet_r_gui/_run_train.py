@@ -25,11 +25,6 @@ log = logging.getLogger(__name__)
 _STATS_HEADER = {"set": "Subset", "p_level": "Significance"}
 _STATS_SET = {"training": "Training", "testing": "Testing", "all": "All"}
 
-#: The levels the Chronos-2 Model-tab backtest forecasts and scores. The middle
-#: one doubles as the point forecast whose CRPS reference the band must beat.
-_BACKTEST_Q = (0.1, 0.5, 0.9)
-
-
 def crps_reference(obs: Any, pred: Any) -> float | None:
     """The point forecast's CRPS reference (``sqrt(pi/2)`` x its MAE), or None
     where it cannot be read. A spread forecast earns its spread only by scoring
@@ -41,59 +36,6 @@ def crps_reference(obs: Any, pred: Any) -> float | None:
         return float(crps_observed(pred, obs))
     except Exception:
         log.exception("crps_observed failed")
-        return None
-
-
-def quantile_backtest(estimator: Any, df_prep: pd.DataFrame) -> tuple[list[list[str]], str] | None:
-    """Score the estimator's quantile forecast of the last horizon against the
-    observed tail, as the Chronos-2 Model tab shows it: the band's CRPS, the
-    median's point reference, and the pinball loss at each level.
-
-    The zero-shot model has no held-out parity plot, so this stands in for one:
-    one anchored forecast over the last ``prediction_length`` steps, scored as
-    a distribution rather than a point. A single window is thin evidence, and
-    the line says so by naming its length; it is the Model tab's quick check,
-    not the backtest a paper would quote. None where the record is too short or
-    the forecast or scoring fails (logged).
-    """
-    try:
-        from .nm.analysis import crps_from_quantiles, crps_observed, pinball_loss
-
-        indexed = _chronos.to_indexed_frame(df_prep)
-        horizon = int(estimator.prediction_length)
-        if len(indexed) <= int(estimator.context_length) + horizon:
-            return None
-        qf = estimator.predict_quantiles(
-            indexed,
-            "value",
-            anchor=indexed.index[-horizon],
-            horizon=horizon,
-            quantiles=list(_BACKTEST_Q),
-        )
-        obs = indexed.loc[qf.index, "value"]
-        crps = crps_from_quantiles(qf.to_numpy(dtype=float), obs, quantiles=list(_BACKTEST_Q))
-        med_col = f"q{_BACKTEST_Q[1]}"
-        ref = crps_observed(qf[med_col], obs)
-        rows = [
-            ["Quantile backtest — CRPS", f"{crps:.3f}"],
-            ["Quantile backtest — point reference", f"{ref:.3f}"],
-        ] + [
-            [f"Pinball loss, q{q}", f"{pinball_loss(qf[f'q{q}'], obs, q):.3f}"] for q in _BACKTEST_Q
-        ]
-        n = len(qf)
-        if crps <= ref:
-            line = (
-                f"Over the last {n} steps the band's CRPS {crps:.3f} beats the median's "
-                f"point reference {ref:.3f} — the spread earns its keep."
-            )
-        else:
-            line = (
-                f"Over the last {n} steps the band's CRPS {crps:.3f} does not beat the "
-                f"median's point reference {ref:.3f} — the spread costs more than it tells."
-            )
-        return rows, line
-    except Exception:
-        log.exception("quantile backtest failed")
         return None
 
 

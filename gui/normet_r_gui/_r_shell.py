@@ -56,7 +56,13 @@ class RShellMixin(QMainWindow):
                 state: object = _r.r_check()
             except Exception as exc:  # noqa: BLE001 - shown, not raised
                 state = exc
-            self._r_checked.done.emit(state)
+            # The window may be gone by the time R answers: a deleted receiver would
+            # raise out of the thread (PytestUnhandledThreadExceptionWarning), not merely
+            # drop the signal.
+            try:
+                self._r_checked.done.emit(state)
+            except RuntimeError:
+                pass
 
         threading.Thread(target=ask, name="normet-r-check", daemon=True).start()
 
