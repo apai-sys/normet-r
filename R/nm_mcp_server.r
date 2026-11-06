@@ -299,7 +299,7 @@ NULL
     ), label), c("target", "covariates")),
     .nm_tool("normet_scm_diagnostics", paste(
       "The diagnostics of an SCM result table (scm.csv or any table with date, observed,",
-      "synthetic, effect): the pre-period fit (RMSE, MAE, R²), the post-period effect",
+      "synthetic, effect): the pre-period fit (RMSE, MAE, R\u00b2), the post-period effect",
       "(ATT, cumulative), the donor-weight concentration and the pre-trend test -- whether",
       "the pre-period was parallel. Not a job: it reads the table at once."
     ), .nm_agent_scm_diagnostics, list(

@@ -352,7 +352,7 @@ NULL
   lines <- c(
     sprintf("%s units, %s rows.", .nm_count(length(units)), .nm_count(nrow(df))),
     "",
-    sprintf("Effect (observed − synthetic) over all units and dates: mean %s, median %s, sd %s.",
+    sprintf("Effect (observed \u2212 synthetic) over all units and dates: mean %s, median %s, sd %s.",
             .nm_num(mean(eff, na.rm = TRUE)), .nm_num(stats::median(eff, na.rm = TRUE)),
             .nm_num(stats::sd(eff, na.rm = TRUE)))
   )

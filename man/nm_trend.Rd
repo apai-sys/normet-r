@@ -12,7 +12,9 @@ nm_trend(
   test_alpha = 0.05,
   block_length = NULL,
   n_bootstrap = 1000,
-  seed = 7654321
+  seed = 7654321,
+  bootstrap_scheme = "moving",
+  replicate_estimator = "ols"
 )
 }
 \arguments{
@@ -34,6 +36,18 @@ Politis-Romano 3 n^(1/3) heuristic and one calendar week for sub-daily records.}
 \item{n_bootstrap}{Bootstrap replicates.}
 
 \item{seed}{The RNG seed; the bootstrap output is reproducible.}
+
+\item{bootstrap_scheme}{{"moving", "residual"}, default "moving". How the block
+bootstrap resamples. "moving" draws contiguous blocks of the series and
+recomputes the slope, repairing serial correlation in the values themselves.
+"residual" holds the fitted Theil-Sen line and resamples blocks of its residuals,
+adding them back to the fitted values -- the trend is preserved and only its
+low-frequency noise is resampled (the monthly residual-block protocol).}
+
+\item{replicate_estimator}{{"ols", "theil-sen"}, default "ols". Slope recomputed in
+each replicate. "ols" is O(n) per draw and the only practical choice on a long
+record; "theil-sen" is robust but O(n^2) per draw, meant for a monthly or
+otherwise short series.}
 }
 \value{
 An object of class \code{nm_trend_result}, with \code{summary()} (a two-column

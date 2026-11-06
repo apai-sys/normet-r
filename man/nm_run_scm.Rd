@@ -37,8 +37,9 @@ nm_run_scm(
 
 \item{scm_backend}{Either "scm" (Classic augmented SCM), "mlscm" (ML),
 "abadie" (classic Abadie simplex SCM), "did" (difference-in-differences),
-"mcnnm" (matrix completion with nuclear-norm minimisation), or
-"robust" (HSVT-denoised robust SCM, Amjad et al. 2018).}
+"mcnnm" (matrix completion with nuclear-norm minimisation),
+"robust" (HSVT-denoised robust SCM, Amjad et al. 2018), or
+"bayesian" (Bayesian SCM with posterior bands, nm_bayesian_scm).}
 
 \item{model_config}{List of model parameters (e.g. list(nfold=5)) passed to ML-SCM.}
 
