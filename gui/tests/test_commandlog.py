@@ -151,3 +151,27 @@ def test_the_script_parses_in_r_and_reads_back(held, tmp_path):
 def test_a_script_that_is_not_r_says_so():
     with pytest.raises(SyntaxError):
         _script.read_calls("res <- nm_build_model(df,")
+
+
+def test_attach_table_entry_joins_the_columns_on_date():
+    entry = C.attach_table("/data/kroc.csv", "Europe/London", ["t2m", "rh"], [])
+    assert entry.title == "Attach meteorology — kroc.csv"
+    assert "nm_read_time_series" in entry.code and "zone = \"Europe/London\"" in entry.code
+    assert "merge(df, met[, c('date', c(\"t2m\", \"rh\")), drop = FALSE], by = 'date', all.x = TRUE)" in entry.code
+    assert any("columns attached: t2m, rh" in n for n in entry.notes)
+    # UTC is not written as an argument.
+    assert "zone" not in C.attach_table("/data/kroc.csv", "UTC", ["t2m"], []).code
+    # Exclusions are applied to the attached table again.
+    exc = C.attach_table("/data/kroc.csv", None, ["t2m"], ["2024-01-01 .. 2024-01-02"])
+    assert "df_kept" in exc.code and any("applied to the attached table again" in n for n in exc.notes)
+
+
+@needs_r
+def test_attach_table_script_parses_in_r():
+    entry = C.attach_table("/data/kroc.csv", "Europe/London", ["t2m", "rh"], [])
+    out = subprocess.run(
+        [_rpc.rscript(), "-e", f"invisible(parse(text = {entry.code!r}))"],
+        capture_output=True,
+        text=True,
+    )
+    assert out.returncode == 0, out.stderr

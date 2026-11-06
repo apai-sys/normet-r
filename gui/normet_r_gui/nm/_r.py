@@ -517,6 +517,8 @@ def trend(
     block_length: int | None = None,
     n_bootstrap: int = 1000,
     seed: int = 7654321,
+    bootstrap_scheme: str = "moving",
+    replicate_estimator: str = "ols",
     **_ignored: Any,
 ) -> TrendResult:
     """``nm_trend``: the Mann-Kendall test, the Theil-Sen slope with its Sen (1968)
@@ -533,6 +535,8 @@ def trend(
         block_length=block_length,
         n_bootstrap=int(n_bootstrap),
         seed=seed,
+        bootstrap_scheme=bootstrap_scheme,
+        replicate_estimator=replicate_estimator,
     )
     return _trend_result(out)
 

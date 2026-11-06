@@ -21,6 +21,7 @@ from __future__ import annotations
 import datetime
 import json
 import math
+import os
 import re
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -179,6 +180,34 @@ def open_table(path: str, zone: str | None = None) -> Entry:
     found, parsed and named 'date', and put on UTC from ``zone``."""
     kw = [("zone", literal(zone))] if zone and zone.upper() != "UTC" else []
     return Entry("Open data", call("df", "nm_read_time_series", [literal(path)], kw))
+
+
+def attach_table(
+    path: str,
+    zone: str | None = None,
+    columns: Sequence[str] = (),
+    exclude_lines: Sequence[str] = (),
+) -> Entry:
+    """Meteorology read from its own table and joined to ``df`` by timestamp, as the
+    Data tab's Attach meteorology… does: the named columns, left-joined on 'date'.
+    Where rows are left out, the exclusion is applied again so ``df_kept`` is the
+    attached table without them."""
+    call_ = f"met <- nm_read_time_series({literal(path)}"
+    call_ += f", zone = {literal(zone)})" if zone and zone.upper() != "UTC" else ")"
+    cols = [str(c) for c in columns]
+    call_ += (
+        "\nmet <- met[!duplicated(met$date), ]\n"
+        f"df <- merge(df, met[, c('date', {literal(cols)}), drop = FALSE], by = 'date', all.x = TRUE)"
+    )
+    notes = [f"columns attached: {', '.join(cols)}"]
+    if exclude_lines:
+        call_ += "\n" + exclude(exclude_lines).code
+        notes.append("The rows left out were applied to the attached table again.")
+    return Entry(
+        f"Attach meteorology — {os.path.basename(path)}",
+        call_,
+        notes=tuple(notes),
+    )
 
 
 def load_example(example: Any = None) -> Entry:

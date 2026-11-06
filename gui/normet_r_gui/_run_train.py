@@ -186,13 +186,7 @@ class TrainRunMixin(QMainWindow):
         target = self.target_combo.currentText()
         features = self._selected_features()
         backend = self.backend_combo.currentText()
-        if backend == "h2o":
-            model_config = {
-                "max_runtime_secs": self.budget_spin.value(),
-                "include_algos": self._selected_estimators() or ["GBM"],
-            }
-        else:
-            model_config = {"n_trials": self.budget_spin.value()}
+        model_config = self._model_config(backend)
 
         # The model must see the time features alongside the met predictors —
         # they carry the trend/seasonality that survives normalisation.
@@ -446,14 +440,7 @@ class TrainRunMixin(QMainWindow):
         # The same config the one-split train would use, per fold — written as an
         # expression rather than the train handler's statement: this window is
         # vendored as-is to the R GUI, where each block is patched on its own.
-        model_config = (
-            {
-                "max_runtime_secs": self.budget_spin.value(),
-                "include_algos": self._selected_estimators() or ["GBM"],
-            }
-            if backend == "h2o"
-            else {"n_trials": self.budget_spin.value()}
-        )
+        model_config = self._model_config(backend)
         self.runner.submit(
             f"walk-forward CV ({backend})",
             cv_score,

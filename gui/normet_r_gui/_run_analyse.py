@@ -216,6 +216,7 @@ class AnalyseRunMixin(QMainWindow):
             variables_resample=resample_vars,
             n_samples=self.norm_samples.value(),
             n_cores=self._n_cores(self.norm_cores),
+            seed=self.seed_spin.value(),
             return_quantiles=quantiles,
             verbose=True,
         )
@@ -319,6 +320,7 @@ class AnalyseRunMixin(QMainWindow):
             method=method,
             covariates=covariates,
             n_samples=self.decom_samples.value(),
+            seed=self.seed_spin.value(),
             **options,
         )
 
@@ -397,6 +399,13 @@ class AnalyseRunMixin(QMainWindow):
         target = self.target_combo.currentText()
         choice = self.trend_series.currentText()
         frame, column = self.df_prep, target
+        if (
+            choice.startswith("observed")
+            and isinstance(frame, pd.DataFrame)
+            and "value" in frame.columns
+        ):
+            # DataFrame the model was trained on has the target renamed to "value".
+            column = "value"
         if choice.startswith("long-term"):
             res = self.results.get("decompose")
             long = _long_term_columns(res)
@@ -516,6 +525,10 @@ class AnalyseRunMixin(QMainWindow):
                 seasonal_period=period,
                 n_bootstrap=self.tre_n_bootstrap.value(),
                 seed=self.seed_spin.value(),
+                aggregate=self.tre_aggregate.currentText(),
+                block_length=self.tre_block.value() or None,
+                bootstrap_scheme=self.tre_bootstrap.currentText(),
+                replicate_estimator=self.tre_estimator.currentText(),
             )
         if not ok:
             self._trend_note = ""
@@ -594,7 +607,12 @@ class AnalyseRunMixin(QMainWindow):
 
         choice = self.events_series.currentText()
         if choice.startswith("observed"):
-            frame, column = self.df_prep, self.target_combo.currentText()
+            frame = self.df_prep
+            column = (
+                "value"
+                if isinstance(frame, pd.DataFrame) and "value" in frame.columns
+                else self.target_combo.currentText()
+            )
         elif choice.startswith("long-term"):
             res = self.results.get("decompose")
             if res is None or _long_term_columns(res) is None:
@@ -713,11 +731,7 @@ class AnalyseRunMixin(QMainWindow):
         from .nm import decompose_uncertainty
 
         variables_resample = self._selected_norm_vars() or None
-        cfg = (
-            {"max_runtime_secs": self.budget_spin.value()}
-            if self.unc_backend.currentText() == "h2o"
-            else {"n_trials": self.budget_spin.value()}
-        )
+        cfg = self._model_config(self.unc_backend.currentText())
         self.runner.submit(
             "uncertainty decomposition",
             decompose_uncertainty,
@@ -774,6 +788,7 @@ class AnalyseRunMixin(QMainWindow):
             window_days=self.roll_window.value(),
             rolling_every=self.roll_step.value(),
             n_samples=self.roll_samples.value(),
+            seed=self.seed_spin.value(),
         )
 
     def _rolling_done(self, result: pd.DataFrame) -> None:
@@ -870,6 +885,7 @@ class AnalyseRunMixin(QMainWindow):
             slow_days=self.ms_slow.value(),
             n_samples=self.roll_samples.value(),
             n_cores=self._n_cores(self.norm_cores),
+            seed=self.seed_spin.value(),
         )
 
     def _multiscale_done(self, result: dict) -> None:

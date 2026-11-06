@@ -519,18 +519,35 @@ nm_theil_sen <- function(series, value_col = NULL) {
   invisible(TRUE)
 }
 
-#' Moving-block bootstrap of the OLS trend slope.
+#' Block bootstrap of the trend slope.
 #'
-#' Blocks of `block_length` contiguous points are drawn with replacement until n points
-#' are assembled; the last block is truncated. Each replicate uses the OLS slope (the
-#' block sampling is what fixes the autocorrelation, not the per-replicate estimator).
+#' ``scheme="moving"`` (default) draws blocks of `block_length` contiguous points from
+#' ``(x, y)`` with replacement and recomputes the slope -- the moving-block bootstrap,
+#' which repairs serial correlation in the series. ``scheme="residual"`` fits the
+#' Theil-Sen line once, then resamples contiguous blocks of its residuals and adds them
+#' back to the fitted values, holding the time grid fixed: the residual block bootstrap,
+#' which preserves the trend and resamples only its low-frequency noise (the protocol a
+#' published monthly trend interval may state).
+#'
+#' ``estimator`` is the per-replicate slope: ``"ols"`` (default, O(n) and the only
+#' practical one on a long record) or ``"theil-sen"`` (robust, O(n^2) per draw; meant
+#' for a monthly or otherwise short series).
 #' @noRd
-.nm_block_bootstrap_slopes <- function(x, y, block_length, n_bootstrap, seed) {
+.nm_block_bootstrap_slopes <- function(x, y, block_length, n_bootstrap, seed,
+                                       scheme = "moving", estimator = "ols") {
   n <- length(x)
   .nm_rng(seed)
   n_starts <- n - block_length + 1L
   full <- n %/% block_length
   remain <- n - full * block_length
+  fit <- resid <- NULL
+  if (scheme == "residual") {
+    base <- .nm_theil_sen_fit(x, y)
+    # scipy.stats.theilslopes' intercept: median(y) - slope * median(x).
+    base_intercept <- median(y) - base$slope * median(x)
+    fit <- base_intercept + base$slope * x
+    resid <- y - fit
+  }
   slopes <- numeric(n_bootstrap)
   for (b in seq_len(n_bootstrap)) {
     if (full > 0) {
@@ -543,7 +560,18 @@ nm_theil_sen <- function(series, value_col = NULL) {
       s0 <- sample.int(n_starts, 1L) - 1L
       idx <- c(idx, s0:(s0 + remain - 1L))
     }
-    slopes[b] <- .nm_ols_slope(x[idx + 1L], y[idx + 1L])
+    if (scheme == "residual") {
+      xb <- x
+      yb <- fit + resid[idx + 1L]
+    } else {
+      xb <- x[idx + 1L]
+      yb <- y[idx + 1L]
+    }
+    if (estimator == "theil-sen") {
+      slopes[b] <- .nm_theil_sen_fit(xb, yb)$slope
+    } else {
+      slopes[b] <- .nm_ols_slope(xb, yb)
+    }
   }
   slopes
 }
@@ -976,12 +1004,23 @@ nm_trend_breaks <- function(series, value_col = NULL, name = NULL, max_segments 
 #'   Politis-Romano 3 n^(1/3) heuristic and one calendar week for sub-daily records.
 #' @param n_bootstrap Bootstrap replicates.
 #' @param seed The RNG seed; the bootstrap output is reproducible.
+#' @param bootstrap_scheme {"moving", "residual"}, default "moving". How the block
+#'   bootstrap resamples. "moving" draws contiguous blocks of the series and
+#'   recomputes the slope, repairing serial correlation in the values themselves.
+#'   "residual" holds the fitted Theil-Sen line and resamples blocks of its residuals,
+#'   adding them back to the fitted values -- the trend is preserved and only its
+#'   low-frequency noise is resampled (the monthly residual-block protocol).
+#' @param replicate_estimator {"ols", "theil-sen"}, default "ols". Slope recomputed in
+#'   each replicate. "ols" is O(n) per draw and the only practical choice on a long
+#'   record; "theil-sen" is robust but O(n^2) per draw, meant for a monthly or
+#'   otherwise short series.
 #' @return An object of class `nm_trend_result`, with `summary()` (a two-column
 #'   metric/value table) and a one-line `format()`.
 #' @export
 nm_trend <- function(series, value_col = NULL, name = NULL, seasonal_period = NULL,
                      test_alpha = 0.05, block_length = NULL, n_bootstrap = 1000,
-                     seed = 7654321) {
+                     seed = 7654321, bootstrap_scheme = "moving",
+                     replicate_estimator = "ols") {
   tin <- .nm_trend_input(series, value_col)
   y <- tin$y
   finite <- is.finite(y)
@@ -1013,7 +1052,29 @@ nm_trend <- function(series, value_col = NULL, name = NULL, seasonal_period = NU
     ),
     class = "nm_trend_result"
   )
-  if (!autocorrelated) {
+  scheme <- tolower(trimws(as.character(bootstrap_scheme)))
+  if (!scheme %in% c("moving", "residual")) {
+    stop(sprintf(
+      "bootstrap_scheme must be 'moving' or 'residual', got '%s'.", bootstrap_scheme
+    ), call. = FALSE)
+  }
+  estimator <- tolower(trimws(gsub("_", "-", as.character(replicate_estimator))))
+  if (estimator == "theilsen") estimator <- "theil-sen"
+  if (!estimator %in% c("ols", "theil-sen")) {
+    stop(sprintf(
+      "replicate_estimator must be 'ols' or 'theil-sen', got '%s'.", replicate_estimator
+    ), call. = FALSE)
+  }
+  if (estimator == "theil-sen" && length(x) > 5000) {
+    stop(sprintf(
+      "a Theil-Sen replicate on %s points is O(n^2) -- seconds per draw, so hours over a default bootstrap; aggregate the series (e.g. monthly means), lower n_bootstrap, or use replicate_estimator='ols'.",
+      formatC(length(x), format = "d", big.mark = ",")
+    ), call. = FALSE)
+  }
+  # The moving-block bootstrap is the autocorrelation correction: without AR(1)
+  # residuals the Theil-Sen interval stands.  A residual bootstrap is an explicit
+  # request for that interval and runs whether or not the diagnostic fired.
+  if (!autocorrelated && scheme == "moving") {
     result$notes <- c(
       result$notes,
       "AR(1) residual autocorrelation not significant; the Theil-Sen interval is used as-is."
@@ -1026,7 +1087,8 @@ nm_trend <- function(series, value_col = NULL, name = NULL, seasonal_period = NU
       med_days = .nm_trend_median_days(y, tin$dates, tin$positional)
     )
   bl <- max(1L, min(bl, length(x) %/% 3))
-  boots <- .nm_block_bootstrap_slopes(xtime, x, bl, as.integer(n_bootstrap), seed)
+  boots <- .nm_block_bootstrap_slopes(xtime, x, bl, as.integer(n_bootstrap), seed,
+                                      scheme = scheme, estimator = estimator)
   finite_b <- is.finite(boots)
   if (sum(finite_b) < 10) {
     result$notes <- c(
@@ -1051,16 +1113,30 @@ nm_trend <- function(series, value_col = NULL, name = NULL, seasonal_period = NU
     z_wald <- slope$slope / se
     result$p_wald_boot <- 2 * (1 - stats::pnorm(abs(z_wald)))
   }
+  lead <- if (autocorrelated) {
+    sprintf(
+      "AR(1) residual autocorrelation %.2f (p=%.2g) < %s: ",
+      result$ar1_acf, result$ar1_p, test_alpha
+    )
+  } else {
+    sprintf(
+      "AR(1) residual autocorrelation %.2f (p=%.2g) not significant; residual block bootstrap requested: ",
+      result$ar1_acf, result$ar1_p
+    )
+  }
   result$notes <- c(
     result$notes,
-    sprintf(
-      paste0(
-        "AR(1) residual autocorrelation %.2f (p=%.2g) < %s: block bootstrap (length %d, ",
-        "%d replicates) used for the slope interval. The Mann-Kendall p-value above is ",
-        "the classical one and is anti-conservative under this autocorrelation; read ",
-        "the bootstrap p_wald as the corrected test."
-      ),
-      result$ar1_acf, result$ar1_p, test_alpha, bl, sum(finite_b)
+    paste0(
+      lead,
+      sprintf(
+        paste0(
+          "%s block bootstrap (length %d, %d replicates, %s replicate slope) used for ",
+          "the slope interval. The Mann-Kendall p-value above is the classical one ",
+          "and is anti-conservative under this autocorrelation; read the bootstrap ",
+          "p_wald as the corrected test."
+        ),
+        scheme, bl, sum(finite_b), estimator
+      )
     )
   )
   result
