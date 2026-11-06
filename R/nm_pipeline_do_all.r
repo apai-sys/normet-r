@@ -274,12 +274,23 @@ nm_do_all_unc <- function(df = NULL, target = "value", backend = "lightgbm", cov
   if (verbose) log$info("Starting ensemble run with %d models...", n_models)
 
   if (backend == "lightgbm") {
-    # Fork-parallel for lightgbm: each worker is fully independent.
-    # Falls back to serial on Windows (mc.cores is ignored there).
+    # Each member is fully independent, so they run in separate R processes.
+    # Not forked (parallel::mclapply): by now this process has used lightgbm's
+    # OpenMP pool, and on Linux a forked child that enters libgomp again
+    # deadlocks (seen in LGBM_DatasetCreateFromMat, CI run of 2026-11-06). A
+    # PSOCK worker is a fresh process with its own pool, and works the same on
+    # every platform. One member needs no worker at all.
     mc_cores <- .nm_resolve_cores(n_tasks = n_models)
     if (verbose) log$info("lightgbm ensemble: running %d models in parallel (%d cores).", n_models, mc_cores)
 
-    raw_results <- parallel::mclapply(seeds, .run_one, mc.cores = mc_cores)
+    if (mc_cores <= 1L) {
+      raw_results <- lapply(seeds, .run_one)
+    } else {
+      cl <- parallel::makeCluster(mc_cores)
+      .nm_propagate_libpaths(cl)
+      on.exit(parallel::stopCluster(cl), add = TRUE)
+      raw_results <- parallel::parLapply(cl, seeds, .run_one)
+    }
 
   } else {
     # H2O must be sequential: single shared cluster. R-side resampling stays out

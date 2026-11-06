@@ -672,10 +672,10 @@ nm_normalise_lgb <- function(df, model, resample_vars = NULL,
   # with it on, chunk_size of them.
   r_cores <- .nm_resolve_cores(n_cores, n_tasks = max(lengths(seed_chunks)), limit = 4L)
 
-  # A pid-derived port, not makeCluster's RNG draw: when this runs inside a
-  # parallel::mclapply worker (the lightgbm path of nm_do_all_unc), the
-  # siblings share the parent's RNG state and would all draw the same port,
-  # so every one after the first fails to bind it and its model is dropped.
+  # A pid-derived port, not makeCluster's RNG draw: a forked worker shares
+  # the parent's RNG state, so siblings would all draw the same port and every
+  # one after the first would fail to bind it. (nm_do_all_unc's members now run
+  # in PSOCK workers, not forks, but a caller may still fork around this.)
   cl <- parallel::makeCluster(r_cores, port = .nm_sock_port())
   .nm_propagate_libpaths(cl)
   on.exit(parallel::stopCluster(cl), add = TRUE)
