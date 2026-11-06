@@ -33,7 +33,11 @@ NULL
   "  slope, the block-bootstrap-corrected p where the record is autocorrelated):",
   "  quote the corrected p it names, not the classical one.",
   "- A synthetic control: propose the treated unit, the cutoff and the donor pool; judge",
-  "  the pre-period fit before reading the effect.",
+  "  the pre-period fit before reading the effect. normet_start_scm's backend chooses",
+  "  the estimator ('scm' the default, 'abadie', 'robust', 'mcnnm', 'did', 'mlscm',",
+  "  'bayesian'); the diagnostics (normet_scm_diagnostics) and the placebo tests",
+  "  (normet_start_placebo_space, normet_start_placebo_time) say whether the effect",
+  "  holds up. For several treated units with their own cutoffs, normet_start_scm_staggered.",
   "Quote normet's numbers as the tools give them; do not compute or invent others.",
   sep = "\n"
 )
@@ -130,9 +134,12 @@ NULL
       "Start a job: a synthetic control of the `treated` unit from the donor pool (`donors`,",
       "every other unit by default) in a panel (one row per unit and date: date_col 'date',",
       "unit_col 'ID', outcome_col 'value' by default; the scm example uses unit_col='code',",
-      "outcome_col='NO2_dw'), and its effect after `cutoff` (YYYY-MM-DD). backend: 'scm',",
-      "'mlscm', 'abadie', 'robust', 'did', 'mcnnm'. Writes scm.csv; poll normet_job_status,",
-      "which reads the pre-period fit and the effect."
+      "outcome_col='NO2_dw'), and its effect after `cutoff` (YYYY-MM-DD). backend chooses",
+      "the estimator: 'scm' (augmented SCM, the default), 'abadie' (classic simplex SCM),",
+      "'robust' (HSVT-denoised), 'mcnnm' (matrix completion), 'did' (difference-in-",
+      "differences), 'mlscm' (machine learning, exploratory) or 'bayesian' (Bayesian SCM",
+      "with posterior bands). Writes scm.csv; poll normet_job_status, which reads the",
+      "pre-period fit and the effect."
     ), .nm_agent_start_scm, c(list(
       treated = .p_str("The treated unit."),
       cutoff = .p_str("The intervention date, YYYY-MM-DD.")
@@ -141,8 +148,207 @@ NULL
       date_col = .p_str("The date column ('date')."),
       unit_col = .p_str("The unit column ('ID')."),
       outcome_col = .p_str("The outcome column ('value')."),
-      backend = .p_str("'scm', 'mlscm', 'abadie', 'robust', 'did' or 'mcnnm'.")
+      backend = .p_str("'scm', 'abadie', 'robust', 'mcnnm', 'did', 'mlscm' or 'bayesian'.")
     ), label), c("treated", "cutoff")),
+    .nm_tool("normet_start_scm_all", paste(
+      "Start a job: a synthetic control for every unit in the panel in turn (each with the",
+      "others as donors) at the common `cutoff` -- the reference distribution a treated",
+      "unit's effect is judged against. backend 'scm' (the default) or 'mlscm'. Writes",
+      "scm_all.csv; poll normet_job_status."
+    ), .nm_agent_start_scm_all, c(list(
+      cutoff = .p_str("The intervention date, YYYY-MM-DD.")
+    ), data_props, list(
+      donors = .p_strs("The donor pool (every other unit by default)."),
+      date_col = .p_str("The date column ('date')."),
+      unit_col = .p_str("The unit column ('ID')."),
+      outcome_col = .p_str("The outcome column ('value')."),
+      backend = .p_str("'scm' or 'mlscm'.")
+    ), label), "cutoff"),
+    .nm_tool("normet_start_scm_staggered", paste(
+      "Start a job: a staggered design -- several `treated_units`, each with its own cutoff",
+      "(`cutoff_dates`, aligned with the units or a named unit->date mapping), each fitted",
+      "with the other treated units kept out of its donor pool. One row per unit with its",
+      "pre-period fit, effect and placebo p-value, then pooled 'mean' and 'median' rows.",
+      "Writes staggered.csv; poll normet_job_status."
+    ), .nm_agent_start_scm_staggered, c(list(
+      treated_units = .p_strs("The treated units."),
+      cutoff_dates = .p_strs("Their cutoff dates, YYYY-MM-DD, aligned with treated_units.")
+    ), data_props, list(
+      donors = .p_strs("The donor pool (every non-treated unit by default)."),
+      date_col = .p_str("The date column ('date')."),
+      unit_col = .p_str("The unit column ('ID')."),
+      outcome_col = .p_str("The outcome column ('value')."),
+      backend = .p_str("The SCM backend ('scm' the default)."),
+      post_agg = .p_str("'mean' (the default) or 'sum'.")
+    ), label), c("treated_units", "cutoff_dates")),
+    .nm_tool("normet_start_placebo_space", paste(
+      "Start a job: the placebo-in-space test of an SCM -- each donor in turn takes the",
+      "`treated` unit's role at `cutoff`, and the p-value is the share of the placebo",
+      "effects at least as extreme as the treated effect. Writes placebo_space.csv (the",
+      "treated effect) and the full result; poll normet_job_status, which reads the",
+      "p-value."
+    ), .nm_agent_start_placebo_space, c(list(
+      treated = .p_str("The treated unit."),
+      cutoff = .p_str("The intervention date, YYYY-MM-DD.")
+    ), data_props, list(
+      donors = .p_strs("The donor units (every other unit by default)."),
+      date_col = .p_str("The date column ('date')."),
+      unit_col = .p_str("The unit column ('ID')."),
+      outcome_col = .p_str("The outcome column ('value')."),
+      backend = .p_str("The SCM backend ('scm' the default)."),
+      post_agg = .p_str("'mean' (the default) or 'sum'.")
+    ), label), c("treated", "cutoff")),
+    .nm_tool("normet_start_placebo_time", paste(
+      "Start a job: the placebo-in-time test of an SCM -- the cutoff shifted to fake",
+      "positions before the true `cutoff` (`min_pre_period` dates of pre-period, one every",
+      "`placebo_every` dates), the p-value the share of those effects at least as extreme",
+      "as the treated effect. Writes placebo_time.csv and the full result; poll",
+      "normet_job_status, which reads the p-value."
+    ), .nm_agent_start_placebo_time, c(list(
+      treated = .p_str("The treated unit."),
+      cutoff = .p_str("The intervention date, YYYY-MM-DD.")
+    ), data_props, list(
+      donors = .p_strs("The donor units (every other unit by default)."),
+      date_col = .p_str("The date column ('date')."),
+      unit_col = .p_str("The unit column ('ID')."),
+      outcome_col = .p_str("The outcome column ('value')."),
+      backend = .p_str("The SCM backend ('scm' the default)."),
+      post_agg = .p_str("'mean' (the default) or 'sum'."),
+      min_pre_period = .p_int("Minimum pre-period before a fake cutoff (30)."),
+      placebo_every = .p_int("Step between fake cutoffs (7).")
+    ), label), c("treated", "cutoff")),
+    .nm_tool("normet_start_uncertainty_bands", paste(
+      "Start a job: uncertainty bands on an SCM's effect by `method` -- 'jackknife' (the",
+      "default: each donor held out in turn) or 'bootstrap' (`b` replications of donor",
+      "subsamples of `donor_frac`, optionally in `time_block_days`-day blocks). Writes",
+      "uncertainty.csv with the effect and its lower/upper bound; poll normet_job_status."
+    ), .nm_agent_start_uncertainty_bands, c(list(
+      treated = .p_str("The treated unit."),
+      cutoff = .p_str("The intervention date, YYYY-MM-DD.")
+    ), data_props, list(
+      donors = .p_strs("The donor units (every other unit by default)."),
+      date_col = .p_str("The date column ('date')."),
+      unit_col = .p_str("The unit column ('ID')."),
+      outcome_col = .p_str("The outcome column ('value')."),
+      backend = .p_str("The SCM backend ('scm' the default)."),
+      method = .p_str("'jackknife' (the default) or 'bootstrap'."),
+      b = .p_int("Bootstrap replications (200)."),
+      seed = .p_int("Random seed."),
+      donor_frac = .p_num("Share of donors per bootstrap replication (0.8)."),
+      time_block_days = .p_int("Bootstrap block length in days (simple sampling when omitted)."),
+      ci_level = .p_num("Confidence level (0.95).")
+    ), label), c("treated", "cutoff")),
+    .nm_tool("normet_start_loo_stability", paste(
+      "Start a job: leave-one-donor-out weight stability of an SCM -- the fit refit with",
+      "each donor held out, the drift of the remaining weights and the shift of the",
+      "effect. Writes loo_stability.csv; poll normet_job_status."
+    ), .nm_agent_start_loo_stability, c(list(
+      treated = .p_str("The treated unit."),
+      cutoff = .p_str("The intervention date, YYYY-MM-DD.")
+    ), data_props, list(
+      donors = .p_strs("The donor units (every other unit by default)."),
+      date_col = .p_str("The date column ('date')."),
+      unit_col = .p_str("The unit column ('ID')."),
+      outcome_col = .p_str("The outcome column ('value').")
+    ), label), c("treated", "cutoff")),
+    .nm_tool("normet_start_do_all_multisite", paste(
+      "Start a job: do-all per site -- one model and its normalised series for each value",
+      "of `site_col` in the table. Writes normalised.csv with the site column; poll",
+      "normet_job_status."
+    ), .nm_agent_start_do_all_multisite, c(list(
+      site_col = .p_str("The site/station identifier column."),
+      target = .p_str("The column to model."),
+      covariates = .p_strs("The predictor columns (meteorology).")
+    ), data_props, list(
+      backend = .p_str("'lightgbm' (the default) or 'h2o'."),
+      n_samples = .p_int("Resamples of the meteorology (300)."),
+      split_method = .p_str("'random', 'ts', 'month_ts' or 'season_ts'."),
+      train_fraction = .p_num("Share of rows trained on (0.75)."),
+      seed = .p_int("Random seed.")
+    ), label), c("site_col", "target", "covariates")),
+    .nm_tool("normet_start_decompose_multisite", paste(
+      "Start a job: decompose per site -- one decomposition for each value of `site_col`.",
+      "method 'emission' (the default) or 'meteorology'. Writes decomposition.csv with the",
+      "site column; poll normet_job_status."
+    ), .nm_agent_start_decompose_multisite, c(list(
+      site_col = .p_str("The site/station identifier column."),
+      target = .p_str("The column to model."),
+      covariates = .p_strs("The predictor columns (meteorology)."),
+      method = .p_str("'emission' (the default) or 'meteorology'.")
+    ), data_props, list(
+      backend = .p_str("'lightgbm' (the default) or 'h2o'."),
+      n_samples = .p_int("Resamples of the meteorology."),
+      seed = .p_int("Random seed.")
+    ), label), c("site_col", "target", "covariates")),
+    .nm_tool("normet_start_decompose_uncertainty", paste(
+      "Start a job: attribute a de-weathered estimate's total spread to its source --",
+      "`n_models` members (each on its own seed) predict on the same `n_samples` met",
+      "draws, and the per-date variance splits into weather, model form and interaction.",
+      "Writes uncertainty_decomp_summary.csv (the median variance and share by source);",
+      "poll normet_job_status."
+    ), .nm_agent_start_decompose_uncertainty, c(list(
+      target = .p_str("The column to model."),
+      covariates = .p_strs("The predictor columns (meteorology).")
+    ), data_props, list(
+      backend = .p_str("'lightgbm' (the default) or 'h2o'."),
+      n_samples = .p_int("Met resamples per member (300)."),
+      n_models = .p_int("Ensemble members (10)."),
+      split_method = .p_str("'ts' (the default) so only the model form varies."),
+      train_fraction = .p_num("Share of rows trained on (0.75)."),
+      seed = .p_int("Random seed (the shared weather seed).")
+    ), label), c("target", "covariates")),
+    .nm_tool("normet_scm_diagnostics", paste(
+      "The diagnostics of an SCM result table (scm.csv or any table with date, observed,",
+      "synthetic, effect): the pre-period fit (RMSE, MAE, R²), the post-period effect",
+      "(ATT, cumulative), the donor-weight concentration and the pre-trend test -- whether",
+      "the pre-period was parallel. Not a job: it reads the table at once."
+    ), .nm_agent_scm_diagnostics, list(
+      path = .p_str("Path of the SCM result table."),
+      cutoff = .p_str("The cutoff the SCM was run with, YYYY-MM-DD.")
+    ), c("path", "cutoff")),
+    .nm_tool("normet_conformal_interval", paste(
+      "A conformal prediction interval for the average post-period effect of an SCM result",
+      "table (its effect column): the ATT with its finite-sample interval and p-value from",
+      "`n_perm` sub-samples. Not a job: it reads the table at once."
+    ), .nm_agent_conformal_interval, list(
+      path = .p_str("Path of the SCM result table."),
+      cutoff = .p_str("The cutoff the SCM was run with, YYYY-MM-DD."),
+      n_perm = .p_int("Permutations (1000)."),
+      ci_level = .p_num("Confidence level (0.95)."),
+      seed = .p_int("Random seed.")
+    ), c("path", "cutoff")),
+    .nm_tool("normet_pre_trend_test", paste(
+      "Whether an SCM's pre-period was parallel (its observed minus synthetic before",
+      "`cutoff`): the OLS slope of the pre-period residuals with its p-value, and the",
+      "RMSPE drift of the final third against the rest, with a verdict. Not a job: it",
+      "reads the table at once."
+    ), .nm_agent_pre_trend_test, list(
+      path = .p_str("Path of the SCM result table."),
+      cutoff = .p_str("The cutoff the SCM was run with, YYYY-MM-DD."),
+      alpha = .p_num("Significance level for the verdict (0.05).")
+    ), c("path", "cutoff")),
+    .nm_tool("normet_effect_bands_space", paste(
+      "Uncertainty bands on an SCM's effect from a placebo-in-space result (the",
+      "placebo_space.rds a normet_start_placebo_space job saves): the effect with the",
+      "placebo distribution's `level` bands, by `method` 'quantile' (the default) or",
+      "'std'. Not a job: it reads the result at once."
+    ), .nm_agent_effect_bands_space, list(
+      path = .p_str("Path of the placebo-in-space result (placebo_space.rds or placebo_space.csv)."),
+      level = .p_num("Confidence level (0.95)."),
+      method = .p_str("'quantile' (the default) or 'std'.")
+    ), "path"),
+    .nm_tool("normet_effect_bands_time", paste(
+      "Uncertainty bands on an SCM's effect from a placebo-in-time result (the",
+      "placebo_time.rds a normet_start_placebo_time job saves), aligned to event time:",
+      "the effect bands by `method` 'quantile' (the default) or 'std', over `horizon`",
+      "event-time steps (the shortest placebo segment by default). Not a job: it reads",
+      "the result at once."
+    ), .nm_agent_effect_bands_time, list(
+      path = .p_str("Path of the placebo-in-time result (placebo_time.rds or placebo_time.csv)."),
+      level = .p_num("Confidence level (0.95)."),
+      method = .p_str("'quantile' (the default) or 'std'."),
+      horizon = .p_int("Event-time window length (the shortest segment by default).")
+    ), "path"),
     .nm_tool("normet_start_cv", paste(
       "Start a job: time-series cross-validation of a model of `target` on `covariates` --",
       "trained on the past, scored on the next block, n_splits times (5), `gap` rows between",
@@ -172,10 +378,12 @@ NULL
     ), .nm_agent_read_run, list(run = .p_str("Path of the run (run.rds).")), "run"),
     .nm_tool("normet_read_result", paste(
       "A result table read as `kind` says: 'normalised' (observed and normalised columns),",
-      "'decomposition', 'scm' (with the `cutoff` it was run with) or 'cv'."
+      "'decomposition', 'scm' (with the `cutoff` it was run with), 'cv', 'scm_all'",
+      "(every unit in turn), 'staggered', 'placebo_space', 'placebo_time', 'uncertainty'",
+      "(effect with its bands) or 'loo' (weight stability)."
     ), .nm_agent_read_result, list(
       path = .p_str("Path of the table."),
-      kind = .p_str("'normalised', 'decomposition', 'scm' or 'cv'."),
+      kind = .p_str("'normalised', 'decomposition', 'scm', 'cv', 'scm_all', 'staggered', 'placebo_space', 'placebo_time', 'uncertainty' or 'loo'."),
       cutoff = .p_str("An SCM result's cutoff, YYYY-MM-DD.")
     ), c("path", "kind")),
     .nm_tool("normet_trend", paste(

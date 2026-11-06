@@ -337,6 +337,177 @@ NULL
   paste(lines, collapse = "\n")
 }
 
+#' Every unit's synthetic control in turn (nm_scm_all): the units, and the
+#' distribution of their effects.
+#' @noRd
+.nm_scm_all_reading <- function(result) {
+  df <- as.data.frame(result)
+  if (!all(c("date", "observed", "synthetic", "effect") %in% names(df))) {
+    stop("expected 'date', 'observed', 'synthetic', 'effect' columns", call. = FALSE)
+  }
+  unit_col <- setdiff(names(df), c("date", "observed", "synthetic", "effect"))[1]
+  if (is.na(unit_col)) stop("the result carries no unit column", call. = FALSE)
+  units <- unique(df[[unit_col]])
+  eff <- df$effect[is.finite(df$effect)]
+  lines <- c(
+    sprintf("%s units, %s rows.", .nm_count(length(units)), .nm_count(nrow(df))),
+    "",
+    sprintf("Effect (observed − synthetic) over all units and dates: mean %s, median %s, sd %s.",
+            .nm_num(mean(eff, na.rm = TRUE)), .nm_num(stats::median(eff, na.rm = TRUE)),
+            .nm_num(stats::sd(eff, na.rm = TRUE)))
+  )
+  paste(lines, collapse = "\n")
+}
+
+#' A staggered design's summary (nm_run_scm_staggered): one row per treated unit
+#' with its pre-period fit, effect and placebo p-value, then the pooled rows.
+#' @noRd
+.nm_staggered_reading <- function(result) {
+  df <- as.data.frame(result)
+  rows <- lapply(seq_len(nrow(df)), function(i) lapply(df, `[[`, i))
+  lines <- c(
+    sprintf("%d treated units, then the pooled rows.", max(nrow(df) - 2L, 0L)),
+    "",
+    .nm_text_table(names(df), rows)
+  )
+  paste(lines, collapse = "\n")
+}
+
+#' A placebo-in-space test (nm_placebo_in_space): the treated effect against the
+#' distribution of the donors' placebo effects, and the p-value.
+#' @noRd
+.nm_placebo_space_reading <- function(pl, cutoff) {
+  if (is.null(pl)) return("")
+  lines <- character()
+  if (!is.null(cutoff) && nzchar(cutoff)) lines <- c(lines, paste0("cutoff ", cutoff))
+  if (!is.null(pl$p_value)) {
+    lines <- c(lines, sprintf(
+      "p-value (share of donor placebos at least as extreme as the treated effect): %s",
+      .nm_num(pl$p_value, 4)
+    ))
+  }
+  treated <- pl$treated
+  if (is.data.frame(treated) && "effect" %in% names(treated) && !is.null(cutoff) && nzchar(cutoff)) {
+    cut <- as.Date(cutoff)
+    post <- treated$effect[treated$date >= cut]
+    pre <- treated$effect[treated$date < cut]
+    lines <- c(lines, sprintf(
+      "Treated effect: pre-period mean %s (n=%s), post-period mean %s (n=%s).",
+      .nm_num(mean(pre, na.rm = TRUE)), .nm_count(length(pre)),
+      .nm_num(mean(post, na.rm = TRUE)), .nm_count(length(post))
+    ))
+  }
+  n_pl <- length(pl$placebos %||% list())
+  lines <- c(lines, sprintf("%s donor placebos ran.", .nm_count(n_pl)))
+  paste(lines, collapse = "\n")
+}
+
+#' A placebo-in-time test (nm_placebo_in_time): the treated effect against the
+#' effects found at the fake cutoffs, and the p-value.
+#' @noRd
+.nm_placebo_time_reading <- function(pl, cutoff) {
+  if (is.null(pl)) return("")
+  lines <- character()
+  if (!is.null(cutoff) && nzchar(cutoff)) lines <- c(lines, paste0("cutoff ", cutoff))
+  if (!is.null(pl$p_value)) {
+    lines <- c(lines, sprintf(
+      "p-value (share of placebo-cutoff effects at least as extreme as the treated effect): %s",
+      .nm_num(pl$p_value, 4)
+    ))
+  }
+  n_pl <- length(pl$placebos %||% list())
+  lines <- c(lines, sprintf("%s placebo cutoffs ran.", .nm_count(n_pl)))
+  if (is.null(pl$p_value)) {
+    lines <- c(lines, "No valid placebo cutoffs: the record is too short to shift the cutoff.")
+  }
+  paste(lines, collapse = "\n")
+}
+
+#' Uncertainty bands on the effect (nm_uncertainty_bands): the effect with its
+#' lower and upper bound, post-cutoff.
+#' @noRd
+.nm_uncertainty_reading <- function(result, cutoff) {
+  df <- .nm_reading_dated(result)
+  if (!all(c("effect", "low", "high") %in% names(df))) {
+    stop("expected 'effect', 'low', 'high' columns", call. = FALSE)
+  }
+  lines <- character()
+  if (!is.null(cutoff) && nzchar(cutoff)) {
+    cut <- as.POSIXct(as.character(cutoff), tz = "UTC")
+    post <- df[df$date >= cut, , drop = FALSE]
+    if (nrow(post)) {
+      lines <- c(lines, sprintf(
+        "Post-%s effect: mean %s, band [%s, %s]; the effect lies inside its band on %s of %s dates.",
+        cutoff, .nm_num(mean(post$effect, na.rm = TRUE)),
+        .nm_num(min(post$low, na.rm = TRUE)), .nm_num(max(post$high, na.rm = TRUE)),
+        .nm_count(sum(post$effect >= post$low & post$effect <= post$high, na.rm = TRUE)),
+        .nm_count(nrow(post))
+      ))
+    }
+  }
+  paste(lines, collapse = "\n")
+}
+
+#' Leave-one-donor-out weight stability (nm_loo_weight_stability): how much the
+#' weights and the effect move when each donor is held out.
+#' @noRd
+.nm_loo_reading <- function(result) {
+  df <- as.data.frame(result)
+  if (!nrow(df)) return("No leave-one-out refits could be run.")
+  rows <- lapply(seq_len(nrow(df)), function(i) lapply(df, `[[`, i))
+  lines <- c(
+    sprintf("%d donors held out in turn.", nrow(df)),
+    "",
+    .nm_text_table(names(df), rows)
+  )
+  if ("effect_shift" %in% names(df)) {
+    shifts <- df$effect_shift[is.finite(df$effect_shift)]
+    if (length(shifts)) {
+      lines <- c(lines, sprintf(
+        "The effect moves by %s on average (largest %s) when a donor is held out.",
+        .nm_num(mean(abs(shifts))), .nm_num(max(abs(shifts))))
+      )
+    }
+  }
+  paste(lines, collapse = "\n")
+}
+
+#' Effect bands from a placebo test (nm_effect_bands_space / _time): the effect
+#' with its lower and upper bound, and where it lies outside them.
+#' @noRd
+.nm_bands_reading <- function(bands, heading) {
+  df <- as.data.frame(bands)
+  if (!all(c("lower", "upper") %in% names(df))) {
+    stop("expected 'lower', 'upper' columns", call. = FALSE)
+  }
+  rows <- list(
+    list("points", .nm_count(nrow(df))),
+    list("band range", paste0("[", .nm_num(min(df$lower, na.rm = TRUE)), ", ", .nm_num(max(df$upper, na.rm = TRUE)), "]"))
+  )
+  if ("effect" %in% names(df)) {
+    outside <- sum(df$effect < df$lower | df$effect > df$upper, na.rm = TRUE)
+    rows <- c(rows, list(
+      list("effect mean", mean(df$effect, na.rm = TRUE)),
+      list("points outside the band", sprintf("%s of %s", .nm_count(outside), .nm_count(nrow(df))))
+    ))
+  }
+  paste(c(heading, "", .nm_text_table(c("", "value"), rows)), collapse = "\n")
+}
+
+#' The uncertainty decomposition's summary (nm_decompose_uncertainty): the
+#' median variance and share of the total attributed to each source.
+#' @noRd
+.nm_decomp_unc_reading <- function(result) {
+  df <- as.data.frame(result)
+  rows <- lapply(seq_len(nrow(df)), function(i) lapply(df, `[[`, i))
+  lines <- c(
+    "Of the total spread of the de-weathered estimate, the median share by source:",
+    "",
+    .nm_text_table(names(df), rows)
+  )
+  paste(lines, collapse = "\n")
+}
+
 #' A time-series cross-validation's scores, fold by fold, with their means.
 #' @noRd
 .nm_cv_reading <- function(scores) {

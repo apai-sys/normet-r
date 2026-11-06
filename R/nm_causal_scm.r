@@ -516,8 +516,9 @@ nm_mlscm <- function(df,
 #' @param donors Optional vector of donor units.
 #' @param scm_backend Either "scm" (Classic augmented SCM), "mlscm" (ML),
 #'        "abadie" (classic Abadie simplex SCM), "did" (difference-in-differences),
-#'        "mcnnm" (matrix completion with nuclear-norm minimisation), or
-#'        "robust" (HSVT-denoised robust SCM, Amjad et al. 2018).
+#'        "mcnnm" (matrix completion with nuclear-norm minimisation),
+#'        "robust" (HSVT-denoised robust SCM, Amjad et al. 2018), or
+#'        "bayesian" (Bayesian SCM with posterior bands, nm_bayesian_scm).
 #' @param model_config List of model parameters (e.g. list(nfold=5)) passed to ML-SCM.
 #' @param n_cores Number of CPU cores.
 #' @param max_mem_size Maximum memory for H2O.
@@ -579,6 +580,20 @@ nm_run_scm <- function(df,
   extra_args <- list(...)
 
   # --- 6. Dispatch to backend ---
+  if (scm_backend == "bayesian") {
+    # nm_bayesian_scm's own arguments (dirichlet_alpha, draws, ...); it returns
+    # the synthetic table with its posterior bands.
+    if (verbose) {
+      log$info("Running Bayesian SCM | treated=%s | donors=%d | cutoff=%s",
+        treated_unit, length(donor_pool), cutoff_str)
+    }
+    args_list <- c(list(
+      df = df, date_col = date_col, unit_col = unit_col, outcome_col = outcome_col,
+      treated_unit = treated_unit, cutoff_date = cutoff_str, donors = donor_pool,
+      verbose = verbose), extra_args)
+    return(do.call(nm_bayesian_scm, args_list)$synthetic)
+  }
+
   if (scm_backend == "scm") {
     if (verbose) {
       log$info("Running SCM | treated=%s | donors=%d | cutoff=%s",
@@ -593,6 +608,8 @@ nm_run_scm <- function(df,
 
     out <- do.call(nm_scm, args_list)
 
+    # Every SCM backend returns a list whose `synthetic` is the result table;
+    # hand back that table, so the callers (and the agent's jobs) see one shape.
     if (is.list(out) && "synthetic" %in% names(out)) return(out$synthetic)
     return(out)
 
@@ -641,15 +658,17 @@ nm_run_scm <- function(df,
     }
     args_list <- c(list(
       df = df, date_col = date_col, unit_col = unit_col, outcome_col = outcome_col,
-      treated_unit = treated_unit, cutoff_date = cutoff_str, donors = donor_pool,
-      verbose = verbose), extra_args)
+      treated_unit = treated_unit, cutoff_date = cutoff_str, donors = donor_pool), extra_args)
+    # nm_scm_robust is the only variant that takes verbose; the others error on it.
+    if (!("verbose" %in% names(formals(fn)))) args_list$verbose <- NULL
 
     out <- do.call(fn, args_list)
     if (is.list(out) && "synthetic" %in% names(out)) return(out$synthetic)
     return(out)
   }
 
-  stop("Unsupported scm_backend: ", scm_backend, ". Use 'scm', 'mlscm', 'abadie', 'did', 'mcnnm', or 'robust'.")
+  stop("Unsupported scm_backend: ", scm_backend,
+       ". Use 'scm', 'mlscm', 'abadie', 'did', 'mcnnm', 'robust', or 'bayesian'.")
 }
 
 

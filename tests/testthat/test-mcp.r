@@ -130,6 +130,127 @@ test_that("the trend tools read a result table, with py's defaults and refusals"
                "has no 'emi_total' column")
 })
 
+test_that("the SCM diagnostics tools read a result table, and refuse without a cutoff", {
+  a <- agent_in()
+  # A small synthetic-control result table: date, observed, synthetic, effect.
+  dates <- seq(as.Date("2023-01-01"), by = "day", length.out = 60)
+  set.seed(3)
+  syn <- data.frame(
+    date = dates,
+    observed = sin(seq_len(60) / 7) + rnorm(60, sd = 0.05),
+    synthetic = sin(seq_len(60) / 7),
+    stringsAsFactors = FALSE
+  )
+  syn$effect <- syn$observed - syn$synthetic
+  tab <- file.path(a$store$home, "scm.csv")
+  dir.create(dirname(tab), recursive = TRUE, showWarnings = FALSE)
+  write.csv(syn, tab, row.names = FALSE)
+
+  out <- .nm_mcp_call(a, "normet_scm_diagnostics", list(path = tab, cutoff = "2023-03-01"))
+  expect_match(out$text, "Synthetic control, cutoff 2023-03-01 (nm_scm_diagnostics):", fixed = TRUE)
+  expect_match(out$text, "ATT (mean effect after the cutoff)", fixed = TRUE)
+
+  out2 <- .nm_mcp_call(a, "normet_pre_trend_test", list(path = tab, cutoff = "2023-03-01"))
+  expect_match(out2$text, "Pre-trend test, cutoff 2023-03-01 (nm_pre_trend_test):", fixed = TRUE)
+  expect_match(out2$text, "RMSPE drift", fixed = TRUE)
+
+  out3 <- .nm_mcp_call(a, "normet_conformal_interval",
+                       list(path = tab, cutoff = "2023-03-01", n_perm = 100))
+  expect_match(out3$text, "Conformal effect interval, cutoff 2023-03-01", fixed = TRUE)
+  expect_match(out3$text, "p-value (two-sided)", fixed = TRUE)
+
+  # The refusals: the readings are against the cutoff the SCM was run with.
+  expect_error(.nm_mcp_call(a, "normet_scm_diagnostics", list(path = tab)), "give cutoff=")
+  expect_error(.nm_mcp_call(a, "normet_pre_trend_test", list(path = tab)), "give cutoff=")
+  expect_error(.nm_mcp_call(a, "normet_conformal_interval", list(path = tab)), "give cutoff=")
+})
+
+test_that("the effect-bands tools read a placebo result", {
+  a <- agent_in()
+  dates <- seq(as.Date("2023-01-01"), by = "day", length.out = 60)
+  set.seed(5)
+  eff <- sin(seq_len(60) / 7) + rnorm(60, sd = 0.05)
+  treated <- data.frame(date = dates, effect = eff, stringsAsFactors = FALSE)
+  placebos <- lapply(1:5, function(i) {
+    data.frame(date = dates, effect = eff + rnorm(60, sd = 0.1), unit = paste0("D", i),
+               stringsAsFactors = FALSE)
+  })
+  rds <- file.path(a$store$home, "placebo_space.rds")
+  dir.create(dirname(rds), recursive = TRUE, showWarnings = FALSE)
+  saveRDS(list(treated = treated, placebos = placebos, p_value = 0.2, ref_band = NULL), rds)
+
+  out <- .nm_mcp_call(a, "normet_effect_bands_space", list(path = rds))
+  expect_match(out$text, "Effect bands from the donor placebos (nm_effect_bands_space, quantile, level 0.95):", fixed = TRUE)
+  expect_match(out$text, "points outside the band", fixed = TRUE)
+
+  # The time variant aligns to event time: its placebos are named by the fake cutoff.
+  plc_time <- lapply(1:5, function(i) {
+    data.frame(date = dates[1:20], effect = eff[1:20] + rnorm(20, sd = 0.1),
+               stringsAsFactors = FALSE)
+  })
+  names(plc_time) <- paste0("2023-0", 1:5, "-15")
+  saveRDS(list(treated = treated, placebos = plc_time, p_value = 0.2,
+               ref_band_event_time = NULL, placebo_stats = numeric()),
+          file.path(a$store$home, "placebo_time.rds"))
+  out2 <- .nm_mcp_call(a, "normet_effect_bands_time", list(path = file.path(a$store$home, "placebo_time.rds")))
+  expect_match(out2$text, "by event time (nm_effect_bands_time, quantile, level 0.95):", fixed = TRUE)
+})
+
+test_that("the new SCM and multisite tools write the R their jobs run", {
+  a <- agent_in()
+  # Queued behind one that is running, so none of these starts.
+  blocker <- .nm_job_submit(a$store, "cv", "Sys.sleep(60)")
+  on.exit(.nm_job_cancel(a$store, blocker$id), add = TRUE)
+
+  start_and_check <- function(name, args, marker) {
+    said <- .nm_mcp_call(a, name, args)
+    id <- sub("^Started job (\\S+) .*", "\\1", strsplit(said$text, "\n")[[1]][1])
+    script <- readLines(file.path(a$store$root, id, "job.R"))
+    expect_true(any(grepl(marker, script, fixed = TRUE)))
+    expect_silent(parse(text = script))
+    expect_match(.nm_agent_cancel_job(a, id), ": cancelled.", fixed = TRUE)
+    invisible(NULL)
+  }
+
+  start_and_check("normet_start_scm_all", list(
+    cutoff = "2019-04-01", example = "scm", unit_col = "code", outcome_col = "NO2_dw"
+  ), "nm_scm_all(df")
+
+  start_and_check("normet_start_scm_staggered", list(
+    treated_units = c("MY1", "ABD"), cutoff_dates = c("2019-04-01", "2020-04-01"),
+    example = "scm", unit_col = "code", outcome_col = "NO2_dw"
+  ), "nm_run_scm_staggered(df")
+
+  start_and_check("normet_start_placebo_space", list(
+    treated = "MY1", cutoff = "2019-04-01", example = "scm", unit_col = "code", outcome_col = "NO2_dw"
+  ), "nm_placebo_in_space(df")
+
+  start_and_check("normet_start_placebo_time", list(
+    treated = "MY1", cutoff = "2019-04-01", example = "scm", unit_col = "code", outcome_col = "NO2_dw"
+  ), "nm_placebo_in_time(df")
+
+  start_and_check("normet_start_uncertainty_bands", list(
+    treated = "MY1", cutoff = "2019-04-01", example = "scm", unit_col = "code", outcome_col = "NO2_dw",
+    method = "bootstrap", b = 50
+  ), "nm_uncertainty_bands(df")
+
+  start_and_check("normet_start_loo_stability", list(
+    treated = "MY1", cutoff = "2019-04-01", example = "scm", unit_col = "code", outcome_col = "NO2_dw"
+  ), "nm_loo_weight_stability(df")
+
+  start_and_check("normet_start_do_all_multisite", list(
+    site_col = "site", target = "NO2", covariates = c("ws", "wd"), example = "my1"
+  ), "nm_do_all_multisite(df")
+
+  start_and_check("normet_start_decompose_multisite", list(
+    site_col = "site", target = "NO2", covariates = c("ws", "wd"), example = "my1"
+  ), "nm_decompose_multisite(df")
+
+  start_and_check("normet_start_decompose_uncertainty", list(
+    target = "NO2", covariates = c("ws", "wd"), example = "my1", n_models = 2, n_samples = 3
+  ), "nm_decompose_uncertainty(df")
+})
+
 test_that("the server speaks MCP over stdio", {
   home <- tempfile("normet-mcp-")
   msgs <- c(
@@ -154,9 +275,14 @@ test_that("the server speaks MCP over stdio", {
   names <- vapply(replies[[2]]$result$tools, `[[`, "", "name")
   expect_setequal(names, c(
     "normet_list_examples", "normet_inspect_data", "normet_start_do_all", "normet_start_decompose",
-    "normet_start_scm", "normet_start_cv", "normet_job_status", "normet_cancel_job", "normet_list_jobs",
-    "normet_read_run", "normet_read_result", "normet_trend", "normet_trend_breaks",
-    "normet_figure", "normet_write_report"
+    "normet_start_scm", "normet_start_scm_all", "normet_start_scm_staggered",
+    "normet_start_placebo_space", "normet_start_placebo_time", "normet_start_uncertainty_bands",
+    "normet_start_loo_stability", "normet_start_do_all_multisite", "normet_start_decompose_multisite",
+    "normet_start_decompose_uncertainty", "normet_scm_diagnostics", "normet_conformal_interval",
+    "normet_pre_trend_test", "normet_effect_bands_space", "normet_effect_bands_time",
+    "normet_start_cv", "normet_job_status", "normet_cancel_job",
+    "normet_list_jobs", "normet_read_run", "normet_read_result", "normet_trend",
+    "normet_trend_breaks", "normet_figure", "normet_write_report"
   ))
   status <- replies[[2]]$result$tools[[which(names == "normet_job_status")]]$inputSchema
   expect_equal(status$required, list("job_id"))

@@ -41,7 +41,13 @@ NULL
 #' What each job writes, read back once it has ended.
 #' @noRd
 .NM_AGENT_OUTPUTS <- c(do_all = "normalised.csv", decompose = "decomposition.csv",
-                       scm = "scm.csv", cv = "cv.csv")
+                       scm = "scm.csv", cv = "cv.csv",
+                       scm_all = "scm_all.csv", staggered = "staggered.csv",
+                       placebo_space = "placebo_space.csv", placebo_time = "placebo_time.csv",
+                       uncertainty = "uncertainty.csv", loo = "loo_stability.csv",
+                       do_all_multisite = "normalised.csv",
+                       decompose_multisite = "decomposition.csv",
+                       decomp_unc = "uncertainty_decomp_summary.csv")
 
 .nm_cut <- function(text, limit = 4000) {
   if (nchar(text) <= limit) text else paste0("\u2026", substr(text, nchar(text) - limit + 1, nchar(text)))
@@ -163,6 +169,84 @@ NULL
     n_bootstrap = as.integer(n_bootstrap), seed = seed
   )
   .nm_trend_reading(res, name = name %||% column)
+}
+
+# -- the SCM diagnostics (synchronous: statistics on a result table, no job) -------
+
+.nm_agent_scm_diagnostics <- function(agent, path, cutoff = NULL) {
+  df <- .nm_agent_table(.nm_agent_path(agent, path))
+  if (is.null(cutoff) || !nzchar(cutoff)) {
+    stop("the diagnostics are read against the cutoff the SCM was run with: give cutoff=", call. = FALSE)
+  }
+  .nm_scm_reading(df, cutoff)
+}
+
+.nm_agent_conformal_interval <- function(agent, path, cutoff = NULL, n_perm = 1000, ci_level = 0.95,
+                                         seed = 7654321) {
+  df <- .nm_agent_table(.nm_agent_path(agent, path))
+  if (is.null(cutoff) || !nzchar(cutoff)) {
+    stop("the interval is read against the cutoff the SCM was run with: give cutoff=", call. = FALSE)
+  }
+  res <- nm_conformal_effect_interval(df, cutoff, n_perm = as.integer(n_perm),
+                                      ci_level = ci_level, random_state = seed)
+  rows <- list(
+    list("ATT (mean effect after the cutoff)", res$att),
+    list(sprintf("conformal %s%% interval", 100 * ci_level),
+         paste0("[", .nm_num(res$low), ", ", .nm_num(res$high), "]")),
+    list("p-value (two-sided)", res$p_value),
+    list("post-period points", res$n_post),
+    list("permutations", res$n_perm)
+  )
+  paste(c(
+    sprintf("Conformal effect interval, cutoff %s (nm_conformal_effect_interval):", cutoff),
+    "",
+    .nm_text_table(c("", "value"), rows)
+  ), collapse = "\n")
+}
+
+.nm_agent_pre_trend_test <- function(agent, path, cutoff = NULL, alpha = 0.05) {
+  df <- .nm_agent_table(.nm_agent_path(agent, path))
+  if (is.null(cutoff) || !nzchar(cutoff)) {
+    stop("the test is read against the cutoff the SCM was run with: give cutoff=", call. = FALSE)
+  }
+  res <- nm_pre_trend_test(df, cutoff, alpha = alpha)
+  rows <- list(
+    list("pre-period points", res$n_periods),
+    list("slope (residuals vs period index)", res$slope),
+    list("p (two-sided t-test)", res$p_slope),
+    list("RMSPE drift (final third vs rest)", res$rmpe_drift)
+  )
+  paste(c(
+    sprintf("Pre-trend test, cutoff %s (nm_pre_trend_test):", cutoff),
+    "",
+    .nm_text_table(c("", "value"), rows),
+    "",
+    res$verdict
+  ), collapse = "\n")
+}
+
+#' The placebo result a bands tool reads: the RDS the placebo jobs save
+#' (`placebo_space.rds` / `placebo_time.rds`), found by the given path with or
+#' without its extension.
+#' @noRd
+.nm_agent_placebo_result <- function(agent, path) {
+  p <- .nm_agent_path(agent, path)
+  if (!grepl("\\.rds$", p)) p <- paste0(p, ".rds")
+  pl <- .nm_read_rds(p)
+  if (is.null(pl)) stop(sprintf("no placebo result at %s", p), call. = FALSE)
+  pl
+}
+
+.nm_agent_effect_bands_space <- function(agent, path, level = 0.95, method = "quantile") {
+  pl <- .nm_agent_placebo_result(agent, path)
+  bands <- nm_effect_bands_space(pl, level = level, method = method, verbose = FALSE)
+  .nm_bands_reading(bands, sprintf("Effect bands from the donor placebos (nm_effect_bands_space, %s, level %s):", method, level))
+}
+
+.nm_agent_effect_bands_time <- function(agent, path, level = 0.95, method = "quantile", horizon = NULL) {
+  pl <- .nm_agent_placebo_result(agent, path)
+  bands <- nm_effect_bands_time(pl, level = level, method = method, horizon = horizon)$bands
+  .nm_bands_reading(bands, sprintf("Effect bands from the placebo cutoffs, by event time (nm_effect_bands_time, %s, level %s):", method, level))
 }
 
 .nm_agent_trend_breaks <- function(agent, path, column = NULL, segments = 2,
@@ -327,6 +411,190 @@ NULL
   .nm_agent_start(agent, "scm", code, label)
 }
 
+.nm_agent_start_scm_all <- function(agent, cutoff, data = NULL, example = NULL, donors = NULL,
+                                    date_col = NULL, unit_col = NULL, outcome_col = NULL,
+                                    backend = "scm", label = "") {
+  src <- .nm_agent_source(agent, data, example)
+  code <- c(
+    "# A synthetic control for every unit in the panel in turn (the others its donors).",
+    .nm_read_line(src),
+    .nm_r_call("sc", "nm_scm_all", "df", list(
+      date_col = date_col %||% "date", unit_col = unit_col %||% "ID", outcome_col = outcome_col %||% "value",
+      cutoff_date = as.character(cutoff), donors = .nm_names(donors), scm_backend = backend %||% "scm"
+    )),
+    "data.table::fwrite(sc, \"scm_all.csv\")"
+  )
+  .nm_agent_start(agent, "scm_all", code, label)
+}
+
+.nm_agent_start_scm_staggered <- function(agent, treated_units, cutoff_dates, data = NULL, example = NULL,
+                                          donors = NULL, date_col = NULL, unit_col = NULL,
+                                          outcome_col = NULL, backend = "scm", post_agg = "mean",
+                                          label = "") {
+  treated_units <- .nm_names(treated_units)
+  if (is.null(treated_units)) stop("give the treated units", call. = FALSE)
+  cutoff_dates <- .nm_names(cutoff_dates)
+  if (is.null(cutoff_dates)) stop("give a cutoff date for each treated unit", call. = FALSE)
+  src <- .nm_agent_source(agent, data, example)
+  code <- c(
+    "# A staggered design: each treated unit its own synthetic control at its own cutoff,",
+    "# the other treated units kept out of every run's donor pool.",
+    .nm_read_line(src),
+    .nm_r_call("st", "nm_run_scm_staggered", "df", list(
+      date_col = date_col %||% "date", unit_col = unit_col %||% "ID", outcome_col = outcome_col %||% "value",
+      treated_units = treated_units, cutoff_dates = cutoff_dates, donors = .nm_names(donors),
+      scm_backend = backend %||% "scm", post_agg = post_agg %||% "mean"
+    )),
+    "data.table::fwrite(st, \"staggered.csv\")"
+  )
+  .nm_agent_start(agent, "staggered", code, label)
+}
+
+.nm_agent_start_placebo_space <- function(agent, treated, cutoff, data = NULL, example = NULL, donors = NULL,
+                                          date_col = NULL, unit_col = NULL, outcome_col = NULL,
+                                          backend = "scm", post_agg = "mean", label = "") {
+  src <- .nm_agent_source(agent, data, example)
+  code <- c(
+    "# Placebo-in-space: each donor in turn takes the treated unit's role; the p-value is the",
+    "# share of the placebos at least as extreme as the treated effect.",
+    .nm_read_line(src),
+    .nm_r_call("pl", "nm_placebo_in_space", "df", list(
+      date_col = date_col %||% "date", unit_col = unit_col %||% "ID", outcome_col = outcome_col %||% "value",
+      treated_unit = treated, cutoff_date = as.character(cutoff), donors = .nm_names(donors),
+      scm_backend = backend %||% "scm", post_agg = post_agg %||% "mean"
+    )),
+    "data.table::fwrite(pl$treated, \"placebo_space.csv\")",
+    "saveRDS(pl, \"placebo_space.rds\")"
+  )
+  .nm_agent_start(agent, "placebo_space", code, label)
+}
+
+.nm_agent_start_placebo_time <- function(agent, treated, cutoff, data = NULL, example = NULL, donors = NULL,
+                                         date_col = NULL, unit_col = NULL, outcome_col = NULL,
+                                         backend = "scm", post_agg = "mean", min_pre_period = NULL,
+                                         placebo_every = NULL, label = "") {
+  src <- .nm_agent_source(agent, data, example)
+  code <- c(
+    "# Placebo-in-time: the cutoff shifted to fake positions before the true one; the p-value",
+    "# is the share of the placebo effects at least as extreme as the treated effect.",
+    .nm_read_line(src),
+    .nm_r_call("pl", "nm_placebo_in_time", "df", list(
+      date_col = date_col %||% "date", unit_col = unit_col %||% "ID", outcome_col = outcome_col %||% "value",
+      treated_unit = treated, cutoff_date = as.character(cutoff), donors = .nm_names(donors),
+      scm_backend = backend %||% "scm", post_agg = post_agg %||% "mean",
+      min_pre_period = min_pre_period, placebo_every = placebo_every
+    )),
+    "data.table::fwrite(pl$treated, \"placebo_time.csv\")",
+    "saveRDS(pl, \"placebo_time.rds\")"
+  )
+  .nm_agent_start(agent, "placebo_time", code, label)
+}
+
+.nm_agent_start_uncertainty_bands <- function(agent, treated, cutoff, data = NULL, example = NULL,
+                                              donors = NULL, date_col = NULL, unit_col = NULL,
+                                              outcome_col = NULL, backend = "scm", method = "jackknife",
+                                              b = NULL, seed = NULL, donor_frac = NULL,
+                                              time_block_days = NULL, ci_level = NULL, label = "") {
+  src <- .nm_agent_source(agent, data, example)
+  code <- c(
+    "# Uncertainty bands for the effect: jackknife (each donor held out in turn) or bootstrap",
+    "# (donor subsamples, B replications).",
+    .nm_read_line(src),
+    .nm_r_call("ub", "nm_uncertainty_bands", "df", list(
+      date_col = date_col %||% "date", unit_col = unit_col %||% "ID", outcome_col = outcome_col %||% "value",
+      treated_unit = treated, cutoff_date = as.character(cutoff), donors = .nm_names(donors),
+      scm_backend = backend %||% "scm", method = method %||% "jackknife",
+      B = b, seed = seed, donor_frac = donor_frac, time_block_days = time_block_days,
+      ci_level = ci_level
+    )),
+    "eff <- ub$treated",
+    "eff$low <- as.numeric(ub$low[as.character(eff$date)])",
+    "eff$high <- as.numeric(ub$high[as.character(eff$date)])",
+    "data.table::fwrite(eff, \"uncertainty.csv\")"
+  )
+  .nm_agent_start(agent, "uncertainty", code, label)
+}
+
+.nm_agent_start_loo_stability <- function(agent, treated, cutoff, data = NULL, example = NULL, donors = NULL,
+                                          date_col = NULL, unit_col = NULL, outcome_col = NULL, label = "") {
+  src <- .nm_agent_source(agent, data, example)
+  code <- c(
+    "# Leave-one-donor-out weight stability: the SCM refit with each donor held out, the drift",
+    "# of the remaining weights and the shift of the effect.",
+    .nm_read_line(src),
+    .nm_r_call("loo", "nm_loo_weight_stability", "df", list(
+      date_col = date_col %||% "date", unit_col = unit_col %||% "ID", outcome_col = outcome_col %||% "value",
+      treated_unit = treated, cutoff_date = as.character(cutoff), donors = .nm_names(donors)
+    )),
+    "data.table::fwrite(loo, \"loo_stability.csv\")"
+  )
+  .nm_agent_start(agent, "loo", code, label)
+}
+
+.nm_agent_start_do_all_multisite <- function(agent, site_col, target, covariates, data = NULL, example = NULL,
+                                             backend = NULL, n_samples = NULL, split_method = NULL,
+                                             train_fraction = NULL, seed = NULL, label = "") {
+  covariates <- .nm_names(covariates)
+  if (is.null(covariates)) stop("give the covariates (predictor columns) to train on", call. = FALSE)
+  src <- .nm_agent_source(agent, data, example)
+  covs <- union(covariates, .NM_TIME_FEATURES)
+  code <- c(
+    "# do-all per site: one model and its normalised series for each value of the site column.",
+    .nm_read_line(src),
+    .nm_r_call("res", "nm_do_all_multisite", "df", list(
+      site_col = site_col, target = target, covariates = covs,
+      backend = backend %||% "lightgbm", n_samples = n_samples, split_method = split_method,
+      train_fraction = train_fraction, seed = seed
+    )),
+    "data.table::fwrite(res, \"normalised.csv\")"
+  )
+  .nm_agent_start(agent, "do_all_multisite", code, label)
+}
+
+.nm_agent_start_decompose_multisite <- function(agent, site_col, target, covariates, method = "emission",
+                                                data = NULL, example = NULL, backend = NULL, n_samples = NULL,
+                                                seed = NULL, label = "") {
+  method <- method %||% "emission"
+  if (!method %in% c("emission", "meteorology")) stop("method is 'emission' or 'meteorology'", call. = FALSE)
+  covariates <- .nm_names(covariates)
+  if (is.null(covariates)) stop("give the covariates (predictor columns) to train on", call. = FALSE)
+  src <- .nm_agent_source(agent, data, example)
+  code <- c(
+    "# decompose per site: one decomposition for each value of the site column.",
+    .nm_read_line(src),
+    .nm_r_call("dec", "nm_decompose_multisite", "df", list(
+      site_col = site_col, method = method, target = target,
+      covariates = union(covariates, .NM_TIME_FEATURES),
+      backend = backend %||% "lightgbm", n_samples = n_samples, seed = seed
+    )),
+    "data.table::fwrite(dec, \"decomposition.csv\")"
+  )
+  .nm_agent_start(agent, "decompose_multisite", code, label)
+}
+
+.nm_agent_start_decompose_uncertainty <- function(agent, target, covariates, data = NULL, example = NULL,
+                                                  backend = "lightgbm", n_samples = NULL, n_models = NULL,
+                                                  split_method = NULL, train_fraction = NULL, seed = NULL,
+                                                  label = "") {
+  covariates <- .nm_names(covariates)
+  if (is.null(covariates)) stop("give the covariates (predictor columns) to train on", call. = FALSE)
+  src <- .nm_agent_source(agent, data, example)
+  code <- c(
+    "# Uncertainty decomposition: of the total spread of the de-weathered estimate, how much",
+    "# is the met resampling and how much the model form (n_models members, the same",
+    "# n_samples met draws each).",
+    .nm_read_line(src),
+    .nm_r_call("unc", "nm_decompose_uncertainty", "df", list(
+      target = target, covariates = covariates, backend = backend %||% "lightgbm",
+      n_samples = n_samples, n_models = n_models, split_method = split_method,
+      train_fraction = train_fraction, seed = seed
+    )),
+    "data.table::fwrite(summary(unc), \"uncertainty_decomp_summary.csv\")",
+    "data.table::fwrite(as.data.frame(unc), \"uncertainty_decomp.csv\")"
+  )
+  .nm_agent_start(agent, "decomp_unc", code, label)
+}
+
 .nm_agent_start_cv <- function(agent, target, covariates, data = NULL, example = NULL, n_splits = NULL,
                                gap = NULL, backend = NULL, label = "") {
   covariates <- .nm_names(covariates)
@@ -358,9 +626,49 @@ NULL
   if (kind == "do_all" && file.exists(file.path(folder, "run.rds"))) {
     return(.nm_agent_read_run(agent, file.path(folder, "run.rds")))
   }
+  if (kind == "scm_all") {
+    out <- file.path(folder, "scm_all.csv")
+    if (!file.exists(out)) return("")
+    return(.nm_scm_all_reading(.nm_agent_table(out)))
+  }
+  if (kind == "staggered") {
+    out <- file.path(folder, "staggered.csv")
+    if (!file.exists(out)) return("")
+    return(.nm_staggered_reading(.nm_agent_table(out)))
+  }
+  if (kind == "placebo_space") {
+    rds <- file.path(folder, "placebo_space.rds")
+    if (!file.exists(rds)) return("")
+    return(.nm_placebo_space_reading(.nm_read_rds(rds), .nm_agent_cutoff_of(job)))
+  }
+  if (kind == "placebo_time") {
+    rds <- file.path(folder, "placebo_time.rds")
+    if (!file.exists(rds)) return("")
+    return(.nm_placebo_time_reading(.nm_read_rds(rds), .nm_agent_cutoff_of(job)))
+  }
+  if (kind == "uncertainty") {
+    out <- file.path(folder, "uncertainty.csv")
+    if (!file.exists(out)) return("")
+    return(.nm_uncertainty_reading(.nm_agent_table(out), .nm_agent_cutoff_of(job)))
+  }
+  if (kind == "loo") {
+    out <- file.path(folder, "loo_stability.csv")
+    if (!file.exists(out)) return("")
+    return(.nm_loo_reading(.nm_agent_table(out)))
+  }
+  if (kind == "decomp_unc") {
+    out <- file.path(folder, "uncertainty_decomp_summary.csv")
+    if (!file.exists(out)) return("")
+    return(.nm_decomp_unc_reading(.nm_agent_table(out)))
+  }
   out <- file.path(folder, .NM_AGENT_OUTPUTS[[kind]] %||% "")
   if (!file.exists(out) || dir.exists(out)) return("")
   .nm_agent_read_result(agent, out, kind, cutoff = .nm_agent_cutoff_of(job))
+}
+
+.nm_read_rds <- function(path) {
+  if (!file.exists(path)) return(NULL)
+  tryCatch(readRDS(path), error = function(e) NULL)
 }
 
 .nm_agent_job_status <- function(agent, job_id) {
@@ -442,8 +750,10 @@ NULL
 
 .nm_agent_read_result <- function(agent, path, kind, cutoff = NULL) {
   df <- .nm_agent_table(.nm_agent_path(agent, path))
-  if (kind %in% c("normalised", "do_all")) return(.nm_normalised_reading(df))
-  if (kind %in% c("decomposition", "decompose")) return(.nm_decomposition_reading(df))
+  if (kind %in% c("normalised", "do_all", "do_all_multisite")) return(.nm_normalised_reading(df))
+  if (kind %in% c("decomposition", "decompose", "decompose_multisite")) {
+    return(.nm_decomposition_reading(df))
+  }
   if (kind == "scm") {
     if (is.null(cutoff) || !nzchar(cutoff)) {
       stop("an SCM result is read against its cutoff date: give cutoff=", call. = FALSE)
@@ -451,7 +761,15 @@ NULL
     return(.nm_scm_reading(df, cutoff))
   }
   if (kind == "cv") return(.nm_cv_reading(df))
-  stop("kind is normalised, decomposition, scm or cv", call. = FALSE)
+  if (kind == "scm_all") return(.nm_scm_all_reading(df))
+  if (kind == "staggered") return(.nm_staggered_reading(df))
+  if (kind == "placebo_space") return(.nm_placebo_space_reading(.nm_read_rds(paste0(path, ".rds")), cutoff))
+  if (kind == "placebo_time") return(.nm_placebo_time_reading(.nm_read_rds(paste0(path, ".rds")), cutoff))
+  if (kind == "uncertainty") return(.nm_uncertainty_reading(df, cutoff))
+  if (kind == "loo") return(.nm_loo_reading(df))
+  if (kind == "decomp_unc") return(.nm_decomp_unc_reading(df))
+  stop(paste("kind is normalised, decomposition, scm, cv, scm_all, staggered,",
+             "placebo_space, placebo_time, uncertainty, loo or decomp_unc"), call. = FALSE)
 }
 
 #' One of the figures in .NM_AGENT_FIGURES: its caption and the PNG's bytes.
