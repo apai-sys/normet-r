@@ -35,7 +35,7 @@ test_that("nm_theme_normet is a ggplot2 theme with outward ticks and no legend f
   th <- nm_theme_normet()
   expect_s3_class(th, "theme")
   expect_s3_class(th$legend.background, "element_blank")
-  expect_equal(as.numeric(th$axis.ticks.length), 3)
+  expect_equal(as.numeric(th$axis.ticks.length), 3.5)
 })
 
 test_that(".usable_cycles follows the record's step and span", {

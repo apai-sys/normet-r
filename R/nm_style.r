@@ -93,7 +93,7 @@ nm_theme_normet <- function(base_size = 8, base_family = "", grid = TRUE) {
       axis.title = el(size = rel(8), colour = ink),
       axis.text = el(size = rel(7), colour = "#333333"),
       axis.ticks = ggplot2::element_line(colour = "#333333", linewidth = .pt_lw(0.6)),
-      axis.ticks.length = ggplot2::unit(3, "pt"),
+      axis.ticks.length = ggplot2::unit(3.5, "pt"),
       panel.border = ggplot2::element_rect(fill = NA, colour = "#262626",
                                            linewidth = .pt_lw(0.6)),
       panel.grid.major = if (grid) {
