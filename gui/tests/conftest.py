@@ -98,8 +98,38 @@ def _restore_window_plist(config) -> None:
             return
 
 
+def _headless_guard() -> None:
+    """No modal dialog may open in these tests: they run offscreen, where nobody could
+    click it, and an uncovered dialog would hang the run (this is how CI's smoke job
+    sat for hours at one test). A dialog that appears is a bug the test should report,
+    so the call fails at once instead of blocking."""
+    from PySide6.QtWidgets import QDialog, QFileDialog, QInputDialog, QMessageBox
+
+    def blocked(kind):
+        def _raise(*args, **kwargs):
+            texts = [a for a in args if isinstance(a, str)]
+            raise AssertionError(f"modal {kind} would block a headless run: {texts}")
+
+        return staticmethod(_raise)
+
+    for name in ("information", "warning", "critical", "question", "about"):
+        setattr(QMessageBox, name, blocked(f"QMessageBox.{name}"))
+    for name in ("getOpenFileName", "getOpenFileNames", "getSaveFileName", "getExistingDirectory"):
+        setattr(QFileDialog, name, blocked(f"QFileDialog.{name}"))
+    for name in ("getText", "getInt", "getDouble", "getItem", "getMultiLineText"):
+        setattr(QInputDialog, name, blocked(f"QInputDialog.{name}"))
+
+    def _exec(self, *args, **kwargs):
+        raise AssertionError(
+            f"modal {type(self).__name__}.exec() would block a headless run: {self.windowTitle()!r}"
+        )
+
+    QDialog.exec = _exec
+
+
 def pytest_configure(config):
-    """Snapshot the user's real settings before any test touches them.
+    """Snapshot the user's real settings before any test touches them, and bar modal
+    dialogs (see :func:`_headless_guard`).
 
     The window keeps its geometry, panel page, result tab, Assistant model and the rest
     in QSettings, which on macOS writes straight to the user's plist whatever ``$HOME``
@@ -111,6 +141,10 @@ def pytest_configure(config):
     The file's path is worked out here, once: some tests move ``$HOME`` to a folder of
     their own, and a run interrupted inside one would otherwise look for the file there.
     """
+    try:
+        _headless_guard()
+    except ImportError:  # noqa: BLE001 - no PySide6: nothing to guard
+        pass
     if not _MACOS:
         return
     _kill_cfprefsd()
@@ -120,6 +154,27 @@ def pytest_configure(config):
             tempfile.mkdtemp(prefix="normet_r_plist_bak_"), "backup.plist"
         )
         shutil.copy(plist, config._window_plist_backup)
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item, call):
+    """A step that reaches for R where none is installed (CI's smoke job before the R
+    setup, a machine without R) is reported skipped, not failed: the R side is covered
+    by the R package's own tests; what matters here is that the window runs headless.
+    Everything else -- including R *errors* -- still fails as before."""
+    outcome = yield
+    rep = outcome.get_result()
+    if rep.when != "call" or not rep.failed:
+        return
+    text = str(rep.longrepr)
+    if "RNotFound" not in text and "Rscript was not found" not in text:
+        return
+    rep.outcome = "skipped"
+    rep.longrepr = (
+        "skipped",
+        "R is not installed: the R side is covered by the R package's own tests",
+        1,
+    )
 
 
 @pytest.fixture(autouse=True)
