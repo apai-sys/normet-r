@@ -1628,3 +1628,28 @@ TEXTS.update(
         "theil-sen": "Theil–Sen",
     }
 )
+
+# Dialog titles, guards and tooltips added with the data studio, transport studio,
+# SCM studio and the LightGBM training controls.
+TEXTS.update(
+    {
+        # -- dialog titles -------------------------------------------------------------
+        "Exclude": "排除",
+        "Failed to read the meteorology": "读取气象数据失败",
+        "No donors": "没有供体",
+        "Nothing to attach": "没有可附加的内容",
+        # -- menu items ----------------------------------------------------------------
+        "Save merged CSV…": "保存合并 CSV…",
+        "Send features to main window": "把特征发送到主窗口",
+        # -- guards and messages -------------------------------------------------------
+        "Open the observations first, then attach meteorology.": "请先打开观测数据，再附加气象数据。",
+        "Tick at least one donor in the pool.": "请在供体池中至少勾选一个供体。",
+        "Run the decomposition first: the trend is tested on its series.": "请先运行分解：趋势检验作用于其序列。",
+        # -- tooltips ------------------------------------------------------------------
+        "Boosting rounds for the final LightGBM fit (num_boost_round). Early stopping may end it sooner.": "最终 LightGBM 拟合的 boosting 轮数（num_boost_round）。早停可能使其提前结束。",
+        "Rounds without improvement before a LightGBM fit stops (0: no early stopping). 30 is the project protocol.": "LightGBM 拟合停止前无改进的轮数（0：不早停）。30 是本项目方案。",
+        "Folds the LightGBM hyperparameter search cross-validates on. Separate from the walk-forward CV below, which scores the chosen form.": "LightGBM 超参数搜索所用交叉验证的折数。与下方为所选形式打分的 walk-forward 交叉验证相互独立。",
+        "Device": "设备",
+        "Steps": "步数",
+    }
+)

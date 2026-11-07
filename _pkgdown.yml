@@ -11,6 +11,16 @@ reference:
   - nm_run_workflow
   - nm_build_model
   - nm_train_model
+  - nm_make_run
+  - nm_load_run
+  - nm_save_run
+  - nm_predict
+  - nm_predict_h2o
+  - nm_predict_lgb
+  - nm_train_h2o
+  - nm_train_lgb
+  - nm_generate_html
+  - nm_report_to_markdown
 
 - title: Reading Tables
   contents:
@@ -20,6 +30,13 @@ reference:
   - nm_parse_dates
   - nm_on_clock
   - nm_table_suffixes
+  - nm_clock_to_utc
+  - nm_utc_to_clock
+  - nm_prepare_panel
+  - nm_require_column
+  - nm_require_no_duplicates
+  - nm_require_no_nan_in
+  - nm_require_not_empty
 
 - title: Transport Features
   contents:
@@ -40,6 +57,15 @@ reference:
   - nm_add_rolling_features
   - nm_cyclical_encode
   - nm_analyze_lag
+  - nm_expm1_columns
+  - nm_log1p_target
+  - nm_make_cache
+  - nm_config_hash
+  - nm_config_rolling
+  - nm_config_single
+  - nm_config_unc
+  - nm_dataframe_hash
+  - nm_model_hash
 
 - title: Weather Normalisation
   contents:
@@ -50,24 +76,58 @@ reference:
   - nm_normalise_ext
   - nm_rolling
   - nm_decompose
+  - nm_decompose_multisite
+  - nm_decompose_uncertainty
+  - nm_decom_emi
+  - nm_decom_met
+  - nm_multisite_apply
+  - nm_trend
+  - nm_trend_breaks
+  - nm_mann_kendall
+  - nm_theil_sen
 
 - title: Causal Inference
   contents:
   - nm_run_scm
   - nm_scm
+  - nm_scm_all
+  - nm_scm_robust
+  - nm_scm_abadie
+  - nm_scm_mcnnm
+  - nm_scm_diagnostics
+  - nm_run_scm_staggered
   - nm_mlscm
   - nm_placebo_in_space
   - nm_placebo_in_time
   - nm_uncertainty_bands
   - nm_effect_bands_space
+  - nm_effect_bands_time
   - nm_bayesian_scm
+  - nm_donor_spatial_summary
+  - nm_spatial_summary
+  - nm_did_baseline
+  - nm_pre_trend_test
+  - nm_detect_events
+  - nm_anomaly_scores
+  - nm_conformal_effect_interval
+  - nm_loo_weight_stability
+  - nm_rmspe_ratio_test
+  - nm_bearing
+  - nm_haversine
 
 - title: Model Interpretation
   contents:
   - nm_feature_importance
+  - nm_feature_importance_h2o
   - nm_pdp
   - nm_modStats
+  - nm_modStats_grouped
   - nm_extract_features
+  - nm_extract_features_h2o
+  - nm_cv_score
+  - nm_time_series_cv
+  - nm_silhouette_curve
+  - nm_embedding_projection
 
 - title: Plotting
   contents:
@@ -82,10 +142,36 @@ reference:
   - nm_plot_polar
   - nm_plot_time_series
   - nm_plot_bayesian_scm
+  - nm_plot_event_study
+  - nm_plot_embedding_diagnostics
   - nm_cycle_profiles
   - nm_theme_normet
   - nm_palette
+  - nm_colours
   - nm_formula
+
+- title: Data Sources
+  contents:
+  - nm_fetch_ukaq_measurements
+  - nm_fetch_eea_data
+  - nm_fetch_openaq_measurements
+  - nm_fetch_openmeteo_timeseries
+  - nm_fetch_era5_timeseries
+  - nm_list_ukaq_stations
+  - nm_openaq_locations
+  - nm_openaq_sensors
+  - nm_ukaq_sources
+  - nm_eea_pollutant_codes
+  - nm_era5_aq_variables_default
+  - nm_arl_gdas1_base_url
+  - nm_wind_to_uv
+
+- title: Scoring
+  contents:
+  - nm_crps_from_quantiles
+  - nm_crps_from_samples
+  - nm_crps_observed
+  - nm_pinball_loss
 
 - title: Utilities
   contents:
@@ -93,7 +179,15 @@ reference:
   - nm_load_model
   - nm_init_h2o
   - nm_stop_h2o
+  - nm_h2o_watchdog
   - nm_get_logger
+  - nm_enable_default_logging
+  - nm_error
+  - nm_error_config
+  - nm_error_data
+  - nm_error_model
+  - nm_warn_experimental
+  - nm_Stats
 
 
 - title: AI Agents

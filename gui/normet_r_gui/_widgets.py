@@ -45,14 +45,25 @@ from PySide6.QtWidgets import (
     QWidgetItem,
 )
 
-from .theme import apply_figure_theme, light_figure, muted_color, theme_manager
+from .theme import apply_figure_theme, is_dark_mode, light_figure, muted_color, theme_manager
 
-#: Traffic-light palette for verdict banners.
+#: Traffic-light palette for verdict banners, per theme: the saturated Apple system
+#: colours read on a light window; their lighter dark-mode variants on a dark one.
 VERDICT_COLOR = {"ok": "#34c759", "warn": "#ff9500", "error": "#ff3b30"}
+VERDICT_COLOR_DARK = {"ok": "#30d158", "warn": "#ff9f0a", "error": "#ff453a"}
 
-#: Muted colour for secondary hints / file labels, per theme (see theme.muted_color).
-HINT_STYLE = f"color:{muted_color()};"
-HINT_STYLE_SMALL = f"color:{muted_color()};font-size:11px;"
+
+def verdict_color(level: str, dark: bool | None = None) -> str:
+    """The verdict-banner colour for *level* ("ok", "warn", "error") in the window's theme."""
+    if dark is None:
+        dark = is_dark_mode()
+    table = VERDICT_COLOR_DARK if dark else VERDICT_COLOR
+    return table.get(level, "palette(text)")
+
+def hint_style(small: bool = False, dark: bool | None = None) -> str:
+    """Muted colour for secondary hints / file labels, per theme (see theme.muted_color)."""
+    size = "font-size:11px;" if small else ""
+    return f"color:{muted_color(dark)};{size}"
 
 RUN_BUTTON_STYLE = "font-weight:600;padding:8px;"
 
@@ -212,8 +223,7 @@ def hint_label(text: str, small: bool = True) -> QLabel:
 
 
 def _apply_hint_style(lbl: QLabel, small: bool, dark: bool | None = None) -> None:
-    size = "font-size:11px;" if small else ""
-    lbl.setStyleSheet(f"color:{muted_color(dark)};{size}")
+    lbl.setStyleSheet(hint_style(small, dark))
 
 
 def as_figure(obj: Any):
@@ -916,7 +926,7 @@ class CanvasTab(QWidget):
             lbl = QLabel(text)
             lbl.setWordWrap(True)
             lbl.setStyleSheet(
-                f"color:{VERDICT_COLOR.get(level, 'palette(text)')};font-weight:600;padding:4px;"
+                f"color:{verdict_color(level)};font-weight:600;padding:4px;"
             )
             self._layout.addWidget(lbl)
         for text in lines or []:
@@ -950,9 +960,15 @@ class CanvasTab(QWidget):
             from .figure_interact import readout as _fig_readout
 
             hover = QLabel("")
-            hover.setStyleSheet("color:#636366;")
+            hover.setStyleSheet(f"color:{muted_color()};")
             hover.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignBottom)
             self._layout.addWidget(hover)
+            try:
+                theme_manager().themeChanged.connect(
+                    lambda dark: hover.setStyleSheet(f"color:{muted_color(dark)};")
+                )
+            except RuntimeError:
+                pass
             self.canvas.mpl_connect(
                 "motion_notify_event", lambda e: hover.setText(_fig_readout(fig, e))
             )
