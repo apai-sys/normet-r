@@ -1,0 +1,72 @@
+---
+title: "Figures and reports"
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>", fig.width = 7, fig.height = 4)
+```
+
+## One figure style
+
+Every `nm_plot_*()` function draws in the same journal style:
+
+- `nm_theme_normet()` is the ggplot2 theme: 7 pt tick labels, 8 pt axis titles
+  and an 8.5 pt title. Add it to your own figures to match.
+- Each colour has one meaning in every figure (`nm_colours`): observed is blue,
+  normalised or synthetic is red, and context is grey. `nm_palette` holds the
+  colour-blind-safe category colours (Okabe–Ito, then Paul Tol's muted).
+- Chemical formulas are set as chemistry writes them (`nm_formula()`).
+- Series are broken at gaps rather than joined across them.
+
+```{r}
+library(normet)
+
+nm_colours
+nm_formula(c("NO2", "PM2.5", "SO42-", "ws"))
+```
+
+```{r}
+ggplot2::ggplot(my1, ggplot2::aes(date, NO2)) +
+  ggplot2::geom_line(colour = nm_colours[["observed"]]) +
+  nm_theme_normet()
+```
+
+## Diurnal, weekly and seasonal cycles
+
+`nm_cycle_profiles()` shows the mean of each column by hour of the day, day of
+the week and month, side by side, with each mean's 95% confidence interval:
+
+```{r, fig.height = 3}
+nm_cycle_profiles(my1, c("NO2", "temp"))
+```
+
+`nm_plot_polar()` draws a wind-direction × wind-speed polar plot of a
+concentration, and `nm_plot_time_series()` draws a single series with an
+optional band.
+
+```{r, fig.height = 4.5, fig.width = 5}
+nm_plot_polar(my1, target = "NO2")
+```
+
+## Reports
+
+`nm_make_run()` bundles a result with metadata about how it was produced: the
+configuration, data hashes, the model and the seed. The bundle can be rendered
+as a self-contained HTML report (embedded figures, no external JavaScript or
+CSS) or as a Markdown report. Reports are available in English or Chinese:
+
+```{r, eval = FALSE}
+covariates <- c("ws", "wd", "temp", "RH", "atmos_pres", "blh", "tcc", "tp", "ssrd")
+predictors <- c(covariates, "date_unix", "day_julian", "weekday", "hour")
+res <- nm_do_all(my1, target = "NO2", covariates = predictors, resample_vars = covariates)
+
+run <- nm_make_run(res$res, kind = "do_all", df = my1, df_prep = res$df_prep,
+                   model = res$model)
+nm_generate_html(run, "report.html")              # English
+nm_generate_html(run, "report_zh.html", lang = "zh")
+nm_report_to_markdown(run, "report.md")
+
+nm_save_run(run, "run.rds")                       # and nm_load_run() to read it back
+```
+
+`options(normet.lang = "zh")` puts normet's own figure texts in Chinese as well.

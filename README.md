@@ -1,563 +1,155 @@
 # normet: Normalisation, Decomposition, and Counterfactual Modelling for Air Quality Time-series
 
-[![CRAN](https://www.r-pkg.org/badges/version/normet)](https://CRAN.R-project.org/package=normet)
+<!-- badges: start -->
 [![R-CMD-check](https://github.com/apai-sys/normet-r/actions/workflows/R-CMD-check.yaml/badge.svg)](https://github.com/apai-sys/normet-r/actions/workflows/R-CMD-check.yaml)
 [![Build GUI](https://github.com/apai-sys/normet-r/actions/workflows/build-gui.yml/badge.svg)](https://github.com/apai-sys/normet-r/actions/workflows/build-gui.yml)
+[![GitHub R package version](https://img.shields.io/github/r-package/v/apai-sys/normet-r)](https://github.com/apai-sys/normet-r/blob/main/DESCRIPTION)
+[![License: GPL-3](https://img.shields.io/badge/license-GPL--3-blue.svg)](LICENSE.md)
+<!-- badges: end -->
 
-`normet` is an R package for **air quality time-series analysis**. It covers the full workflow from data acquisition through weather normalisation, decomposition, uncertainty quantification, and causal impact evaluation.
-
----
+normet is an R package for **air-quality time-series analysis**. Pollutant
+concentrations depend on the weather as well as on emissions, so a raw series
+cannot show on its own whether an intervention or a trend is real. normet trains a
+machine-learning model of the pollutant on weather and time, then uses it to
+remove the weather-driven variation ("weather normalisation", or
+"de-weathering"). It splits what remains into its drivers, puts error bars on
+the result, and estimates causal effects with synthetic control methods. It
+covers the whole workflow, from downloading the data to the final figures.
 
 ## Features
 
-- **Dual ML backend** — LightGBM (fast, in-process, default) or H2O AutoML (multi-algorithm search)
-- **Weather normalisation** — Monte Carlo resampling with auto-convergence detection
-- **Time-series decomposition** — isolate emission vs. meteorological contributions
-- **Synthetic Control Methods** — classic SCM, ML-SCM, Abadie, DiD, MC-NNM, Bayesian
-- **Causal significance tests** — conformal inference, RMSPE ratio, placebo-in-space/time
-- **Data acquisition** — built-in adapters for UK air quality (AURN, AQE, SAQN, WAQN, NI, LMAM), EEA Discomap, OpenAQ v3, ERA5, HYSPLIT back-trajectories
-- **Multi-site pipelines** — parallel normalisation and decomposition across station networks
-- **On-disk caching** — SHA-1 content hashing to skip redundant computation
-- **Reading your own tables** — CSV/TSV (any separator, decimal commas, UTF-8/GB18030/Windows code pages, gzipped), Excel, Parquet, Feather, JSON; times in any common layout or format, put on the site's clock
-- **Journal-style figures** — every plot in one style (7–8.5 pt text, Okabe–Ito colours, formulas set as NO₂), diurnal/weekly/seasonal cycles, HTML reports in English or Chinese
-
----
+- **Two machine-learning backends**: LightGBM (fast, in-process, the default) or
+  H2O AutoML (a search over several algorithms).
+- **Weather normalisation**: Monte Carlo resampling of the weather, with
+  automatic detection of convergence.
+- **Time-series decomposition**: separates emission-driven and meteorological
+  contributions.
+- **Synthetic control methods**: classic SCM, ML-SCM, Abadie, DiD, MC-NNM,
+  robust and Bayesian.
+- **Causal significance tests**: conformal inference, the RMSPE ratio,
+  placebo-in-space and placebo-in-time.
+- **Data acquisition**: built-in adapters for UK air quality (AURN, AQE, SAQN,
+  WAQN, NI, LMAM), EEA Discomap, OpenAQ v3, ERA5 (Copernicus CDS or
+  Open-Meteo) and HYSPLIT back-trajectories.
+- **Your own tables**: CSV/TSV (any separator, decimal commas,
+  UTF-8/GB18030/Windows code pages, gzipped), Excel, Parquet, Feather and JSON.
+  Times can be in any common layout or format, and are put on the site's clock.
+- **Multi-site pipelines**: parallel normalisation and decomposition across
+  station networks.
+- **On-disk caching**: SHA-1 content hashing skips repeated computation.
+- **Journal-style figures**: one style for every plot (7–8.5 pt text,
+  Okabe–Ito colours, formulas set as NO₂), plus diurnal/weekly/seasonal cycles
+  and HTML reports in English or Chinese.
+- **Desktop GUI**: a Qt app that runs the whole workflow without code.
+- **AI agents**: `nm_mcp_server()` serves normet's tools to an MCP client.
 
 ## Installation
 
+normet is not on CRAN. Install it from GitHub:
+
 ```r
-# install.packages("devtools")
-devtools::install_github("apai-sys/normet-r")
+# install.packages("remotes")
+remotes::install_github("apai-sys/normet-r")
 ```
 
-### Backend setup
+normet needs R ≥ 4.0. Model training needs at least one of the two backends,
+which are optional dependencies:
 
 ```r
 install.packages("lightgbm")   # default backend (recommended)
-install.packages("h2o")        # alternative: H2O AutoML (requires Java)
+install.packages("h2o")        # alternative: H2O AutoML (needs Java)
 ```
 
----
+Some data sources need more: OpenAQ needs a free API key (`OPENAQ_API_KEY`),
+ERA5 from the Copernicus CDS needs an account and the `ecmwfr` package, and
+running HYSPLIT needs a local HYSPLIT install. Open-Meteo, the UK networks
+and the EEA need nothing. See
+[Modelling backends](vignettes/articles/backends.Rmd) for the full list of
+dependencies.
 
-## Quick Start
+## Quick start
+
+Normalise the bundled `my1` dataset (hourly NO2 at London Marylebone Road,
+January to August 2020, with meteorology) in one call:
 
 ```r
 library(normet)
 
-data("my1")
-
-predictors <- c("u10", "v10", "d2m", "t2m", "blh", "sp", "ssrd", "tcc", "tp", "rh2m",
-                "date_unix", "day_julian", "weekday", "hour")
-weather_vars <- c("u10", "v10", "d2m", "t2m", "blh", "sp", "ssrd", "tcc", "tp", "rh2m")
+covariates <- c("ws", "wd", "temp", "RH", "atmos_pres", "blh", "tcc", "tp", "ssrd")
+predictors <- c(covariates, "date_unix", "day_julian", "weekday", "hour")
 
 results <- nm_do_all(
   df            = my1,
-  target        = "PM2.5",
-  covariates    = predictors,
-  resample_vars = weather_vars,
+  target        = "NO2",
+  covariates    = predictors,   # what the model is trained on
+  resample_vars = covariates,   # the weather that is resampled away
   n_samples     = 300
 )
 
-head(results$out)   # date | observed | normalised
+head(results$res)               # date | observed | normalised
+nm_plot_normalise(results$res)
 ```
 
----
-
-## Data Acquisition
-
-### Your own tables
-
-```r
-# Separator, decimal mark, encoding and the times' layout are read from the file:
-# a 'date'/'datetime'/'time' column, a date and a time column, or year/month/day/hour
-# columns; 31/01/2020, 01/31/2020, 2020-01-31T13:00+01:00, Unix seconds, Excel days.
-df <- nm_read_time_series("site.csv", zone = "Europe/London")  # on the site's clock
-attr(df, "normet_dates")                    # how the times were found and read
-
-nm_parse_dates(c("2020-03-29T00:30+00:00", "2020-03-29T02:30+01:00"))  # each by its offset
-nm_clock_to_utc(df$date, "Europe/London")   # what ERA5/HYSPLIT are asked for
-```
-
-### UK air quality (AURN, AQE, SAQN, WAQN, NI, LMAM)
-
-```r
-# Browse available stations (six networks, whole-year archives)
-stations <- nm_list_ukaq_stations("aurn", pollutant = "NO2")
-head(stations)
-
-# Download hourly measurements
-df_aurn <- nm_fetch_ukaq_measurements("MY1", 2022, source = "aurn", pollutant = "NO2")
-
-# Or the near-real-time rolling window instead of the archive
-df_live <- nm_fetch_ukaq_measurements("MY1", 2026, source = "aurn_live", pollutant = "NO2")
-```
-
-### EEA Discomap
-
-```r
-df_eea <- nm_fetch_eea_data(
-  country   = "GB",
-  pollutant = "PM2.5",
-  year_from = 2021,
-  year_to   = 2022
-)
-```
-
-### OpenAQ v3
-
-```r
-# Find monitoring locations
-locs <- nm_openaq_locations(country = "GB", pollutant = "pm25")
-
-# Download measurements (set OPENAQ_API_KEY env var or pass api_key=)
-df_oaq <- nm_fetch_openaq_measurements(
-  location_id = locs$id[1],
-  date_from   = "2022-01-01",
-  date_to     = "2022-06-30"
-)
-```
-
-### ERA5 Meteorology
-
-```r
-# Fetch ERA5 as single-point time-series straight from the CDS (no NetCDF)
-df_era5 <- nm_fetch_era5_timeseries(
-  sites     = data.frame(site = "MY1", lat = 51.52, lon = -0.15),
-  date_from = "2022-01-01",
-  date_to   = "2022-12-31",
-  variables = nm_era5_aq_variables_default,
-  cache_dir = ".era5_cache"
-)
-# Columns use short names: site, date, lat, lon, t2m, u10, v10, ...
-```
-
-### Open-Meteo Meteorology
-
-Keyless alternative to the Copernicus CDS — no account or `~/.cdsapirc`
-needed, serves the same ERA5 archive:
-
-```r
-met <- nm_fetch_openmeteo_timeseries(
-  sites     = list(MY1 = c(51.52, -0.15)),   # name = c(lat, lon)
-  date_from = "2022-01-01",
-  date_to   = "2022-12-31"
-)
-# Columns use short names: site, date, t2m, d2m, rh2m, sp, tcc, tp, ssrd,
-# u10, v10, blh, lat, lon — same ERA5 naming/units as nm_fetch_era5_timeseries.
-```
-
-### HYSPLIT Back-Trajectories
-
-Turn HYSPLIT back-trajectory output (`tdump` files, generated separately with
-`splitr`/`pysplit`/`hyts_std`) into per-receptor transport features — inflow
-direction, transport distance/speed, trajectory height, along-path
-rainfall/boundary-layer height, and residence-time fractions over source
-regions:
-
-```r
-traj <- nm_build_trajectory_features(
-  "traj/tdump_*",
-  source_regions = list(industrial_NE = c(116.0, 39.0, 120.0, 42.0))
-)
-# traj has a `date` (receptor time) column + traj_* feature columns; several start
-# heights each get their own (traj_dist_km_500m, traj_dist_km_1500m, ...).
-# Join backward: each hour takes the latest trajectory to have arrived, within one
-# release interval (a nearest-time join would hand 04:00 the 06:00 trajectory).
-panel <- nm_join_trajectory_features(panel, traj)
-# Then pass traj_* to nm_do_all (also in resample_vars to deweather transport;
-# omit from resample_vars to keep the transport signal).
-```
-
-Or drive HYSPLIT (`hyts_std`) directly for a set of receptor times, against
-GDAS1 meteorology downloaded on demand:
-
-```r
-met_files <- nm_fetch_gdas1(
-  date_from = "2022-01-01", date_to = "2022-01-08", cache_dir = "gdas1_cache"
-)
-traj <- nm_run_back_trajectories(
-  times = my1$date, lat = 51.52, lon = -0.15,
-  met_files = met_files, hysplit_exec = "/opt/hysplit/exec/hyts_std",
-  hours_back = 72
-)
-```
-
-Receptor times are run on UTC (a POSIXct is an instant whatever its time zone),
-repeats once, and times no met file covers are skipped with a warning.
-
----
-
-## Figures
-
-Every `nm_plot_*()` function draws in one journal style — `nm_theme_normet()`,
-colours with one meaning each (`nm_colours`: observed blue, normalised/synthetic red,
-context grey; `nm_palette` for categories), chemical formulas set as chemistry writes
-them (`nm_formula("SO42-")`), series broken at gaps rather than joined across them.
-
-```r
-nm_cycle_profiles(my1, c("NO2", "temp"))   # by hour of day, weekday and month, 95% CI
-ggplot2::ggplot(my1, ggplot2::aes(date, NO2)) + ggplot2::geom_line() + nm_theme_normet()
-
-options(normet.lang = "zh")                # figures' own texts in Chinese
-nm_generate_html(run, "report.html", lang = "zh")
-```
-
----
-
-## Step-by-Step Workflow
-
-### 1. Prepare data
-
-```r
-df_prep <- nm_prepare_data(
-  df           = my1,
-  target       = "PM2.5",
-  covariates   = weather_vars,
-  split_method = "random",
-  train_fraction = 0.75
-)
-```
-
-### 2. Train model
-
-```r
-model <- nm_train_model(
-  df           = df_prep,
-  target       = "value",
-  covariates   = predictors,
-  backend      = "lightgbm",          # or "h2o"
-  model_config = list(n_trials = 50, cv_folds = 5)
-)
-
-nm_modStats(df_prep, model)           # performance metrics
-```
-
-### 3. Explain model
-
-```r
-# Feature importance
-nm_feature_importance(model)
-
-# Partial dependence plots
-pdp_data <- nm_pdp(df_prep, model, var_list = c("blh", "rh2m"))
-nm_plot_pdp(pdp_data)
-```
-
-### 4. Weather normalisation
-
-```r
-# Standard
-df_norm <- nm_normalise(
-  df            = df_prep,
-  model         = model,
-  resample_vars = weather_vars,
-  n_samples     = 600
-)
-
-# Auto-convergence: finds optimal n_samples automatically
-auto <- nm_normalise_auto(
-  df            = df_prep,
-  model         = model,
-  resample_vars = weather_vars
-)
-cat("Optimal samples:", auto$best_n, "\n")
-head(auto$res)   # date | observed | normalised
-```
-
-### 5. Rolling normalisation
-
-```r
-df_rolling <- nm_rolling(
-  df            = df_prep,
-  target        = "value",
-  model         = model,
-  resample_vars = weather_vars,
-  n_samples     = 300,
-  window_days   = 14,
-  rolling_every = 7
-)
-```
-
-### 6. Decomposition
-
-```r
-df_emi <- nm_decompose(method = "emission",    df = df_prep, target = "value", model = model, n_samples = 300)
-df_met <- nm_decompose(method = "meteorology", df = df_prep, target = "value", model = model, n_samples = 300)
-```
-
-### 7. Uncertainty ensemble
-
-```r
-unc <- nm_do_all_unc(
-  df            = my1,
-  target        = "PM2.5",
-  covariates    = predictors,
-  resample_vars = weather_vars,
-  n_models      = 10,
-  n_samples     = 300
-)
-nm_plot_uncertainty_bands(unc)
-```
-
----
-
-## Causal Inference
-
-### Setup
-
-```r
-data("scm")
-cutoff      <- as.Date("2015-10-23")
-treated     <- unique(scm$ID[scm$group == "target"])
-donors      <- unique(scm$ID[scm$group == "control"])
-```
-
-### SCM variants
-
-```r
-# Classic lasso SCM
-scm_res <- nm_run_scm(
-  df = scm, date_col = "date", outcome_col = "SO2wn", unit_col = "ID",
-  treated_unit = treated, donors = donors, cutoff_date = cutoff,
-  scm_backend = "scm"
-)
-
-# ML-SCM — exploratory only, not recommended for inference (see ?nm_mlscm)
-ml_res <- nm_run_scm(df = scm, ..., scm_backend = "mlscm")
-
-# Abadie (2010) quadratic-programme weights
-ab_res <- nm_scm_abadie(
-  df = scm, date_col = "date", outcome_col = "SO2wn", unit_col = "ID",
-  treated_unit = treated, donors = donors, cutoff_date = cutoff
-)
-
-# Difference-in-Differences baseline
-did_res <- nm_did_baseline(df = scm, ..., treated_unit = treated,
-                           donors = donors, cutoff_date = cutoff)
-
-# Matrix-completion NNM
-mc_res <- nm_scm_mcnnm(df = scm, ..., treated_unit = treated,
-                       donors = donors, cutoff_date = cutoff)
-
-# Robust SCM — HSVT de-noising (Amjad, Shah & Shen 2018)
-rb_res <- nm_scm_robust(df = scm, ..., treated_unit = treated,
-                        donors = donors, cutoff_date = cutoff)
-
-# Bayesian SCM (Dirichlet prior + Metropolis-Hastings)
-bayes_res <- nm_bayesian_scm(
-  df = scm, date_col = "date", outcome_col = "SO2wn", unit_col = "ID",
-  treated_unit = treated, donors = donors, cutoff_date = cutoff,
-  draws = 2000, ci_level = 0.95
-)
-nm_plot_bayesian_scm(bayes_res, cutoff_date = cutoff)
-```
-
-### Significance tests
-
-```r
-# Conformal prediction interval on the treatment effect
-ci <- nm_conformal_effect_interval(scm_res, cutoff_date = cutoff, ci_level = 0.95)
-
-# RMSPE ratio test (placebo-in-space)
-placebo <- nm_placebo_in_space(
-  df = scm, date_col = "date", outcome_col = "SO2wn", unit_col = "ID",
-  treated_unit = treated, donors = donors, cutoff_date = cutoff,
-  scm_backend = "scm"
-)
-rmspe <- nm_rmspe_ratio_test(placebo, cutoff_date = cutoff)
-print(rmspe$p_value)
-
-# Placebo in time (historical falsification)
-tp <- nm_placebo_in_time(
-  df = scm, date_col = "date", outcome_col = "SO2wn", unit_col = "ID",
-  treated_unit = treated, cutoff_date = cutoff
-)
-```
-
-### Effect bands & diagnostics
-
-```r
-bands <- nm_effect_bands_space(placebo, level = 0.95, method = "quantile")
-nm_plot_effect_with_bands(bands, cutoff_date = cutoff)
-
-# Jackknife / bootstrap uncertainty
-jack <- nm_uncertainty_bands(
-  df = scm, ..., method = "jackknife", treated_unit = treated,
-  donors = donors, cutoff_date = cutoff
-)
-nm_plot_uncertainty_bands(jack, cutoff_date = cutoff)
-
-# Weight stability diagnostics
-nm_scm_diagnostics(scm_res, cutoff_date = cutoff)
-nm_loo_weight_stability(df = scm, ..., treated_unit = treated,
-                        donors = donors, cutoff_date = cutoff)
-```
-
----
-
-## Multi-Site Pipelines
-
-```r
-# Normalise all sites in parallel
-multi <- nm_do_all_multisite(
-  df       = df_network,
-  site_col = "site",
-  target   = "PM2.5",
-  covariates    = predictors,
-  resample_vars = weather_vars,
-  n_samples     = 300
-)
-
-# Apply any function across sites
-nm_multisite_apply(df_network, site_col = "site", func = my_analysis_fn, n_cores = 4)
-```
-
----
-
-## Caching
-
-Results are keyed by a SHA-1 hash of data + config; unchanged runs skip recomputation.
-
-```r
-# Via nm_do_all
-results <- nm_do_all(df = my1, ..., cache_dir = ".normet_cache")
-
-# Manual cache API
-key  <- nm_config_hash(value = "PM2.5", n_samples = 300)
-hit  <- nm_cache_load(".normet_cache", key)
-if (is.null(hit)) {
-  result <- my_slow_function(...)
-  nm_cache_save(".normet_cache", key, result)
-}
-```
-
----
-
-## H2O Backend
-
-```r
-nm_init_h2o()
-
-model_h2o <- nm_train_model(
-  df           = df_prep,
-  target       = "value",
-  backend      = "h2o",
-  covariates   = predictors,
-  model_config = list(include_algos = c("GBM", "XGBoost"), max_runtime_secs = 120)
-)
-
-nm_stop_h2o()
-```
-
----
+`results` also holds the trained `model` and the prepared data (`df_prep`), for
+the next steps.
+
+## Learn more
+
+- [Getting started](vignettes/normet.Rmd): the core workflow on the bundled
+  data, with output.
+- [Data acquisition](vignettes/articles/data-acquisition.Rmd): your own tables,
+  the UK networks, EEA, OpenAQ, ERA5 (CDS and Open-Meteo), and HYSPLIT
+  trajectories.
+- [Weather normalisation, step by step](vignettes/articles/normalisation-workflow.Rmd):
+  prepare, train, explain, normalise, and rolling normalisation.
+- [Decomposition and uncertainty](vignettes/articles/decomposition-uncertainty.Rmd):
+  the emission and meteorological components, ensembles, and trends.
+- [Causal inference with synthetic controls](vignettes/articles/causal-inference.Rmd):
+  SCM variants, significance tests, effect bands and diagnostics.
+- [Multi-site pipelines and caching](vignettes/articles/multisite-caching.Rmd).
+- [Modelling backends: LightGBM and H2O](vignettes/articles/backends.Rmd).
+- [Figures and reports](vignettes/articles/figures-reports.Rmd).
+- [Desktop GUI](vignettes/articles/desktop-gui.Rmd).
+- [NEWS](https://github.com/apai-sys/normet-r/blob/main/NEWS.md): what changed in each version.
+
+Every function has a help page (`?nm_normalise`, `?nm_run_scm`, ...).
 
 ## Desktop GUI
 
-A native Qt desktop app (`gui/`, Python + PySide6) covers the full workflow
-without writing R code — every computation is delegated to this R package
-through `Rscript` subprocesses, so it needs R (with `normet` installed) on
-the machine that runs it. It runs on macOS, Windows, and Linux.
-
-**Install from source:**
-
-```bash
-pip install ./gui        # from the repo root, needs Python 3.10+
-normet-gui                # optionally: normet-gui mydata.csv
-```
-
-**Or download a ready-made installer** — `.dmg` (macOS), `.exe` (Windows,
-Inno Setup), `.AppImage` (Linux) — built by
-[`build-gui.yml`](.github/workflows/build-gui.yml)'s 3-OS matrix; grab the
-latest from the workflow's **Actions → Artifacts**, or build one locally with
-`gui/packaging/macos/build_dmg.sh` (macOS) or
-`pyinstaller gui/packaging/normet_r_gui.spec` (any OS — see
-[`gui/packaging/README.md`](gui/packaging/README.md)). R itself is never
-bundled — only the bridge script; use **R → Locate Rscript…** in the app if
-it isn't on `PATH`.
-
-**Main window** — the same numbered-step workflow as the Quick Start above
-(Data → Columns → Train → Normalise → Decompose → Rolling → PDP), with
-results in tabs that activate as each step finishes. The result tabs and the
-status-bar step lights follow the workflow's order — Data, Model, Normalise,
-Decompose, then the questions the decomposition invites (Multi-scale, Trend,
-Events, Uncertainty), then the separate steps Rolling and PDP — and a
-traffic-light verdict banner summarising model quality. The Train step
-exposes the H2O
-AutoML algorithm picker (GBM/DRF/GLM/DeepLearning/StackedEnsemble/XGBoost)
-when that backend is selected; the H2O cluster is started once per GUI
-session and shut down on exit. An adjacent **Multi-scale decomposition**
-panel differences rolling-deweathered series at increasing window widths
-against Step 4's full-record baseline, isolating the meteorological residual
-specific to each timescale. An energy-by-band ranking (σ) names the dominant
-timescale at a glance, each band drawn in its own cascade colour.
-
-**Data Studio** (🌐 toolbar button) — assemble a model-ready dataset without
-leaving the app: pick a network — the six UK networks (AURN, AQE, SAQN, WAQN,
-NI, LMAM), the EEA reporting network for Europe (country code, no key), or
-OpenAQ for most of the world (free API key) — then find its stations by the
-pollutants they measure and pick one, or several, by name, by official site
-code (e.g. "MY1" for London Marylebone Road) or on the map: a click, a box
-drawn around them, or ⌘/Ctrl-click to add. The map sits on OpenStreetMap or
-Esri tiles, zooms and pans. Choose a date range and fetch the hourly
-measurements together with ERA5-derived meteorology from Open-Meteo (no API
-key; Copernicus CDS optional); several stations become one panel-shaped table
-with a `site` column. The merged table can be saved as CSV or sent straight
-into Step 1.
-
-**SCM Studio** (🧪 toolbar button) — the counterfactual workflow on panel
-data: map date/unit/outcome columns, pick the treated unit, cutoff and donor
-pool, choose an estimator (`scm`, `mlscm`, `abadie`, `did`, `mcnnm`,
-`robust`), then run fit + diagnostics, placebo-in-space/time,
-jackknife/bootstrap uncertainty bands and the all-units batch — each with a
-p-value / fit-quality verdict.
-
-**Transport Studio** (🧭 toolbar button) — build transport-aware predictors
-from HYSPLIT back-trajectories: parse existing `tdump` files into
-per-receptor features (inflow direction, transport distance/speed, residence
-time over named source regions, along-path rainfall/boundary-layer height),
-preview them, then join straight onto the loaded dataset by nearest hour —
-the new `traj_*` columns are auto-ticked as predictors in Step 1. An advanced
-panel can also drive `hyts_std` itself, downloading the matching GDAS1
-meteorology first, if HYSPLIT is installed locally.
-
-Long computations run in the background; the window stays responsive and
-tasks can be abandoned from the status bar.
-
----
-
-## Dependencies
-
-| Group        | Packages                                            |
-|-------------|------------------------------------------------------|
-| ML backends | `lightgbm` (optional), `h2o` (optional, needs Java) |
-| Core        | `data.table`, `lubridate`, `foreach`, `doSNOW`      |
-| SCM         | `glmnet`, `quadprog`                                 |
-| I/O         | `httr2`, `ecmwfr` (ERA5)                             |
-| Visualisation | `ggplot2`                                          |
-| Base R      | `parallel`, `stats`, `utils`                        |
-| GUI (optional, `gui/`) | Python 3.10+, `PySide6`, `pandas`, `matplotlib` |
-
----
+A native Qt desktop app in [`gui/`](https://github.com/apai-sys/normet-r/tree/main/gui) (Python + PySide6) covers the full
+workflow without writing R code. It runs every analysis on this package
+through `Rscript`, and works on macOS, Windows and Linux. Install it with
+`pip install ./gui` from the repository root, or download an installer built by
+the [`build-gui.yml`](https://github.com/apai-sys/normet-r/blob/main/.github/workflows/build-gui.yml) workflow. See
+[Desktop GUI](vignettes/articles/desktop-gui.Rmd) and the illustrated user manual
+([English](https://github.com/apai-sys/normet-r/blob/main/gui/docs/manual/normet_manual.pdf),
+[Chinese](https://github.com/apai-sys/normet-r/blob/main/gui/docs/manual/normet_manual_zh.pdf)).
 
 ## Citation
 
-```bibtex
-@Manual{normet-pkg,
-  title        = {normet: Normalisation, Decomposition, and Counterfactual Modelling for Air Quality Time-Series},
-  author       = {Congbo Song},
-  year         = {2026},
-  note         = {R package version 1.0.0},
-  organization = {University of Manchester},
-  url          = {https://github.com/apai-sys/normet-r},
-}
+If you use normet, please cite it. `citation("normet")` gives the current
+reference:
+
+```
+Song C (2026). normet: Normalisation, Decomposition, and Counterfactual
+Modelling for Air Quality Time-Series. R package version 1.0.1,
+https://github.com/apai-sys/normet-r.
 ```
 
----
-
-## License
-
-GPL-3 — see [LICENSE](LICENSE).
+A BibTeX entry is printed by `toBibtex(citation("normet"))`, and
+[CITATION.cff](https://github.com/apai-sys/normet-r/blob/main/CITATION.cff) has the same reference for GitHub's "Cite this
+repository" button.
 
 ## Contributing
 
-Issues and pull requests welcome: [github.com/apai-sys/normet-r](https://github.com/apai-sys/normet-r)
+Bug reports, feature requests and pull requests are welcome. Start with the
+[contributing guide](CONTRIBUTING.md), and report security problems privately
+as described in [SECURITY.md](SECURITY.md).
+
+Please note that the normet project is released with a
+[Contributor Code of Conduct](CODE_OF_CONDUCT.md). By contributing to this
+project, you agree to abide by its terms.
+
+## License
+
+GPL-3. See [LICENSE.md](LICENSE.md).

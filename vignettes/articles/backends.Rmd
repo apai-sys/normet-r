@@ -1,0 +1,86 @@
+---
+title: "Modelling backends: LightGBM and H2O"
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>", eval = FALSE)
+```
+
+Every function that trains a model takes a `backend` argument:
+
+| Backend | Install | What it does |
+|---|---|---|
+| `"lightgbm"` (default) | `install.packages("lightgbm")` | Random hyperparameter search with cross-validation, in-process (no JVM). |
+| `"h2o"` | `install.packages("h2o")` and a Java runtime | H2O AutoML: a search over several algorithms, in an H2O cluster. |
+
+Both backends are optional dependencies (Suggests), so install at least one of
+them before you train a model.
+
+## LightGBM
+
+The `model_config` list controls the search (see `?nm_train_lgb`):
+
+```{r}
+library(normet)
+
+covariates <- c("ws", "wd", "temp", "RH", "atmos_pres", "blh", "tcc", "tp", "ssrd")
+predictors <- c(covariates, "date_unix", "day_julian", "weekday", "hour")
+df_prep <- nm_prepare_data(my1, target = "NO2", covariates = covariates)
+
+model_lgb <- nm_train_model(
+  df           = df_prep,
+  target       = "value",
+  covariates   = predictors,
+  backend      = "lightgbm",
+  model_config = list(
+    n_trials = 50,                 # random-search trials (default 50)
+    cv_folds = 5,                  # cross-validation folds (default 5)
+    nrounds  = 1000,               # maximum boosting rounds (default 1000)
+    early_stopping_rounds = 20     # default 20
+  )
+)
+```
+
+`num_leaves_min`/`num_leaves_max` and `learning_rate_min`/`learning_rate_max`
+set the ranges searched.
+
+## H2O AutoML
+
+H2O runs in a separate cluster, which has to be started before training and
+stopped afterwards:
+
+```{r}
+nm_init_h2o()   # n_cores = NULL uses the whole allocation; max_mem_size = "16G" etc.
+
+model_h2o <- nm_train_model(
+  df           = df_prep,
+  target       = "value",
+  backend      = "h2o",
+  covariates   = predictors,
+  model_config = list(include_algos = c("GBM", "XGBoost"), max_runtime_secs = 120)
+)
+
+nm_stop_h2o()
+```
+
+`nm_init_h2o()` retries a failed start (`max_retries`, `retry_delay`).
+`nm_h2o_watchdog()` checks that the cluster is alive and restarts it if the
+connection has been lost. `nm_save_model()` and
+`nm_load_model()` handle both backends. With H2O, `nm_do_all_unc()` trains its
+ensemble members one after another in the shared cluster, where LightGBM
+trains them in parallel worker processes.
+
+## Dependencies
+
+| Group | Packages |
+|---|---|
+| Modelling backends (optional) | `lightgbm`; `h2o` (needs Java) |
+| Core | `data.table`, `dplyr`, `lubridate`, `zoo`, `foreach`, `doSNOW`, `parallel` |
+| Causal inference | `quadprog` |
+| Data I/O | `httr2`, `jsonlite`; `ecmwfr` (optional, ERA5 from the CDS); `arrow`, `readxl` (optional, Parquet/Feather and Excel files) |
+| Figures | `ggplot2`, `scales`; `patchwork` (optional, `nm_plot_embedding_diagnostics()`) |
+| Caching | `digest`, `memoise` |
+| Desktop GUI (optional, `gui/`) | Python 3.10+, `PySide6`, `pandas`, `matplotlib` |
+
+The full list is in the package's
+[DESCRIPTION](https://github.com/apai-sys/normet-r/blob/main/DESCRIPTION).

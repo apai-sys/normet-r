@@ -15,6 +15,7 @@
 #' @return If requesting a package, returns the package namespace. If requesting an
 #'   object, returns the object itself.
 #'
+#' @keywords internal
 #' @examples
 #' \dontrun{
 #' # Check for a package

@@ -28,6 +28,7 @@
 
 #' A point forecast's MAE read as a normal's own MAE (sigma * sqrt(2/pi)),
 #' multiplied back to the sigma that would carry it: sqrt(pi/2).
+#' @keywords internal
 .NM_POINT_MASS_FACTOR <- sqrt(pi / 2.0)
 
 #' Validate a quantile level and return it in (0, 1).
