@@ -3,6 +3,7 @@ tools/vendor_py_gui.py)."""
 
 from __future__ import annotations
 
+import gc
 import os
 import plistlib
 import shutil
@@ -215,6 +216,11 @@ def _close_windows() -> None:
         w.deleteLater()
     QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
     QCoreApplication.processEvents()
+    # Cycles the tests left are freed while the QApplication still exists. Left to
+    # the interpreter's own final GC, shiboken frees them after Qt has begun to
+    # tear down, and the run can abort after every test passed (`none_dealloc` on
+    # Linux CI, 2026-11-13).
+    gc.collect()
 
 
 def pytest_sessionfinish(session, exitstatus):
@@ -229,3 +235,20 @@ def pytest_sessionfinish(session, exitstatus):
         _close_windows()
     finally:
         _restore_window_plist(session.config)
+    session.config._window_exitstatus = int(exitstatus)
+
+
+def pytest_unconfigure(config):
+    """Leave before the interpreter's final collection.
+
+    After every test passed, PySide6 6.11.1 on Linux aborted in finalization
+    (``Fatal Python error: none_dealloc: deallocating None``; the pytest process
+    exited 134, so the GUI job failed although its summary read "255 passed").
+    The crash is inside the C extensions' own teardown, below anything a test can
+    release, and the windows are closed and the settings restored by now. The
+    summary has been printed when this hook runs; the process leaves with the
+    session's status before that collection (2026-11-13).
+    """
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(getattr(config, "_window_exitstatus", 0))
