@@ -26,9 +26,29 @@ NULL
 #' @export
 nm_multisite_apply <- function(df, site_col, func, n_cores = NULL,
                                site_kwarg = NULL, ...) {
+  runs <- .nm_multisite_run(df, site_col, func, n_cores = n_cores,
+    site_kwarg = site_kwarg, ...)
+  .nm_multisite_bind(runs, site_col)
+}
+
+# Run `func` once per site in PSOCK workers; a list named by site, each element
+# the function's value or an `nm_site_error` carrying the worker's message.
+#
+# Everything a worker needs is evaluated here first. Called from the console or a
+# script, an argument such as `covariates = covs` is a promise on the global
+# environment, and a promise travels to a PSOCK worker unevaluated; the worker,
+# whose global environment is empty, then fails with "object 'covs' not found".
+# Every site failed that way, and the error was replaced by NULL, so the only
+# message was "All per-site runs failed." (2026-11-13). testthat never saw it:
+# a test's environment is serialised with the closure, the global one is not.
+.nm_multisite_run <- function(df, site_col, func, n_cores = NULL,
+                              site_kwarg = NULL, ...) {
   if (!site_col %in% colnames(df)) stop("`site_col` '", site_col, "' not in df.")
+  force(func)
+  force(site_kwarg)
+  dots <- list(...)
   sites <- unique(df[[site_col]])
-  if (length(sites) == 0) return(data.frame())
+  if (length(sites) == 0) return(list())
 
   # One site per worker, so the site count is the cap.
   n_cores <- .nm_resolve_cores(n_cores, n_tasks = length(sites))
@@ -50,47 +70,76 @@ nm_multisite_apply <- function(df, site_col, func, n_cores = NULL,
       {
         sub <- df[df[[site_col]] == site_val, , drop = FALSE]
         if (nrow(sub) == 0) return(NULL)
-        args <- list(df = sub, ...)
+        args <- c(list(df = sub), dots)
         if (!is.null(site_kwarg)) args[[site_kwarg]] <- site_val
-        res <- do.call(func, args)
-        if (is.list(res) && "res" %in% names(res)) res <- res$res  # handle do_all output
-        if (is.null(res) || nrow(res) == 0) return(NULL)
-        res[[site_col]] <- site_val
-        res
+        do.call(func, args)
       },
-      error = function(e) NULL)
+      error = function(e) structure(list(message = conditionMessage(e)),
+                                    class = "nm_site_error"))
   }
+  results <- stats::setNames(results, as.character(sites))
+  attr(results, "sites") <- sites  # the values as given, not their names
+  results
+}
 
-  results <- Filter(Negate(is.null), results)
-  if (length(results) == 0) stop("All per-site runs failed.")
-  do.call(rbind, results)
+# One table from per-site results: each site's rows with `site_col` added. A site
+# that failed is named in a warning with its error; when every site failed, the
+# error says why instead of only that they did.
+.nm_multisite_bind <- function(runs, site_col) {
+  if (length(runs) == 0) return(data.frame())
+  failed <- vapply(runs, inherits, logical(1), what = "nm_site_error")
+  if (any(failed)) {
+    why <- vapply(runs[failed], `[[`, character(1), "message")
+    msg <- paste0("  ", names(why), ": ", why, collapse = "\n")
+    if (all(failed)) stop("All per-site runs failed:\n", msg, call. = FALSE)
+    warning(sum(failed), " of ", length(runs), " sites failed and are left out:\n",
+      msg, call. = FALSE)
+  }
+  sites <- attr(runs, "sites") %||% names(runs)
+  tables <- list()
+  for (i in which(!failed)) {
+    res <- runs[[i]]
+    if (is.list(res) && !is.data.frame(res) && "res" %in% names(res)) res <- res$res
+    if (is.null(res) || nrow(res) == 0) next
+    res[[site_col]] <- sites[[i]]
+    tables[[length(tables) + 1]] <- res
+  }
+  if (length(tables) == 0) stop("No site returned any rows.", call. = FALSE)
+  do.call(rbind, tables)
 }
 
 #' Run \code{nm_do_all} Per Site
 #'
 #' @inheritParams nm_do_all
 #' @param site_col Character. Site identifier column.
-#' @param return_models Logical. If TRUE, also return a list of models per site.
+#' @param return_models Logical. If TRUE, also return each site's model.
 #' @param ... Additional arguments passed to \code{nm_do_all}.
 #'
 #' @return A data.frame of normalised results (or a list with \code{res}
-#'         and \code{models} if \code{return_models = TRUE}).
+#'         and \code{models}, a list named by site, if \code{return_models = TRUE}).
+#'         A site whose run fails is left out with a warning that gives its error;
+#'         if every site fails, the error lists each one.
 #' @export
 nm_do_all_multisite <- function(df, site_col, target = "value",
                                 covariates = NULL, backend = "lightgbm",
                                 n_cores = NULL, return_models = FALSE,
                                 ...) {
-  models <- list()
+  # Evaluated here, not in a worker: see .nm_multisite_run.
+  force(target); force(covariates); force(backend); force(return_models)
 
+  # A worker cannot write into this frame (`<<-` there changes the worker's copy),
+  # so a site's model comes back in its return value or not at all.
   per_site <- function(df, ...) {
     res <- nm_do_all(df = df, target = target, covariates = covariates,
       backend = backend, ...)
-    if (return_models) models[[length(models) + 1]] <<- res$model
-    res$res
+    if (return_models) res[c("res", "model")] else res$res
   }
 
-  result <- nm_multisite_apply(df, site_col, per_site, n_cores = n_cores, ...)
-  if (return_models) list(res = result, models = models) else result
+  runs <- .nm_multisite_run(df, site_col, per_site, n_cores = n_cores, ...)
+  result <- .nm_multisite_bind(runs, site_col)
+  if (!return_models) return(result)
+  ok <- !vapply(runs, inherits, logical(1), what = "nm_site_error")
+  list(res = result, models = lapply(runs[ok], `[[`, "model"))
 }
 
 #' Run \code{nm_decompose} Per Site
@@ -104,6 +153,8 @@ nm_do_all_multisite <- function(df, site_col, target = "value",
 nm_decompose_multisite <- function(df, site_col, method = "emission",
                                    target = "value", covariates = NULL,
                                    backend = "lightgbm", n_cores = NULL, ...) {
+  # Evaluated here, not in a worker: see .nm_multisite_run.
+  force(method); force(target); force(covariates); force(backend)
   per_site <- function(df, ...) {
     nm_decompose(method = method, df = df, target = target,
       covariates = covariates, backend = backend, ...)

@@ -214,8 +214,10 @@ NULL
       outcome_col = .p_str("The outcome column ('value')."),
       backend = .p_str("The SCM backend ('scm' the default)."),
       post_agg = .p_str("'mean' (the default) or 'sum'."),
-      min_pre_period = .p_int("Minimum pre-period before a fake cutoff (30)."),
-      placebo_every = .p_int("Step between fake cutoffs (7).")
+      min_pre_period = .p_int(paste(
+        "Minimum pre-period before a fake cutoff, in observations (dates), not days;",
+        "lower it for monthly data (30).")),
+      placebo_every = .p_int("Step between fake cutoffs, in observations (7).")
     ), label), c("treated", "cutoff")),
     .nm_tool("normet_start_uncertainty_bands", paste(
       "Start a job: uncertainty bands on an SCM's effect by `method` -- 'jackknife' (the",

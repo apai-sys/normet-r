@@ -28,13 +28,15 @@ nm_do_all_multisite(
 
 \item{n_cores}{Number of CPU cores to use for \strong{H2O cluster initialization}.}
 
-\item{return_models}{Logical. If TRUE, also return a list of models per site.}
+\item{return_models}{Logical. If TRUE, also return each site's model.}
 
 \item{...}{Additional arguments passed to \code{nm_do_all}.}
 }
 \value{
 A data.frame of normalised results (or a list with \code{res}
-and \code{models} if \code{return_models = TRUE}).
+and \code{models}, a list named by site, if \code{return_models = TRUE}).
+A site whose run fails is left out with a warning that gives its error;
+if every site fails, the error lists each one.
 }
 \description{
 Run \code{nm_do_all} Per Site

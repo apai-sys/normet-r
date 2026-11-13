@@ -256,7 +256,18 @@ nm_do_all_unc <- function(df = NULL, target = "value", backend = "lightgbm", cov
       error = function(e) stop("Failed to initialize H2O: ", e$message))
   }
 
-  # Helper: run one nm_do_all iteration, return named list or NULL on error
+  # Evaluate every argument a member uses here, before .run_one goes to a worker.
+  # Called from the console or a script, `df = my1` is a promise on the global
+  # environment, a promise travels to a PSOCK worker unevaluated, and the worker,
+  # whose global environment is empty, fails with "object 'my1' not found" -- every
+  # member did, and the ensemble stopped with "No outputs generated" (2026-11-13).
+  # testthat never saw it: a test's environment is serialised with the closure,
+  # the global one is not.
+  force(df); force(target); force(backend); force(covariates); force(resample_vars)
+  force(resample_df); force(n_samples); force(split_method); force(train_fraction)
+  force(model_config); force(memory_save); force(log_transform)
+
+  # Helper: run one nm_do_all iteration; on error, the error's message (to report)
   .run_one <- function(current_seed) {
     tryCatch(
       nm_do_all(
@@ -267,7 +278,8 @@ nm_do_all_unc <- function(df = NULL, target = "value", backend = "lightgbm", cov
         memory_save = memory_save, verbose = FALSE, aggregate = TRUE,
         log_transform = log_transform
       ),
-      error = function(e) NULL
+      error = function(e) structure(list(message = conditionMessage(e)),
+                                    class = "nm_member_error")
     )
   }
 
@@ -325,11 +337,17 @@ nm_do_all_unc <- function(df = NULL, target = "value", backend = "lightgbm", cov
   series_list <- list()
   stats_list  <- list()
   observed_ref <- NULL
+  member_errors <- character()
 
   for (i in seq_along(seeds)) {
     current_seed <- seeds[i]
     res_i <- raw_results[[i]]
 
+    if (inherits(res_i, "nm_member_error")) {
+      log$warn("Model iteration %d (Seed %d) failed: %s", i, current_seed, res_i$message)
+      member_errors <- c(member_errors, res_i$message)
+      next
+    }
     if (is.null(res_i) || is.null(res_i$res)) {
       log$warn("Model iteration %d (Seed %d) returned no results. Skipping.", i, current_seed)
       next
@@ -360,7 +378,10 @@ nm_do_all_unc <- function(df = NULL, target = "value", backend = "lightgbm", cov
 
   if (length(series_list) == 0 || is.null(observed_ref)) {
     log$error("Ensemble failed: All %d models failed.", n_models)
-    stop("Ensemble execution failed: No outputs generated.")
+    why <- if (length(member_errors) > 0) {
+      paste0(" First error: ", member_errors[1])
+    } else ""
+    stop("Ensemble execution failed: No outputs generated.", why)
   }
 
   out <- cbind(observed_ref, dplyr::bind_cols(series_list))
