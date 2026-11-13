@@ -735,29 +735,32 @@ patch(ZH, "running head", r"""\fancyhead[L]{\small normet 用户手册}""", r"""
 patch(ZH, "title", r"""{\large\bfseries 用户手册\par}""", r"""{\large\bfseries 用户手册\par}
 \vspace{0.2cm}
 {\large normet R 包的窗口\par}""")
-patch(ZH, "title blurb", r"""{\large 一个桌面应用和 Python 库：从空气质量记录中去除天气的影响，\\
-并回答一项干预究竟改变了什么。\par}""", r"""{\large 一个 R 包及其桌面窗口：从空气质量记录中去除天气的影响，\\
+patch(ZH, "title blurb", r"""{\large 一个桌面应用，一个 Python 库：从空气质量记录中剥离天气的影响，\\
+并回答一项干预究竟改变了什么。\par}""", r"""{\large 一个 R 包及其桌面窗口：从空气质量记录中剥离天气的影响，\\
 并回答一项干预究竟改变了什么。\par}""")
-patch(ZH, "what is normet", r"""\nm{} 是一个用于分析环境时间序列（首先是空气质量记录）的桌面应用和 Python 库。""",
-      r"""\nm{} 是一个用于分析环境时间序列（首先是空气质量记录）的 R 包，附有桌面窗口。""")
-patch(ZH, "calls into R", r"""窗口里的每一个操作都是对 \nm{} Python 包的一次调用；这些调用可以写成脚本、在命令行运行，
-或通过模型上下文协议（MCP）由 AI 助手驱动（第\ref{ch:script}章）。窗口会记下它做的每一次
-调用，因此靠点击完成的分析可以保存为一个能重复它的脚本（第~\ref{sec:commandlog}~节）。""",
-      r"""窗口里的每一个操作都是对 \nm{} R 包的一次调用，由 \code{Rscript} 在单独的 R 进程中运行；
-同样的函数可以写成 R 脚本，或通过模型上下文协议（MCP）由 AI 助手驱动（第\ref{ch:script}章）。
-窗口会记下它做的每一次调用，因此靠点击完成的分析可以保存为一个能重复它的 R 脚本
-（第~\ref{sec:commandlog}~节）。窗口就是 normet-py 的窗口，逐屏相同；它运行的是 R。""")
-patch(ZH, "features: training", r"""  \item 用 FLAML（在时间预算内搜索估计器）或调参的 LightGBM 进行 AutoML 训练，以 $R^2$、
-        RMSE 及另外九项统计量报告留出集上的拟合。""", r"""  \item 用 LightGBM（随机超参数搜索）或 H2O AutoML（在时间预算内搜索算法）训练，以 $R^2$、
-        RMSE 及另外九项统计量报告留出集上的拟合。""")
-patch(ZH, "features: no Chronos-2", r"""  \item 用 Chronos-2 时间序列基础模型零样本去气象化，结果格式相同——无需训练。
+patch(ZH, "what is normet", r"""\nm{} 是一个桌面应用，也是一个 Python 库，用来分析环境时间序列——首先是空气质量记录。""",
+      r"""\nm{} 是一个 R 包，配有桌面窗口，用来分析环境时间序列——首先是空气质量记录。""")
+patch(ZH, "calls into R", r"""窗口里的每一个操作，背后都是对 \nm{} Python 包的一次调用；这些调用可以写成脚本、在命令行
+运行，也可以经由模型上下文协议（MCP）交给 AI 助手驱动（第\ref{ch:script}章）。窗口会记下
+自己做过的每一次调用，所以点出来的分析也能存成一个脚本，原样重跑
+（第~\ref{sec:commandlog}~节）。""",
+      r"""窗口里的每一个操作，背后都是对 \nm{} R 包的一次调用，由 \code{Rscript} 在单独的 R 进程中
+运行；同样的函数可以写成 R 脚本，也可以经由模型上下文协议（MCP）交给 AI 助手驱动
+（第\ref{ch:script}章）。窗口会记下自己做过的每一次调用，所以点出来的分析也能存成一个
+R 脚本，原样重跑（第~\ref{sec:commandlog}~节）。窗口就是 normet-py 的窗口，逐屏相同；
+它运行的则是 R。""")
+patch(ZH, "features: training", r"""  \item AutoML 训练：FLAML 在墙钟\emph{预算}内搜索估计器，或使用调参的 LightGBM；以
+        $R^2$、RMSE 及另外九项统计量报告留出集上的拟合。""",
+      r"""  \item 训练：LightGBM（随机超参数搜索），或 H2O AutoML 在墙钟\emph{预算}内搜索算法；以
+        $R^2$、RMSE 及另外九项统计量报告留出集上的拟合。""")
+patch(ZH, "features: no Chronos-2", r"""  \item 用 Chronos-2 时间序列基础模型做零样本去气象化，结果格式与上面相同——不必训练。
 """, "")
-patch(ZH, "figures made by", r"""图均为真实窗口的截图，由 \code{docs/manual/make\_figures.py} 在 \nm{} 自带的记录上生成：""",
-      r"""图均为真实窗口的截图，由 \code{gui/tools/walk\_gui.py} 在 \nm{} 自带的记录上生成：""")
-patch(ZH, "a run of your own", r"""你自己运行的结果会
-在最后一两位上有所不同：AutoML 搜索以墙钟时间为界，两次访问的候选模型不会完全一样。""",
-      r"""你自己运行的结果应当
-与之非常接近：LightGBM 的搜索和每次抽样都带有种子，只是 LightGBM 的多线程可能改变最后一位。""")
+patch(ZH, "figures made by", r"""书中的图都是真实窗口的截图，由 \code{docs/manual/make\_figures.py} 在 \nm{} 自带的记录上""",
+      r"""书中的图都是真实窗口的截图，由 \code{gui/tools/walk\_gui.py} 在 \nm{} 自带的记录上""")
+patch(ZH, "a run of your own", r"""跑出来的结果会在最后一两位上不同：AutoML 搜索以墙钟时间为界，两次访问的候选模型不会完全
+一样。""",
+      r"""跑出来的结果应当非常接近：LightGBM 的搜索和每次抽样都带有种子，只是它的多线程可能改变
+最后一位。""")
 
 passage(ZH, "installation", r"""% ============================ 2. INSTALLATION ===============================""",
         r"""% ============================ 3. METHODOLOGY =================================""", r"""% ============================ 2. INSTALLATION ===============================
@@ -809,7 +812,7 @@ normet-r-gui                         # or: normet-r-gui mydata.csv
 
 """)
 
-patch(ZH, "prepare", r"""训练模型之前，表格按以下顺序经过 \code{prepare\_data}：""", r"""训练模型之前，表格按以下顺序经过 \code{nm\_prepare\_data}：""")
+patch(ZH, "prepare", r"""训练之前，\code{prepare\_data} 按下面的顺序处理表格：""", r"""训练之前，\code{nm\_prepare\_data} 按下面的顺序处理表格：""")
 passage(ZH, "training", r"""\section{训练模型}\label{sec:train}""", r"""\subsection{模型统计量}\label{sec:modstats}""",
         r"""\section{训练模型}\label{sec:train}
 \nm{}（默认）训练梯度提升树，把预测变量映射到目标。提供两种后端：
@@ -825,41 +828,43 @@ LightGBM 的搜索带有种子，所以同一脚本在同一数据上找到同�
 \code{model\_config} 中设置 \code{max\_models}。
 
 """)
-patch(ZH, "modstats", r"""\code{modStats} 分别预测训练行、测试行和全部行""", r"""\code{nm\_modStats} 分别预测训练行、测试行和全部行""")
-patch(ZH, "normalise_auto", r"""\code{normalise\_auto} 会替你选择 $N$""", r"""\code{nm\_normalise\_auto} 会替你选择 $N$""")
-patch(ZH, "conditional pool", r"""\code{conditional\_on} 把重采样池限制在满足
-条件的行——一个值、一组值或该列的一个函数，例如 \code{\{"ws": lambda v: v < 2\}} 只从静风
-时段中抽取。\code{resample\_pools} 让某些变量从各自的池中抽取：
-\code{\{"transport": clean\_hours[traj\_cols]\}} 从清洁气团时段中抽取轨迹特征""",
-      r"""\code{conditional\_on}（\code{nm\_normalise\_ext} 的参数）
-把重采样池限制在满足条件的行——一个值、一组值或该列的一个函数，例如
-\code{list(ws = function(v) v < 2)} 只从静风时段中抽取。\code{resample\_pools} 让某些变量从
-各自的池中抽取：\code{list(transport = clean\_hours[traj\_cols])} 从清洁气团时段中抽取轨迹特征""")
-patch(ZH, "seed", r"""\paragraph{可重复性。}抽样带有种子（默认 \code{seed=7654321}）""", r"""\paragraph{可重复性。}抽样带有种子（默认 \code{seed = 7654321}）""")
-patch(ZH, "groups", r"""\paragraph{分组。}\code{groups=\{"local": met\_cols, "transport": traj\_cols\}} 为每个分组""",
-      r"""\paragraph{分组。}\code{groups = list(local = met\_cols, transport = traj\_cols)} 为每个分组""")
-patch(ZH, "rolling", r"""\code{rolling} 逐窗口地归一化记录""", r"""\code{nm\_rolling} 逐窗口地归一化记录""")
+patch(ZH, "modstats", r"""\code{modStats} 分别对训练行、测试行和全部行做预测""", r"""\code{nm\_modStats} 分别对训练行、测试行和全部行做预测""")
+patch(ZH, "normalise_auto", r"""\code{normalise\_auto} 替你定 $N$""", r"""\code{nm\_normalise\_auto} 替你定 $N$""")
+patch(ZH, "conditional pool", r"""\code{conditional\_on} 把池限制在满足条件的行上——一个
+值、一组值，或该列上的一个函数，例如 \code{\{"ws": lambda v: v < 2\}} 只从静风时段抽。
+\code{resample\_pools} 让不同变量各抽各的池：\code{\{"transport": clean\_hours[traj\_cols]\}}
+从清洁气团时段的轨迹特征里抽""",
+      r"""\code{conditional\_on}（\code{nm\_normalise\_ext} 的参数）把池限制在满足条件的行上——一个
+值、一组值，或该列上的一个函数，例如 \code{list(ws = function(v) v < 2)} 只从静风时段抽。
+\code{resample\_pools} 让不同变量各抽各的池：\code{list(transport = clean\_hours[traj\_cols])}
+从清洁气团时段的轨迹特征里抽""")
+patch(ZH, "seed", r"""\paragraph{可重复性。}抽样带种子（默认 \code{seed=7654321}）""", r"""\paragraph{可重复性。}抽样带种子（默认 \code{seed = 7654321}）""")
+patch(ZH, "groups", r"""\paragraph{分组。}\code{groups=\{"local": met\_cols, "transport": traj\_cols\}} 给每个分组""",
+      r"""\paragraph{分组。}\code{groups = list(local = met\_cols, transport = traj\_cols)} 给每个分组""")
+patch(ZH, "rolling", r"""\code{rolling} 逐窗口归一化整条记录""", r"""\code{nm\_rolling} 逐窗口归一化整条记录""")
 passage(ZH, "no Chronos-2", r"""\section{用 Chronos-2 零样本去气象化}\label{sec:chronos}""",
         r"""\section{合成控制}\label{sec:scmtheory}""", "")
 patch(ZH, "mlscm", r"""  \item[\code{mlscm}] ML 增广 SCM（\emph{实验性}）：一个 AutoML 模型在干预前时段把供体的""",
       r"""  \item[\code{mlscm}] ML 增广 SCM（\emph{实验性}）：一个 LightGBM 或 H2O 模型在干预前时段把供体的""")
-patch(ZH, "bayesian", r"""  \item[\code{bayesian}] 贝叶斯单纯形 SCM（PyMC）：权重取 Dirichlet 先验，直接给出后验
-        可信区间。""", r"""  \item[\code{bayesian}] 贝叶斯单纯形 SCM：权重取平坦的 Dirichlet 先验，用马尔可夫链
-        蒙特卡洛抽样，直接给出后验可信区间。""")
+patch(ZH, "bayesian", r"""  \item[\code{bayesian}] 贝叶斯单纯形 SCM（PyMC）：权重取 Dirichlet 先验，后验可信区间
+        直接给出。""", r"""  \item[\code{bayesian}] 贝叶斯单纯形 SCM：权重取平坦的 Dirichlet 先验，用马尔可夫链
+        蒙特卡洛抽样，后验可信区间直接给出。""")
 patch(ZH, "diagnostics", r"""\code{scm\_diagnostics} 报告干预前的拟合""", r"""\code{nm\_scm\_diagnostics} 报告干预前的拟合""")
-patch(ZH, "noise fits", r"""拟合得 $R^2 = -0.05$，20 个得 0.69，53 个得 0.997；经典 SCM 用 40 个随机游走供体拟合 12 个
-月，对打乱的序列也能得到 0.60。因此""", r"""拟合得 $R^2 = 0.06$，20 个得 0.81，53 个得 0.999。因此""")
+patch(ZH, "noise fits", r"""把处理序列换成随机噪声，5 个供体拟出 $R^2 = -0.05$，
+20 个得 0.69，53 个得 0.997；经典 SCM 拿 40 个随机游走供体拟合 12 个月，打乱的序列也能得
+0.60。因此""", r"""把处理序列换成随机噪声，5 个供体拟出 $R^2 = 0.06$，
+20 个得 0.81，53 个得 0.999。因此""")
 patch(ZH, "conformal", r"""  \item[共形区间] \code{conformal\_effect\_interval} 给出干预后平均效应的有限样本区间
         （Chernozhukov、W\"uthrich 和 Zhu，2021）；\code{rmspe\_ratio\_test} 给出 Abadie""",
       r"""  \item[共形区间] \code{nm\_conformal\_effect\_interval} 给出干预后平均效应的有限样本区间
         （Chernozhukov、W\"uthrich 和 Zhu，2021）；\code{nm\_rmspe\_ratio\_test} 给出 Abadie""")
 
-patch(ZH, "my1", r"""（即下表的
-        \code{load\_my1()}）。""", r"""（即下表的
-        \code{my1}）。""")
-patch(ZH, "my1_pm25", r"""\PMtwo{}，配以本站的风和温度以及 ERA5 的其他字段（\code{load\_my1\_pm25()}）。""",
-      r"""\PMtwo{}，配以本站的风和温度以及 ERA5 的其他字段（\code{my1\_pm25}）。""")
-passage(ZH, "data sets", r"""\nm{} 模型描述论文中的真实记录随包提供；在脚本中这样载入：""",
+patch(ZH, "my1", r"""（即下表
+        的 \code{load\_my1()}）。""", r"""（即下表
+        的 \code{my1}）。""")
+patch(ZH, "my1_pm25", r"""\PMtwo{}，配本站的风和温度以及 ERA5 的其他字段（\code{load\_my1\_pm25()}）。""",
+      r"""\PMtwo{}，配本站的风和温度以及 ERA5 的其他字段（\code{my1\_pm25}）。""")
+passage(ZH, "data sets", r"""论文里的真实记录随包提供，脚本中这样载入：""",
         r"""数据来源：英国 AURN""", r"""\nm{} 模型描述论文中的真实记录作为包的数据集随包提供（在脚本中 \code{library(normet)} 之后
 即可用 \code{my1}）：
 \begin{center}\small
@@ -877,8 +882,8 @@ passage(ZH, "data sets", r"""\nm{} 模型描述论文中的真实记录随包提
 \end{center}
 """)
 
-patch(ZH, "model page", r"""  \item[模型] 后端、划分、训练集比例、时间预算（或搜索次数）、估计器、随机种子；Chronos-2
-        则换成设备和微调（第\ref{ch:train}章）。""", r"""  \item[模型] 后端、划分、训练集比例、搜索次数（H2O 则为时间预算和算法）、随机种子
+patch(ZH, "model page", r"""  \item[模型] 后端、划分、训练集比例、时间预算（或搜索次数）、估计器、随机种子；换到
+        Chronos-2 则是设备和微调（第\ref{ch:train}章）。""", r"""  \item[模型] 后端、划分、训练集比例、搜索次数（H2O 则为时间预算和算法）、随机种子
         （第\ref{ch:train}章）。""")
 patch(ZH, "run buttons", r"""训练模型 / 载入 Chronos-2 & 一张表，至少勾选一个预测变量 & \code{build\_model} \\
 微调 Chronos-2        & 已载入 Chronos-2         & \code{finetune} \\
@@ -898,49 +903,51 @@ patch(ZH, "run buttons", r"""训练模型 / 载入 Chronos-2 & 一张表，至�
 查找事件              & 一个模型（给分量打分时须有分解） & \code{nm\_anomaly\_scores}、\code{nm\_detect\_events} \\
 计算 PDP              & 一个模型，至少勾选一个变量 & \code{nm\_pdp} \\""")
 patch(ZH, "events section names",
-      r"""（\code{anomaly\_scores}、\code{detect\_events}）。""",
-      r"""（\code{nm\_anomaly\_scores}、\code{nm\_detect\_events}）。""")
+      r"""（\code{anomaly\_scores}、
+\code{detect\_events}）。""",
+      r"""（\code{nm\_anomaly\_scores}、
+\code{nm\_detect\_events}）。""")
 patch(ZH, "events caption",
-      r"""\screenshot{ui_events.png}{MY1 排放分量（第~\ref{sec:emission}~节）的\tab{事件}标签页：每个时刻的
-iqr 分数，$k=2$ 阈值画成一条线——方框默认的 $k=3$ 在这条去气象化序列上一个窗口都标不出，
-所以取 2 作为第一个能标出的值——被标记的 26 个窗口以阴影显示，图上方是按最高分排序的窗口表，
-最高分 2.36。阴影恰好是曲线越过那条线的地方：阈值低时，被标出的正是普通天气的尾部，
+      r"""\screenshot{ui_events.png}{MY1 排放分量（第~\ref{sec:emission}~节）的\tab{事件}标签页：每个
+时刻的 iqr 分数，$k=2$ 阈值画成一条线——方框默认的 $k=3$ 在这条去气象化序列上一个窗口都标
+不出，所以取 2 作为第一个能标出的值——被标记的 26 个窗口打着阴影，图上方是按最高分排序的
+窗口表，最高分 2.36。阴影恰好是曲线越过那条线的地方：阈值低时，标出来的正是普通天气的尾巴，
 表顶是 2020-03-10 07:00--18:00 那一段，整整一天。}{fig:events}""",
-      r"""\screenshot{ui_events.png}{MY1 排放分量（第~\ref{sec:emission}~节）的\tab{事件}标签页：每个时刻的
-iqr 分数，$k=2$ 阈值画成一条线——方框默认的 $k=3$ 在这条去气象化序列上一个窗口都标不出，
-所以取 2 作为第一个能标出的值——被标记的 11 个窗口以阴影显示，图上方是按最高分排序的窗口表，
-最高分 2.35。阴影恰好是曲线越过那条线的地方：阈值低时，被标出的正是普通天气的尾部，
+      r"""\screenshot{ui_events.png}{MY1 排放分量（第~\ref{sec:emission}~节）的\tab{事件}标签页：每个
+时刻的 iqr 分数，$k=2$ 阈值画成一条线——方框默认的 $k=3$ 在这条去气象化序列上一个窗口都标
+不出，所以取 2 作为第一个能标出的值——被标记的 11 个窗口打着阴影，图上方是按最高分排序的
+窗口表，最高分 2.35。阴影恰好是曲线越过那条线的地方：阈值低时，标出来的正是普通天气的尾巴，
 表顶是 2020-03-04 15:00--19:00 那一段。}{fig:events}""")
 patch(ZH, "trend breaks name",
-      r"""\emph{分段拟合}——即对所选序列运行 \code{detect\_trend\_breaks}。""",
-      r"""\emph{分段拟合}——即对所选序列运行 \code{nm\_trend\_breaks}。""")
+      r"""\emph{分段拟合}，即对所选序列运行 \code{detect\_trend\_breaks}。""",
+      r"""\emph{分段拟合}，即对所选序列运行 \code{nm\_trend\_breaks}。""")
 patch(ZH, "trend script names",
-      "（脚本里是 \\code{trend\\_breaks\\_call}，不是\n\\code{trend\\_call}）",
-      "（脚本里是 \\code{nm\\_trend\\_breaks}，不是\n\\code{nm\\_trend}）")
+      "（脚本里是\n\\code{trend\\_breaks\\_call}，不是 \\code{trend\\_call}）",
+      "（脚本里是\n\\code{nm\\_trend\\_breaks}，不是 \\code{nm\\_trend}）")
 patch(ZH, "trend breaks caption",
-      r"""\screenshot{ui_trend_breaks.png}{段数 2、对 MY1 分离出的长期趋势的分段拟合：搜索在 2020-03-18 19:00（2020-03-23
+      r"""\screenshot{ui_trend_breaks.png}{段数 2、对 MY1 分离出的长期趋势做分段拟合：搜索在 2020-03-18 19:00（2020-03-23
 封控的前奏）找到断点——相对单段的 SSE 下降 88.7\,\%，搜索的块自助法 p 为 0.001，要引用的是它。第 1 段
 斜率 +0.0812 每天（95\,\% [0.0761, 0.0863]），第 2 段降到 $-$0.0121 每天（95\,\% [$-$0.0134, $-$0.0108]）。
-图上方的评估结论和每段一行的表格就是\tab{趋势}标签页的内容。}{fig:trend_breaks}""",
-      r"""\screenshot{ui_trend_breaks.png}{段数 2、对 MY1 分离出的长期趋势的分段拟合：搜索在 2020-03-25 20:00（2020-03-23
+图上方的评估结论和每段一行的表格，就是\tab{趋势}标签页的内容。}{fig:trend_breaks}""",
+      r"""\screenshot{ui_trend_breaks.png}{段数 2、对 MY1 分离出的长期趋势做分段拟合：搜索在 2020-03-25 20:00（2020-03-23
 封控开始两天后）找到断点——相对单段的 SSE 下降 79.6\,\%，搜索的块自助法 p 为 0.001，要引用的是它。第 1 段
 斜率 +0.03562 每天（95\,\% [0.03173, 0.03937]），第 2 段放缓到 +0.00512 每天（95\,\% [0.00362, 0.00660]）。
-图上方的评估结论和每段一行的表格就是\tab{趋势}标签页的内容。}{fig:trend_breaks}""")
-patch(ZH, "task clock", r"""任务能说出自己的进度时——滚动窗口、分解的各步、LightGBM 的各次试验、HYSPLIT 的各个受体时刻、
-FLAML 的时间预算——进度条随之推进，""", r"""任务能说出自己的进度时——R 报告蒙特卡罗的各批、滚动窗口、分解的各步、LightGBM 的各次
-试验和 HYSPLIT 的各个受体时刻；H2O 则按已用时间与其时间预算之比——进度条随之推进，""")
-patch(ZH, "cancel", r"""取消会\emph{放弃}该任务：窗口立刻空出来，但计算无法中断，它会在后台跑完，
-结果被丢弃。""", r"""取消会停止该任务：执行它的 R 进程连同它启动的东西（比如一次 HYSPLIT 运行）
+图上方的评估结论和每段一行的表格，就是\tab{趋势}标签页的内容。}{fig:trend_breaks}""")
+patch(ZH, "task clock", r"""任务能报进度时——滚动窗口、分解的各步、LightGBM 的各次试验、HYSPLIT 的各个受体时刻、FLAML
+的时间预算——进度条跟着走，""", r"""任务能报进度时——R 报告蒙特卡罗的各批、滚动窗口、分解的各步、LightGBM 的各次
+试验和 HYSPLIT 的各个受体时刻；H2O 则按已用时间与其时间预算之比——进度条跟着走，""")
+patch(ZH, "cancel", r"""取消会\emph{放弃}该任务：窗口
+立刻空出来，但计算停不下来，它会在后台跑完，结果丢掉。""", r"""取消会停止该任务：执行它的 R 进程连同它启动的东西（比如一次 HYSPLIT 运行）
 被终止，窗口立刻空出来。""")
 patch(ZH, "R menu", r"""帮助     & 用户手册                             & F1 \\""", r"""R        & 定位 Rscript…、检查 R 环境、将图另存为 R 脚本… & \\
 帮助     & 用户手册                             & F1 \\""")
-patch(ZH, "log dock", r"""它可以一直开在主窗口旁边：
-每一步做了什么、多少行、FLAML 选中的估计器及其超参数、一次滚动运行生成了多少窗口。""",
+patch(ZH, "log dock", r"""可以一直开在主窗口旁边：
+每一步做了什么、多少行、FLAML 选中了哪个估计器及其超参数、一次滚动跑出了多少窗口。""",
       r"""它可以一直开在主窗口旁边：
 每一次对 R 的调用（\code{R> nm\_normalise(…)}）和 R 自己的日志——每一步做了什么、多少行、
-LightGBM 的搜索次数、一次滚动运行生成了多少窗口。""")
-patch(ZH, "failed task", r"""任务失败时，完整的回溯写在日志里，最后一行显示在对话框中。""",
-      r"""任务失败时，R 的错误连同回溯写在日志里，并显示在对话框中。""")
+LightGBM 的搜索次数、一次滚动跑出了多少窗口。""")
+patch(ZH, "failed task", r"""任务失败时，完整回溯写进日志，最后一行显示在对话框里。""",
+      r"""任务失败时，R 的错误连同回溯写进日志，并显示在对话框里。""")
 
 passage(ZH, "settings", r"""\section{设置}
 \begin{description}\nosep
@@ -956,46 +963,48 @@ passage(ZH, "settings", r"""\section{设置}
 \end{description}
 
 """)
-patch(ZH, "train runs", r"""\emph{训练模型}运行 \code{build\_model}——准备数据、划分和搜索——""",
-      r"""\emph{训练模型}运行 \code{nm\_build\_model}——准备数据、划分和搜索——""")
+patch(ZH, "train runs", r"""\emph{训练模型}运行 \code{build\_model}——准备数据、划分、搜索——""",
+      r"""\emph{训练模型}运行 \code{nm\_build\_model}——准备数据、划分、搜索——""")
 patch(ZH, "model table", r"""表格是训练行、测试行和全部行的 \code{modStats}""", r"""表格是训练行、测试行和全部行的 \code{nm\_modStats}""")
 patch(ZH, "importance", r"""条形图是模型的特征重要性（LightGBM 为分裂次数）。""", r"""条形图是模型的特征重要性（各预测变量在 LightGBM 增益中所占的份额）。""")
 patch(ZH, "model caption", r"""\screenshot{ui_model.png}{用 FLAML（LightGBM，30~s 预算，随机划分）训练 MY1：在 1,448 个
-留出小时上 $R^2 = 0.883$、RMSE $= 8.66$~\ugm{}，而在 4,345 个训练小时上为 $0.976$。风向和
-风速、边界层高度和趋势承担了最多的分裂。}{fig:model}""", fill(r"""\screenshot{ui_model.png}{用 LightGBM（10 次搜索，随机划分）训练 MY1：在 @test_n@ 个
+留出小时上 $R^2 = 0.883$、RMSE $= 8.66$~\ugm{}，而在 4,345 个训练小时上为 $0.976$。
+风向风速、边界层高度和趋势承担了最多的分裂。}{fig:model}""", fill(r"""\screenshot{ui_model.png}{用 LightGBM（10 次搜索，随机划分）训练 MY1：在 @test_n@ 个
 留出小时上 $R^2 = @test_r2@$、RMSE $= @test_rmse@$~\ugm{}，而在 @train_n@ 个训练小时上为 $@train_r2@$。
 日历——一年中的第几天、趋势和小时——以及风向承担了最多的增益。}{fig:model}"""))
 patch(ZH, "a poor fit", r"""试试更多预测变量、更长的预算或更多估计器。""", r"""试试更多预测变量、更多搜索次数，或用 H2O。""")
 passage(ZH, "no Chronos-2 settings", r"""\section{Chronos-2}\label{sec:chronosui}""",
         r"""% ============================ 7. NORMALISATION ================================""", "")
 
-patch(ZH, "samples", r"""  \item[样本数] 蒙特卡洛抽样次数，默认 300（Chronos-2 为 8；多少次才够见
-        第~\ref{sec:normalise}~节）。""", r"""  \item[样本数] 蒙特卡洛抽样次数，默认 300（多少次才够见第~\ref{sec:normalise}~节）。""")
-patch(ZH, "cycle profiles", r"""用脚本表示：\code{nm.cycle\_profiles(result, ["observed",
+patch(ZH, "samples", r"""  \item[样本数] 蒙特卡洛抽样次数，默认 300（Chronos-2 为 8；抽多少才够，见
+        第~\ref{sec:normalise}~节）。""", r"""  \item[样本数] 蒙特卡洛抽样次数，默认 300（抽多少才够，见
+        第~\ref{sec:normalise}~节）。""")
+patch(ZH, "cycle profiles", r"""脚本里写作：\code{nm.cycle\_profiles(result, ["observed",
 "normalised"])}。""", r"""用 R 表示：\code{nm\_cycle\_profiles(result, c("observed",
 "normalised"))}。""")
-patch(ZH, "normalise numbers", r"""是 $-0.26$~\ugm{}，因为八个月下来""", fill(r"""是 @norm_diff@~\ugm{}，因为八个月下来"""))
+patch(ZH, "normalise numbers", r"""$-0.26$~\ugm{}，八个月下来天气的影响大致相互抵消。""", fill(r"""@norm_diff@~\ugm{}，八个月下来天气的影响大致相互抵消。"""))
 patch(ZH, "monthly means", r"""观测     & 60.3 & 65.2 & 51.7 & 34.5 & 30.7 & 35.1 & 31.6 & 36.6 \\
 归一化   & 59.7 & 64.7 & 54.0 & 34.7 & 32.1 & 32.5 & 32.1 & 33.8 \\""", fill(r"""观测     & @obs@ \\
 归一化   & @norm@ \\"""))
-patch(ZH, "spring drop", r"""从 2 月到 4 月，归一化序列下降了 30.0~\ugm{}（46\,\%），观测下降了 30.7~\ugm{}：春季的
-下降几乎都不是天气造成的。3 月的天气比通常更清洁（观测比归一化低 2.3），6 月和 8 月则更脏。""",
-      fill(r"""从 2 月到 4 月，归一化序列下降了 @feb_apr_norm@（@feb_apr_pct@），观测下降了 @feb_apr_obs@：春季的
-下降几乎都不是天气造成的。3 月的天气比通常更清洁（观测比归一化低 @mar_cleaner@），6 月和 8 月则更脏。"""))
-patch(ZH, "no Chronos-2 rows", r"""\note{在 Chronos-2 上，前 \code{context\_length} 行用观测值填入；它们在图上以灰色阴影标出，
-图下方的一行说明有多少行，均值只在其余的行上计算。}
+patch(ZH, "spring drop", r"""2 月到 4 月，归一化序列降了 30.0~\ugm{}（46\,\%），观测降了 30.7~\ugm{}：春季这场下降，
+几乎都不是天气造成的。3 月的天气比常年干净（观测比归一化低 2.3），6 月和 8 月则更脏。""",
+      fill(r"""2 月到 4 月，归一化序列降了 @feb_apr_norm@（@feb_apr_pct@），观测降了 @feb_apr_obs@：春季这场下降，
+几乎都不是天气造成的。3 月的天气比常年干净（观测比归一化低 @mar_cleaner@），6 月和 8 月则更脏。"""))
+patch(ZH, "no Chronos-2 rows", r"""\note{用 Chronos-2 时，前 \code{context\_length} 行拿观测值填；图上用灰色阴影标出，图下方
+一行说明有多少行，均值只在其余行上算。}
 
 """, "")
-patch(ZH, "emission caption", r"""43.1~\ugm{}）。封控同时表现为趋势（$\sigma = 9.56$）和季节分量（$\sigma = 4.74$）中的
-台阶：一次性事件不是季节，而记录太短，无法把二者分开。日变化（右）最大
-（$\sigma = 9.92$）""", fill(r"""@emi_base@~\ugm{}）。封控同时表现为趋势（$\sigma = @emi_trend@$）和季节分量（$\sigma = @emi_season@$）中的
-台阶：一次性事件不是季节，而记录太短，无法把二者分开。日变化（右）最大
-（$\sigma = @emi_diurnal@$）"""))
-patch(ZH, "weekly", r"""星期循环（$\sigma = 3.36$）在周末下降。""", fill(r"""星期循环（$\sigma = @emi_weekly@$）在周末下降。"""))
-patch(ZH, "met caption", r"""$\sigma = 16.79$~\ugm{}）按精确 Shapley 值（16 个联盟）分摊到四个分组：风（\code{ws}、
+patch(ZH, "emission caption", r"""43.1~\ugm{}）。封控同时表现为趋势（$\sigma = 9.56$）和季节分量（$\sigma = 4.74$）里的
+台阶：一次性事件不是季节，而记录太短，分不开二者。日变化（右）最大（$\sigma = 9.92$）：""",
+      fill(r"""@emi_base@~\ugm{}）。封控同时表现为趋势（$\sigma = @emi_trend@$）和季节分量（$\sigma = @emi_season@$）里的
+台阶：一次性事件不是季节，而记录太短，分不开二者。日变化（右）最大（$\sigma = @emi_diurnal@$）："""))
+patch(ZH, "weekly", r"""星期循环
+（$\sigma = 3.36$）周末下降。""", fill(r"""星期循环
+（$\sigma = @emi_weekly@$）周末下降。"""))
+patch(ZH, "met caption", r"""$\sigma = 16.79$~\ugm{}）按精确 Shapley 值（16 个联盟）摊到四个分组：风（\code{ws}、
 \code{wd}；$\sigma = 9.92$）、热力（\code{temp}、\code{RH}；5.24）、混合（\code{blh}、
 \code{atmos\_pres}；4.89）和天空（\code{tcc}、\code{tp}、\code{ssrd}；3.44）。}{fig:metdecomp}""",
-      fill(r"""$\sigma = @met_total@$~\ugm{}）按精确 Shapley 值（16 个联盟）分摊到四个分组：风（\code{ws}、
+      fill(r"""$\sigma = @met_total@$~\ugm{}）按精确 Shapley 值（16 个联盟）摊到四个分组：风（\code{ws}、
 \code{wd}；$\sigma = @met_wind@$）、热力（\code{temp}、\code{RH}；@met_thermo@）、混合（\code{blh}、
 \code{atmos\_pres}；@met_mixing@）和天空（\code{tcc}、\code{tp}、\code{ssrd}；@met_sky@）。}{fig:metdecomp}"""))
 patch(ZH, "multiscale caption", r"""$\sigma \approx 3.0$），其次是季节内和慢频带。""", fill(r"""$\sigma \approx @ms_fast@$），其次是季节内和慢频带。"""))
@@ -1019,49 +1028,49 @@ df <- df[df$code %in% c(donors, "MY1"), ]
 write.csv(df, "ulez_panel.csv", row.names = FALSE)
 \end{lstlisting}""")
 patch(ZH, "similarity", r"""  \item[按相似度排列供体]（需要 \code{foundation} 扩展）用 Chronos-2 嵌入每个单元干预前的
-        记录，按其动态与处理单元的余弦相似度对其他单元排序，显示在\tab{相似度}标签页上；
-        \emph{勾选前 N 个}和\emph{应用}把它们设为供体池。
+        记录，按它们与处理单元的动态余弦相似度排序，显示在\tab{相似度}标签页；\emph{勾选
+        前 N 个}加\emph{应用}把它们设为供体池。
 """, "")
-patch(ZH, "ML backend", r"""\emph{后端}选择估计器（第~\ref{sec:scmtheory}~节）；\emph{机器学习后端}和\emph{时间预算}
-（15~s）用于 \code{mlscm}，\emph{抽样次数}（1000）用于 \code{bayesian}。""",
-      r"""\emph{后端}选择估计器（第~\ref{sec:scmtheory}~节）；\emph{机器学习后端}（\code{lightgbm} 或
-\code{h2o}）和\emph{搜索次数}（5；H2O 则为\emph{时间预算}，15~s）用于 \code{mlscm}，
-\emph{抽样次数}（1000）用于 \code{bayesian}。""")
+patch(ZH, "ML backend", r"""\emph{后端}选估计器（第~\ref{sec:scmtheory}~节）；\emph{机器学习后端}和\emph{时间预算}
+（15~s）给 \code{mlscm} 用，\emph{抽样次数}（1000）给 \code{bayesian}。""",
+      r"""\emph{后端}选估计器（第~\ref{sec:scmtheory}~节）；\emph{机器学习后端}（\code{lightgbm} 或
+\code{h2o}）和\emph{搜索次数}（5；H2O 则为\emph{时间预算}，15~s）给 \code{mlscm} 用，
+\emph{抽样次数}（1000）给 \code{bayesian}。""")
 patch(ZH, "fit caption", r"""ATT $= -18.14$~\ugm{}。干预前""", fill(r"""ATT $= @scm_att@$~\ugm{}。干预前"""))
-patch(ZH, "top donor", r"""它权重最大的
-供体占 99.5\,\%（$\text{HHI} = 0.99$）""", r"""它权重最大的
-供体占全部权重（$\text{HHI} = 1.00$）""")
+patch(ZH, "top donor", r"""它权重最大的供体
+占 99.5\,\%（$\text{HHI} = 0.99$）""", r"""它权重最大的供体
+占全部权重（$\text{HHI} = 1.00$）""")
 patch(ZH, "scm row", r"""\code{scm}    & 0.999  & 1.000   & 0.16  & $-18.14$ \\""", fill(r"""\code{scm}    & 0.999  & 1.000   & 0.16  & $@scm_att@$ \\"""))
-patch(ZH, "bands caption", r"""平均效应为 $-18.14$~\ugm{}，""", fill(r"""平均效应为 $@scm_att@$~\ugm{}，"""))
+patch(ZH, "bands caption", r"""效应为 $-18.14$~\ugm{}，区间在 55\,\%""", fill(r"""效应为 $@scm_att@$~\ugm{}，区间在 55\,\%"""))
 
-patch(ZH, "multisite", r"""或在脚本中用 \code{do\_all\_multisite} 处理。""", r"""或在脚本中用 \code{nm\_do\_all\_multisite} 处理。""")
-patch(ZH, "read_time_series", r"""在脚本中，
-\code{nm.io.read\_time\_series(path, zone=\ldots)} 以同样的方式读表。""", r"""在 R 中，
-\code{nm\_read\_time\_series(path, zone = \ldots)} 以同样的方式读表。""")
-patch(ZH, "CDS", r"""Copernicus CDS（需要
-        \code{\textasciitilde/.cdsapirc}）。""", r"""Copernicus CDS（需要
+patch(ZH, "multisite", r"""或在脚本里用 \code{do\_all\_multisite} 处理。""", r"""或在脚本里用 \code{nm\_do\_all\_multisite} 处理。""")
+patch(ZH, "read_time_series", r"""脚本里用
+\code{nm.io.read\_time\_series(path, zone=\ldots)}，读法一样。""", r"""在 R 中，
+\code{nm\_read\_time\_series(path, zone = \ldots)}，读法一样。""")
+patch(ZH, "CDS", r"""Copernicus CDS（要
+        \code{\textasciitilde/.cdsapirc}）。""", r"""Copernicus CDS（要
         \code{ecmwfr} R 包和用 \code{ecmwfr::wf\_set\_key} 设置的 CDS 密钥）。""")
-patch(ZH, "openair", r"""英国的档案就是 R 的 \code{importUKAQ()} 读取的 openair \code{.RData} 文件，不经 R 直接
-解析，所以数据与 openair 工作流一致。EEA 通路读取该机构自己的站点图，并为每个站点、每种
-污染物下载一个公开的 Parquet 文件——一次下载就是整条记录。OpenAQ 按传感器作答；同一位置
-注册了多个传感器时优先取 \ugm{} 的那个，因此它的数值与英国、EEA 数据同量纲（只有 ppm
-传感器的位置保留自己的单位，写在该行的 \code{unit} 里），且它提供的是六种常见污染物：
-勾选的 NO 或 NO\textsubscript{x} 对它会被跳过，并在日志中记一行。数据工作室需要联网；
-从它发送来的表保存在内存中，命令日志会如实说明这一点，而不是写一条无法重复的
-\code{read\_csv}。""", r"""英国的档案就是 R 的 \code{importUKAQ()} 读取的 openair \code{.RData} 文件，由 R 包读取
-（\code{nm\_fetch\_ukaq\_measurements}），所以数据与 openair 工作流一致。EEA 通路读取该
-机构自己的站点图，并为每个站点、每种污染物下载一个公开的 Parquet 文件——一次下载就是整条
-记录。OpenAQ 按传感器作答；同一位置注册了多个传感器时优先取 \ugm{} 的那个，因此它的数值与
-英国、EEA 数据同量纲（只有 ppm 传感器的位置保留自己的单位，写在该行的 \code{unit} 里），
-且它提供的是六种常见污染物：勾选的 NO 或 NO\textsubscript{x} 对它会被跳过，并在日志中记
-一行。数据工作室需要联网；从它发送来的表保存在内存中，命令日志会如实说明这一点，而不是写
-一条无法重复的 \code{nm\_read\_time\_series}。""")
-patch(ZH, "polar", r"""用脚本表示：
+patch(ZH, "openair", r"""英国档案就是 R 的 \code{importUKAQ()} 读的那套 openair \code{.RData} 文件，不经 R 直接
+解析，数据因此和 openair 工作流一致。EEA 通路读该机构自己的站点图，为每个站点、每种污染物
+下载一个公开的 Parquet 文件——一次下载就是整条记录。OpenAQ 按传感器作答；同一位置注册了
+多个传感器时，优先取 \ugm{} 那个，数值于是与英国、EEA 数据同量纲（只有 ppm 传感器的位置
+保留自己的单位，写在该行的 \code{unit} 里），而它提供六种常见污染物：勾了 NO 或
+NO\textsubscript{x} 的，对它跳过，日志里记一行。数据工作室要联网；从它送来的表放在内存里，
+命令日志会照实说，而不是写一条重复不了的 \code{read\_csv}。""", r"""英国档案就是 R 的 \code{importUKAQ()} 读的那套 openair \code{.RData} 文件，由 R 包读取
+（\code{nm\_fetch\_ukaq\_measurements}），数据因此和 openair 工作流一致。EEA 通路读该机构
+自己的站点图，为每个站点、每种污染物下载一个公开的 Parquet 文件——一次下载就是整条记录。
+OpenAQ 按传感器作答；同一位置注册了多个传感器时，优先取 \ugm{} 那个，数值于是与英国、EEA
+数据同量纲（只有 ppm 传感器的位置保留自己的单位，写在该行的 \code{unit} 里），而它提供六种
+常见污染物：勾了 NO 或 NO\textsubscript{x} 的，对它跳过，日志里记一行。数据工作室要联网；
+从它送来的表放在内存里，命令日志会照实说，而不是写一条重复不了的
+\code{nm\_read\_time\_series}。""")
+patch(ZH, "polar", r"""脚本里写作：
 \code{nm.polar\_plot(df, target="NO2", ws\_col="ws", wd\_col="wd")}。""", r"""用 R 表示：
 \code{nm\_plot\_polar(df, target = "NO2", ws\_col = "ws", wd\_col = "wd")}。""")
 
 patch(ZH, "report provenance", r"""时间、平台和 Python 版本""", r"""时间、平台和 R 版本""")
-patch(ZH, "script is R", r"""把它写成一个能重复本次会话的 Python 文件，\emph{清空}清空日志。""",
+patch(ZH, "script is R", r"""把它写成
+一个能重复本次会话的 Python 文件，\emph{清空}清空日志。""",
       r"""把它写成一个能重复本次会话的 R 脚本，\emph{清空}清空日志。
 
 窗口用 matplotlib 绘图；R 包用 ggplot2 绘制同样的结果。因此每个结果的条目最后都是 R 包绘制它的
@@ -1071,13 +1080,13 @@ patch(ZH, "script is R", r"""把它写成一个能重复本次会话的 Python �
 \tab{R $\rightarrow$ 将图另存为 R 脚本…}把当前标签页显示的结果（归一化、分解——所显示的方法——、
 滚动或 PDP）存为 CSV，并在旁边写出读取它、如此绘图并保存为 PDF 的 R 代码：不必重新训练模型，
 就能在 R 中修改图。""")
-patch(ZH, "saved session", r"""Chronos-2 检查点不
-写入（它是预训练模型，约 500~MB）：要继续请重新载入。会话文件是 Python pickle：只打开你自己
+patch(ZH, "saved session", r"""Chronos-2 检查点不写进去
+（它是预训练模型，约 500~MB）：要继续，请重新载入。会话文件是 Python pickle：只打开你自己
 或本窗口写出的文件。""", r"""会话文件是 Python
 pickle，其中带有 R 模型的文件夹，所以能在另一台机器上打开：只打开你自己或本窗口写出的文件。""")
-patch(ZH, "session script", r"""以及按它所做的调用设置好的参数面板。
-脚本是 Python，会按原样运行，所以窗口会先询问。""", r"""以及按它所做的调用设置好的参数面板——在运行之前由 R 自己的解析器读出。脚本是 R，会在 R
-中、从它保存所在的文件夹按原样运行（所以它按相对路径读取的表能被找到）；窗口会先询问。""")
+patch(ZH, "session script", r"""参数面板也按它做过的调用设好。脚本是 Python，
+会照原样执行，所以窗口先问一声。""", r"""参数面板也按它做过的调用设好——在运行之前由 R 自己的解析器读出。脚本是 R，会
+在 R 中、从它保存所在的文件夹照原样执行（所以它按相对路径读取的表能找到），所以窗口先问一声。""")
 patch(ZH, "methods caption", r"""记录、FLAML 模型及其留出集拟合""", r"""记录、LightGBM 模型及其留出集拟合""")
 
 passage(ZH, "scripting", r"""% ============================ 15. SCRIPTING ===================================""",
@@ -1202,9 +1211,9 @@ patch(ZH, "trouble: similarity", r"""或者用更少、更精选的供体（相�
 patch(ZH, "trouble: cancel", r"""  \item[任务运行太久] \emph{取消}立刻释放窗口；计算在后台跑完，结果被丢弃。减少抽样次数、
         预算或分解的变量数。""", r"""  \item[任务运行太久] \emph{取消}停止它，连同运行它的 R 进程。减少抽样次数、搜索次数或
         分解的变量数。""")
-patch(ZH, "trouble: failed", r"""  \item[任务失败] 对话框显示最后一行；完整的回溯在\tab{日志}停靠窗中。""",
-      r"""  \item[任务失败] 对话框显示 R 的错误；完整的回溯在\tab{日志}停靠窗中。""")
-passage(ZH, 'command log listing', r"""本手册各图背后的会话保存为""", r"""\section{打印用图}""",
+patch(ZH, "trouble: failed", r"""  \item[任务失败] 对话框显示最后一行；完整回溯在\tab{日志}停靠窗里。""",
+      r"""  \item[任务失败] 对话框显示 R 的错误；完整回溯在\tab{日志}停靠窗里。""")
+passage(ZH, 'command log listing', r"""本手册各图背后的会话存下来是这样（路径已缩短，省略了导入语句以及多尺度和部分依赖的调用）：""", r"""\section{打印用图}""",
         r"""本手册各图背后的会话保存为（省略了排放分解、多尺度和部分依赖的调用）：
 \begin{lstlisting}[language=R]
 # 21:32:48  Load example: London Marylebone Road NO2 (2020)
@@ -1265,7 +1274,8 @@ patch("docs/manual/build.sh", "figures", r"""# The figures are screenshots of th
 
 # The SCM Studio has no Similarity tab: its ranking of donors was Chronos-2's.
 patch(EN, "SCM tabs: no Similarity", r"""\tab{All Units}, \tab{Similarity}), and""", r"""\tab{All Units}), and""")
-patch(ZH, "SCM tabs: no Similarity", r"""\tab{全部单元}、\tab{相似度}），""", r"""\tab{全部单元}），""")
+patch(ZH, "SCM tabs: no Similarity", r"""\tab{全部单元}、
+\tab{相似度}），""", r"""\tab{全部单元}），""")
 
 # == uncertainty decomposition (normet-py PR #58) ==========================================
 # The box, the tab and the step as normet-py's book tells them; what differs is the R
@@ -1312,22 +1322,24 @@ patch(ZH, "unc run-buttons row",
       r"""不确定度分解          & 一个 AutoML 模型 & \code{decompose\_uncertainty} \\""",
       r"""不确定度分解          & 一个模型 & \code{nm\_decompose\_uncertainty} \\""")
 patch(ZH, "unc member backend",
-      r"""\code{flaml}（每个成员各做一次 AutoML 搜索，各花各自的预算）。""",
-      r"""\code{h2o}（每个成员各做一次 H2O AutoML 搜索，各花各自的预算；需要 Java 与 h2o R 包）。""")
+      r"""\code{flaml}（每个成员各跑一次 AutoML 搜索，各花各的预算）。""",
+      r"""\code{h2o}（每个成员各跑一次 H2O AutoML 搜索，各花各的预算；需要 Java 与 h2o R 包）。""")
 patch(ZH, "unc numbers",
-      r"""成员、共享 50 次抽样：中位数总离散中 96\,\% 来自气象重采样，交互 3\,\%、模型形式 0\,\%——""",
-      fill(r"""成员、共享 50 次抽样：中位数总离散中 @unc_w@\,\% 来自气象重采样，交互 @unc_i@\,\%、模型形式 @unc_m@\,\%——"""))
+      r"""中位总离散里 96\,\% 来自气象重采样，交互 3\,\%，模型
+形式 0\,\%——""",
+      fill(r"""中位总离散里 @unc_w@\,\% 来自气象重采样，交互 @unc_i@\,\%，模型
+形式 @unc_m@\,\%——"""))
 patch(ZH, "unc command log name",
-      r"""\code{decompose\_uncertainty} 调用记入命令日志""",
-      r"""\code{nm\_decompose\_uncertainty} 调用记入命令日志""")
+      r"""\code{decompose\_uncertainty} 调用记进命令日志""",
+      r"""\code{nm\_decompose\_uncertainty} 调用记进命令日志""")
 patch(ZH, "unc R pipeline name",
-      r"""——与一次 \code{do\_all\_unc}""",
-      r"""——与一次 \code{nm\_do\_all\_unc}""")
+      r"""和一次 \code{do\_all\_unc} 的预测量一样""",
+      r"""和一次 \code{nm\_do\_all\_unc} 的预测量一样""")
 patch(ZH, "unc caption",
-      r"""交互）的中位数总方差为 144.3 (\ugm{})$^{2}$，图上方的结论说明它去往何处——96\,\% 气象
-重采样、3\,\% 交互、0\,\% 模型形式（共享 50 次抽样的三个成员，lightgbm）。小于该区间的效果，""",
-      fill(r"""交互）的中位数总方差为 @unc_total@ (\ugm{})$^{2}$，图上方的结论说明它去往何处——@unc_w@\,\% 气象
-重采样、@unc_i@\,\% 交互、@unc_m@\,\% 模型形式（共享 50 次抽样的三个成员，lightgbm）。小于该区间的效果，"""))
+      r"""交互）的中位总方差为 144.3 (\ugm{})$^{2}$，图上方的结论说明它去了哪里——96\,\% 气象重采样、
+3\,\% 交互、0\,\% 模型形式（三个成员共享 50 次抽样，lightgbm）。比这个区间还小的效果，模型""",
+      fill(r"""交互）的中位总方差为 @unc_total@ (\ugm{})$^{2}$，图上方的结论说明它去了哪里——@unc_w@\,\% 气象重采样、
+@unc_i@\,\% 交互、@unc_m@\,\% 模型形式（三个成员共享 50 次抽样，lightgbm）。比这个区间还小的效果，模型"""))
 # The API table's row, as in the English book, rides in the scripting passage's rewrite.
 
 # ---- Staggered adoption (PR #67): the section's function is the R name ----
@@ -1335,5 +1347,5 @@ patch(EN, "staggered R name",
       r"""\code{run\_scm\_staggered} fits each treated unit on its own pre- and post-period, with""",
       r"""\code{nm\_run\_scm\_staggered} fits each treated unit on its own pre- and post-period, with""")
 patch(ZH, "staggered R name",
-      r"""\code{run\_scm\_staggered} 为每个处理单元用各自的干预前/后时段单独拟合，并把""",
-      r"""\code{nm\_run\_scm\_staggered} 为每个处理单元用各自的干预前/后时段单独拟合，并把""")
+      r"""\code{run\_scm\_staggered} 为每个处理单元按各自的干预前/后时段单独拟合，并把""",
+      r"""\code{nm\_run\_scm\_staggered} 为每个处理单元按各自的干预前/后时段单独拟合，并把""")

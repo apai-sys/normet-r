@@ -19,6 +19,57 @@
 }
 
 
+#' Predict One PDP Grid in Few Calls (Internal Helper)
+#'
+#' Stacks one copy of the frame per grid point and predicts the stack, instead
+#' of calling the predictor once per point: every call re-converts the frame to
+#' a numeric matrix and re-encodes its factor columns, so 50 small calls pay
+#' that overhead 50 times (measured 1.7 s -> 0.5 s for a 7-level factor at
+#' 4,344 rows; the numeric gain is ~5 %, because the prediction itself is
+#' linear in rows). The stack is bounded at ~1e6 rows per chunk (~100 MB of
+#' predictor matrix), so a large training set does not inflate memory by the
+#' full grid size. Per-point means and SDs use \code{mean()}/\code{sd()} on
+#' each block, exactly as the per-point loop did, so results are identical.
+#'
+#' @return \code{data.frame(variable, value, pdp_mean, pdp_std)}, or NULL for
+#'   a flat/unusable variable.
+#' @noRd
+.nm_pdp_grid_predict <- function(var, X_df, model, quantile_range, grid_points) {
+  x <- X_df[[var]]
+  lv <- levels(x)
+  grid <- if (is.null(lv)) .create_pdp_grid(x, quantile_range, grid_points) else seq_along(lv)
+  if (is.null(grid)) return(NULL)
+
+  n <- nrow(X_df)
+  per_chunk <- max(1L, floor(1e6 / max(n, 1L)))
+  chunks <- split(grid, ceiling(seq_along(grid) / per_chunk))
+
+  per_point <- lapply(chunks, function(g) {
+    X_stack <- X_df[rep(seq_len(n), times = length(g)), , drop = FALSE]
+    X_stack[[var]] <- if (is.null(lv)) {
+      rep(g, each = n)
+    } else {
+      factor(rep(lv[g], each = n), levels = lv)
+    }
+    yhat <- nm_predict(model, X_stack, verbose = FALSE)
+    mat <- matrix(yhat, nrow = n)
+    data.frame(
+      value = g,
+      pdp_mean = vapply(seq_along(g), function(j) mean(mat[, j], na.rm = TRUE), numeric(1)),
+      pdp_std = vapply(seq_along(g), function(j) stats::sd(mat[, j], na.rm = TRUE), numeric(1))
+    )
+  })
+  pts <- do.call(rbind, per_point)
+
+  data.frame(
+    variable = var,
+    value = pts$value,
+    pdp_mean = pts$pdp_mean,
+    pdp_std = pts$pdp_std
+  )
+}
+
+
 #' Compute Partial Dependence Plots (PDP)
 #'
 #' @description
@@ -177,11 +228,16 @@ nm_pdp_generic <- function(df, model, var_list = NULL, training_only = TRUE, n_c
   # Setup parallel cluster. The foreach() below distributes one variable per
   # worker, so `vars_for_pdp` is the cap that matters: a PDP over a single
   # variable must not start one worker per core.
+  # One worker is not a cluster: the SOCK round trip re-exports X_df to the
+  # worker, which costs more than the whole loop at a single worker.
   n_cores <- .nm_resolve_cores(n_cores, n_tasks = length(vars_for_pdp))
-  cl <- parallel::makeCluster(n_cores)
-  .nm_propagate_libpaths(cl)
-  doSNOW::registerDoSNOW(cl)
-  on.exit(parallel::stopCluster(cl), add = TRUE)
+  use_cluster <- n_cores > 1L
+  if (use_cluster) {
+    cl <- parallel::makeCluster(n_cores)
+    .nm_propagate_libpaths(cl)
+    doSNOW::registerDoSNOW(cl)
+    on.exit(parallel::stopCluster(cl), add = TRUE)
+  }
 
   # Setup progress bar for parallel execution
   if (verbose) {
@@ -198,39 +254,23 @@ nm_pdp_generic <- function(df, model, var_list = NULL, training_only = TRUE, n_c
     opts <- list()
   }
 
-  # Execute calculation in parallel
-  pieces <- foreach::foreach(
-    var = vars_for_pdp,
-    # Explicitly export necessary internal functions and objects to workers
-    .export = c(".LOGGER_NAME", "nm_get_logger", "nm_require", "%||%", "nm_predict", "nm_predict_h2o",
-      "nm_predict_lgb", "nm_auto_target_mb", "nm_extract_features",
-      "nm_extract_features_h2o", ".create_pdp_grid"),
-    .packages = c("data.table", "lightgbm"),
-    .options.snow = opts
-  ) %dopar% {
-    # Create grid for the current variable: a factor's (weekday's) every level, by its
-    # code (1 = Mon ... 7 = Sun), set back as that level; a number's quantile range
-    x <- X_df[[var]]
-    lv <- levels(x)
-    grid <- if (is.null(lv)) .create_pdp_grid(x, quantile_range, grid_points) else seq_along(lv)
-    if (is.null(grid)) return(NULL)
-
-    X_work <- X_df
-
-    # Calculate marginal effects
-    pdp_results <- sapply(grid, function(g) {
-      X_work[[var]] <- if (is.null(lv)) g else factor(lv[g], levels = lv)
-      yhat <- nm_predict(model, X_work, verbose = FALSE)
-      c(mean = mean(yhat, na.rm = TRUE), sd = sd(yhat, na.rm = TRUE))
+  # Execute calculation (parallel only when a cluster exists)
+  pieces <- if (use_cluster) {
+    foreach::foreach(
+      var = vars_for_pdp,
+      # Explicitly export necessary internal functions and objects to workers
+      .export = c(".LOGGER_NAME", "nm_get_logger", "nm_require", "%||%", "nm_predict", "nm_predict_h2o",
+        "nm_predict_lgb", "nm_auto_target_mb", "nm_extract_features",
+        "nm_extract_features_h2o", ".create_pdp_grid", ".nm_pdp_grid_predict"),
+      .packages = c("data.table", "lightgbm"),
+      .options.snow = opts
+    ) %dopar% .nm_pdp_grid_predict(var, X_df, model, quantile_range, grid_points)
+  } else {
+    lapply(vars_for_pdp, function(var) {
+      out <- .nm_pdp_grid_predict(var, X_df, model, quantile_range, grid_points)
+      if (verbose) pb$tick()
+      out
     })
-
-    # Return results
-    data.frame(
-      variable = var,
-      value = grid,
-      pdp_mean = pdp_results["mean", ],
-      pdp_std = pdp_results["sd", ]
-    )
   }
 
   return(dplyr::bind_rows(Filter(Negate(is.null), pieces)))

@@ -54,9 +54,11 @@ nm_decom_met(
 \item{importance_ascending}{Logical. If TRUE, decomposes variables from least to most important.
 If FALSE (default), decomposes from most important to least.}
 
-\item{n_cores}{Number of CPU cores to use for \strong{H2O Initialization} (when
-\code{backend = "h2o"}) and for parallel resampling in each
-\code{nm_normalise()} call (default: detected cores minus one).}
+\item{n_cores}{Number of CPU cores: the cap on the parallel coalition
+evaluations of the sequential (default) attribution -- one worker
+per coalition, each normalising serially -- and the H2O allocation
+when \code{backend = "h2o"} (default: detected cores minus one, and never
+more than the number of coalitions).}
 
 \item{max_mem_size}{Maximum memory for H2O (e.g., "16G"). If NULL, auto-detected.}
 

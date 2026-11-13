@@ -42,15 +42,13 @@ def test_model_config_reads_the_run_backends_own_budget(qapp):
 
     win = MainWindow()
     try:
-        win.backend_combo.setCurrentText("lightgbm")
-        win.budget_spin.setValue(9)
-        win._budget_values["h2o"] = 33
-        assert win._model_config("h2o")["max_runtime_secs"] == 33
         win.backend_combo.setCurrentText("h2o")
-        assert win._model_config("lightgbm")["n_trials"] == 9
-        assert win._model_config("h2o")["max_runtime_secs"] == 33
-        cfg = win._model_config("lightgbm")
-        assert cfg["nrounds"] == 400 and cfg["early_stopping_rounds"] == 30 and cfg["cv_folds"] == 5
+        win.budget_spin.setValue(90)
+        win._budget_values["lightgbm"] = 33
+        assert win._model_config("lightgbm")["n_trials"] == 33
+        win.backend_combo.setCurrentText("lightgbm")
+        assert win._model_config("h2o")["max_runtime_secs"] == 90
+        assert win._model_config("lightgbm")["n_trials"] == 33
     finally:
         win.close()
 

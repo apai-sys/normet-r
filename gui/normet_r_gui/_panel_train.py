@@ -56,10 +56,7 @@ class TrainPanelMixin(QMainWindow):
         self.budget_spin.setValue(20)
         self.budget_spin.setToolTip("Random hyperparameter-search trials (LightGBM backend).")
         self._budget_label = QLabel("Search trials")
-        # 6 trials is the published LightGBM protocol (normet_formal.py: n_trials=6,
-        # cv_folds=5, nrounds=400, early_stopping_rounds=30); the h2o budget above
-        # is a time in seconds.
-        self._budget_values = {"h2o": 60, "lightgbm": 6}
+        self._budget_values = {"h2o": 60, "lightgbm": 20}
         self._prev_backend = "lightgbm"
         form.addRow(self._budget_label, self.budget_spin)
         # H2O only: which AutoML algorithms to search over (include_algos).
@@ -175,15 +172,6 @@ class TrainPanelMixin(QMainWindow):
             self.budget_spin.setSuffix("")
             self.budget_spin.setToolTip("Random hyperparameter-search trials (LightGBM backend).")
         self.budget_spin.setValue(self._budget_values.get(backend, 6))
-        # LightGBM's own protocol rows act only on that backend.
-        is_lgb = backend == "lightgbm"
-        for label, widget in (
-            (self._lgb_rounds_label, self.lgb_rounds),
-            (self._lgb_early_label, self.lgb_early),
-            (self._lgb_cv_label, self.lgb_cv_folds),
-        ):
-            label.setVisible(is_lgb)
-            widget.setVisible(is_lgb)
         is_h2o = backend == "h2o"
         self._estimator_label.setVisible(is_h2o)
         self.estimator_list.setVisible(is_h2o)
@@ -193,7 +181,7 @@ class TrainPanelMixin(QMainWindow):
 
     def _model_config(self, backend: str | None = None) -> dict:
         """The backend's training configuration, as the train, CV and
-        uncertainty runs all pass it.  H2O searches within its time budget;
+        uncertainty runs all pass it.  flaml searches within its time budget;
         LightGBM uses the random search's trial count plus its boosting
         protocol -- rounds, early stopping and the search's CV folds.
 
@@ -206,7 +194,7 @@ class TrainPanelMixin(QMainWindow):
         budget = (
             self.budget_spin.value()
             if backend == current
-            else self._budget_values.get(backend, 60 if backend == "h2o" else 6)
+            else self._budget_values.get(backend, 60 if backend == "h2o" else 20)
         )
         if backend == "h2o":
             return {

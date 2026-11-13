@@ -20,22 +20,33 @@ toolbar saves is always in the figure's own light colours.
 from __future__ import annotations
 
 import functools
+import time
 from collections.abc import Callable
 from typing import Any
 
 import pandas as pd
-from matplotlib.backends.backend_qtagg import NavigationToolbar2QT
-from PySide6.QtCore import QEvent, QRect, QSize, Qt, QTimer
-from PySide6.QtGui import QAction, QColor, QIcon, QImage, QPainter, QPalette, QPixmap
+from PySide6.QtCore import (
+    QAbstractAnimation,
+    QEasingCurve,
+    QEvent,
+    QPropertyAnimation,
+    QRect,
+    QSize,
+    Qt,
+    QTimer,
+)
+from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
     QDoubleSpinBox,
+    QGraphicsOpacityEffect,
     QHBoxLayout,
     QLabel,
     QLayout,
     QListWidget,
     QMenu,
+    QProgressBar,
     QPushButton,
     QSpinBox,
     QTableWidget,
@@ -45,7 +56,22 @@ from PySide6.QtWidgets import (
     QWidgetItem,
 )
 
-from .theme import apply_figure_theme, is_dark_mode, light_figure, muted_color, theme_manager
+from .theme import apply_figure_theme, is_dark_mode, muted_color, theme_manager
+
+
+def __getattr__(name: str) -> Any:
+    """``ThemedToolbar`` now lives in :mod:`._toolbar`, so this module -- and
+    therefore ``import normet.gui.main_window`` -- does not load matplotlib.
+
+    Kept importable from here because the theme test and older callers ask for
+    it by this module's name.
+    """
+    if name == "ThemedToolbar":
+        from ._toolbar import ThemedToolbar
+
+        return ThemedToolbar
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 #: Traffic-light palette for verdict banners, per theme: the saturated Apple system
 #: colours read on a light window; their lighter dark-mode variants on a dark one.
@@ -60,10 +86,13 @@ def verdict_color(level: str, dark: bool | None = None) -> str:
     table = VERDICT_COLOR_DARK if dark else VERDICT_COLOR
     return table.get(level, "palette(text)")
 
-def hint_style(small: bool = False, dark: bool | None = None) -> str:
-    """Muted colour for secondary hints / file labels, per theme (see theme.muted_color)."""
+
+def hint_style(small: bool = False) -> str:
+    """The muted secondary-hint / file-label style for the window's current theme
+    (see theme.muted_color); ask again after a theme change."""
     size = "font-size:11px;" if small else ""
-    return f"color:{muted_color(dark)};{size}"
+    return f"color:{muted_color()};{size}"
+
 
 RUN_BUTTON_STYLE = "font-weight:600;padding:8px;"
 
@@ -223,7 +252,12 @@ def hint_label(text: str, small: bool = True) -> QLabel:
 
 
 def _apply_hint_style(lbl: QLabel, small: bool, dark: bool | None = None) -> None:
-    lbl.setStyleSheet(hint_style(small, dark))
+    size = "font-size:11px;" if small else ""
+    lbl.setStyleSheet(f"color:{muted_color(dark)};{size}")
+
+
+def _style_verdict(lbl: QLabel, level: str, dark: bool | None = None) -> None:
+    lbl.setStyleSheet(f"color:{verdict_color(level, dark)};font-weight:600;padding:4px;")
 
 
 def as_figure(obj: Any):
@@ -310,167 +344,6 @@ def adaptive_layout(fig: Any) -> None:
         fig.set_layout_engine("constrained", h_pad=0.04, w_pad=0.04, hspace=0.02, wspace=0.02)
     except Exception:  # noqa: BLE001 - keep the margins it was made with
         pass
-
-
-class ThemedToolbar(NavigationToolbar2QT):
-    """The figure toolbar: icons
-    16 pt and tinted for the theme, the bar in the window's own colours, Save
-    writing the figure in its light colours, and *For print…* -- the figure at
-    a journal's column width and lettering -- before the pointer's read-out."""
-
-    #: The icons' size, in points: the size of the window's own small buttons.
-    #: Matplotlib's 24, with its padding, made the bar the tallest control.
-    ICON = 16
-
-    def __init__(self, canvas: Any, parent: QWidget | None = None) -> None:
-        super().__init__(canvas, parent)
-        self.print_action = QAction("For print…", self)
-        self.print_action.setToolTip(
-            "Lay the figure out at a journal's column width and lettering, and save it."
-        )
-        # `triggered` hands a slot its checked flag: not a figure to print.
-        self.print_action.triggered.connect(lambda: self.export_for_print())
-        label = getattr(self, "locLabel", None)
-        where = next(
-            (a for a in self.actions() if label is not None and self.widgetForAction(a) is label),
-            None,
-        )
-        if where is not None:
-            self.insertAction(where, self.print_action)
-        else:
-            self.addAction(self.print_action)
-        # The figure's right-click menu: copy it, save it, or lay it out for print --
-        # the toolbar's three figure actions, reachable from the plot itself.
-        canvas.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        canvas.customContextMenuRequested.connect(self._canvas_menu)
-        self._made_in: tuple[str, ...] | None = None
-        theme_manager().themeChanged.connect(self._on_theme_changed)
-        self.apply_theme(theme_manager().dark)
-
-    def _render_icon(self, name: str, dark: bool) -> QIcon:
-        """Matplotlib's icon *name*, tinted the theme's ink, at 1x and 2x."""
-        from matplotlib import cbook
-
-        try:
-            regular = cbook._get_data_path("images", name)
-        except Exception:
-            return QIcon()
-        large = regular.with_name(regular.name.replace(".png", "_large.png"))
-        tint = QColor("#F2F2F7" if dark else "#1C1C1E")
-        icon = QIcon()
-        for path, dpr in ((regular, 1.0), (large, 2.0)):
-            if not path.exists():
-                continue
-            src = QImage(str(path)).convertToFormat(QImage.Format.Format_ARGB32)
-            if src.isNull():
-                continue
-            coloured = QImage(src.size(), QImage.Format.Format_ARGB32)
-            coloured.fill(Qt.GlobalColor.transparent)
-            p = QPainter(coloured)
-            p.drawImage(0, 0, src)
-            p.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceIn)
-            p.fillRect(coloured.rect(), tint)
-            p.end()
-            pm = QPixmap.fromImage(coloured)
-            pm.setDevicePixelRatio(dpr)
-            icon.addPixmap(pm)
-        return icon
-
-    def _icon(self, name: str) -> QIcon:  # matplotlib's hook for each tool's icon
-        return self._render_icon(name, dark=theme_manager().dark)
-
-    @staticmethod
-    def _palette_key() -> tuple[str, ...]:
-        pal = QApplication.palette()
-        return tuple(
-            pal.color(role).name()
-            for role in (
-                QPalette.ColorRole.Window,
-                QPalette.ColorRole.WindowText,
-                QPalette.ColorRole.Highlight,
-            )
-        )
-
-    def apply_theme(self, dark: bool) -> None:
-        """Icons tinted for the theme; the bar in the application palette's window
-        colour, its hover, pressed and dividing shades mixed from that and the
-        text's -- not a colour of its own, which stood out from the window."""
-        for _text, _tip, image, callback in self.toolitems:
-            if image and callback in self._actions:
-                self._actions[callback].setIcon(self._render_icon(image + ".png", dark))
-        self.setIconSize(QSize(self.ICON, self.ICON))
-        pal = QApplication.palette()
-        ground = pal.color(QPalette.ColorRole.Window)
-        ink = pal.color(QPalette.ColorRole.WindowText)
-
-        def mix(t: float) -> str:
-            return QColor.fromRgbF(
-                ground.redF() + (ink.redF() - ground.redF()) * t,
-                ground.greenF() + (ink.greenF() - ground.greenF()) * t,
-                ground.blueF() + (ink.blueF() - ground.blueF()) * t,
-            ).name()
-
-        accent = pal.color(QPalette.ColorRole.Highlight).name()
-        self._made_in = self._palette_key()
-        self.setStyleSheet(
-            f"""
-            QToolBar {{ background: {ground.name()}; border: none; padding: 0px 2px;
-                        spacing: 0px; }}
-            QToolButton {{ background: transparent; border: 1px solid transparent;
-                           border-radius: 4px; padding: 1px; margin: 0px; }}
-            QToolButton:hover {{ background: {mix(0.08)}; }}
-            QToolButton:pressed, QToolButton:checked {{ background: {mix(0.15)};
-                                                       border-color: {accent}; }}
-            QToolBar::separator {{ width: 1px; background: {mix(0.18)}; margin: 3px 3px; }}
-            QLabel {{ color: {mix(0.45)}; font-size: 11px; padding-right: 4px; }}
-            """
-        )
-
-    def _on_theme_changed(self, dark: bool) -> None:
-        try:
-            self.apply_theme(dark)
-        except (RuntimeError, AttributeError):  # the bar deleted underneath
-            pass
-
-    def changeEvent(self, event: Any) -> None:  # noqa: N802
-        """Made again when the palette's colours change: a theme can be announced
-        before the palette has changed, and the bar made then is in the old one."""
-        super().changeEvent(event)
-        if (
-            event.type() == QEvent.Type.PaletteChange
-            and self._made_in is not None
-            and self._palette_key() != self._made_in
-        ):
-            self.apply_theme(theme_manager().dark)
-
-    def export_for_print(self) -> None:
-        from .printview import PrintDialog
-
-        PrintDialog(self.canvas, self.window()).exec()
-
-    def _canvas_menu(self, pos: Any) -> None:
-        """The figure's right-click menu: the toolbar's figure actions, from the plot.
-        Lambdas: `triggered` hands a slot its checked, which the slots would read as an
-        argument (the print_action's click learned the same)."""
-        menu = QMenu(self.canvas)
-        menu.addAction("Copy image", lambda: self.copy_figure())
-        menu.addAction("Save image…", lambda: self.save_figure())
-        menu.addSeparator()
-        menu.addAction("For print…", lambda: self.export_for_print())
-        menu.exec(self.canvas.mapToGlobal(pos))
-
-    def copy_figure(self) -> None:
-        """The figure's bitmap to the clipboard, at the screen's resolution."""
-        fig = self.canvas.figure
-        fig.canvas.draw()
-        w, h = fig.canvas.get_width_height()
-        buf = bytes(fig.canvas.buffer_rgba())
-        img = QImage(buf, w, h, QImage.Format.Format_RGBA8888).copy()
-        QApplication.clipboard().setImage(img)
-
-    def save_figure(self, *args: Any) -> Any:
-        with light_figure(self.canvas.figure):
-            return super().save_figure(*args)
 
 
 class FlowLayout(QLayout):
@@ -645,6 +518,8 @@ class CanvasTab(QWidget):
         self._layout = QVBoxLayout(self)
         self._layout.setContentsMargins(0, 0, 0, 0)
         self.canvas = None
+        self._verdict: QLabel | None = None
+        self._verdict_level: str | None = None
         #: The time-series result being shown (see :meth:`show_timeseries`).
         self._series: tuple[Callable[[pd.DataFrame], Any], pd.DataFrame, dict[str, Any]] | None
         self._series = None
@@ -675,6 +550,8 @@ class CanvasTab(QWidget):
             self.canvas.draw_idle()
 
     def _retheme(self, dark: bool) -> None:
+        if self._verdict is not None:
+            _style_verdict(self._verdict, self._verdict_level, dark)
         if self.canvas is not None:
             apply_figure_theme(self.canvas.figure, dark)
             self.canvas.draw_idle()
@@ -705,6 +582,8 @@ class CanvasTab(QWidget):
         self.canvas = None
         self._series = None
         self._views = None
+        self._verdict = None
+        self._verdict_level = None
 
     # --------------------------------------------------------------- content
     def show_message(self, *lines: str) -> None:
@@ -925,9 +804,8 @@ class CanvasTab(QWidget):
             level, text = verdict
             lbl = QLabel(text)
             lbl.setWordWrap(True)
-            lbl.setStyleSheet(
-                f"color:{verdict_color(level)};font-weight:600;padding:4px;"
-            )
+            _style_verdict(lbl, level)
+            self._verdict, self._verdict_level = lbl, level
             self._layout.addWidget(lbl)
         for text in lines or []:
             lbl = QLabel(text)
@@ -953,6 +831,8 @@ class CanvasTab(QWidget):
 
             figure_texts(fig)  # in the window's language; the English kept to go back
             self.canvas = _canvas_class()(fig)
+            from ._toolbar import ThemedToolbar
+
             self._layout.addWidget(ThemedToolbar(self.canvas, self))
             self._layout.addWidget(self.canvas, 1)
             # The figure's mouse read-out, at its lower left as the Data tab's: what is
@@ -960,15 +840,9 @@ class CanvasTab(QWidget):
             from .figure_interact import readout as _fig_readout
 
             hover = QLabel("")
-            hover.setStyleSheet(f"color:{muted_color()};")
+            hover.setStyleSheet(hint_style())
             hover.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignBottom)
             self._layout.addWidget(hover)
-            try:
-                theme_manager().themeChanged.connect(
-                    lambda dark: hover.setStyleSheet(f"color:{muted_color(dark)};")
-                )
-            except RuntimeError:
-                pass
             self.canvas.mpl_connect(
                 "motion_notify_event", lambda e: hover.setText(_fig_readout(fig, e))
             )
@@ -976,3 +850,166 @@ class CanvasTab(QWidget):
             self.canvas.draw_idle()  # now if the tab is in view, else when it comes into view
         else:
             self._layout.addStretch(1)
+
+
+class SmoothProgress(QWidget):
+    """A run's progress: a thin rounded bar in the system's accent colour.
+
+    A worker reports in steps -- the base runs settle together near the end of their
+    fit, each error estimate starts at its own place -- and a bar set to each value
+    jumped from one to the next (the user: it "always jumps"). This one moves to each
+    value over a fraction of a second, never goes back within a run, creeps on while a
+    step reports nothing (to at most CREEP points past the last value reported, slowing
+    as it nears them), fills when the run ends and fades out a moment later. Faded out
+    it keeps its place, so nothing beside it in the status bar moves.
+
+    value() is the percentage last reported, as the QProgressBar's was (the Assistant
+    reads it)."""
+
+    SCALE = 10  # the bar's units per percent: it moves in tenths of one
+    CREEP = 8.0  # how far past the last report the bar may creep, in percent
+
+    def __init__(self, parent=None, height: int = 6):
+        super().__init__(parent)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.addStretch(1)
+        self.bar = QProgressBar()
+        self.bar.setRange(0, 100 * self.SCALE)
+        self.bar.setValue(0)  # a new QProgressBar's is -1
+        self.bar.setTextVisible(False)
+        self.bar.setFixedHeight(height)
+        lay.addWidget(self.bar)
+        lay.addStretch(1)
+        self.setMinimumWidth(120)
+        self.setMaximumWidth(260)
+        self._shade = QGraphicsOpacityEffect(self.bar)
+        self._shade.setOpacity(0.0)
+        self.bar.setGraphicsEffect(self._shade)
+        self._moving = QPropertyAnimation(self.bar, b"value", self)
+        self._moving.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._fading = QPropertyAnimation(self._shade, b"opacity", self)
+        self._fading.setEasingCurve(QEasingCurve.Type.InOutQuad)
+        self._fading.finished.connect(self._faded)
+        self._creep = QTimer(self)
+        self._creep.setInterval(100)
+        self._creep.timeout.connect(self._step)
+        self._hold = QTimer(self)
+        self._hold.setSingleShot(True)
+        self._hold.timeout.connect(lambda: self._fade_to(0.0, 450))
+        self._pct, self._at, self._running = 0, 0.0, False
+        self.restyle()
+
+    def value(self) -> int:
+        return int(self._pct)
+
+    def running(self) -> bool:
+        return self._running
+
+    def start(self):
+        """A run begins: the bar fades in, empty -- or empties quickly, where the run
+        before it has only just ended."""
+        if self._running:
+            return
+        self._hold.stop()
+        self._moving.stop()
+        self._pct, self._at, self._running = 0, time.monotonic(), True
+        if self._shade.opacity() > 0.0 and self.bar.value() > 0:
+            self._animate(self.bar.value(), 0, 200)
+        else:
+            self.bar.setValue(0)
+        self._fade_to(1.0, 180)
+        self._creep.start()
+
+    def report(self, pct):
+        """The worker's percentage: moved to, not jumped to, and never back within a run."""
+        if not self._running:
+            self.start()
+        pct = max(0, min(100, int(pct)))
+        if pct <= self._pct:
+            return
+        self._pct, self._at = pct, time.monotonic()
+        cur, end = self.bar.value(), pct * self.SCALE
+        if end > cur:
+            self._animate(cur, end, int(min(900, 220 + 0.6 * (end - cur))))
+
+    def finish(self, done: bool = True):
+        """The run has ended: the bar fills if it was done, and fades out a moment later.
+        Nothing happens where no run was under way."""
+        if not self._running:
+            return
+        self._running = False
+        self._creep.stop()
+        if done:
+            self.report_end()
+            self._hold.start(900 + self._moving.duration())
+        else:
+            self._hold.start(250)
+
+    def report_end(self):
+        self._pct = 100
+        cur, end = self.bar.value(), 100 * self.SCALE
+        if end > cur:
+            self._animate(cur, end, int(min(700, 220 + 0.6 * (end - cur))))
+
+    def _animate(self, start: int, end: int, ms: int):
+        self._moving.stop()
+        self._moving.setStartValue(start)
+        self._moving.setEndValue(end)
+        self._moving.setDuration(ms)
+        self._moving.start()
+
+    def _step(self):
+        """A step reporting nothing: on toward a little past its last report, slower as
+        it nears it, and no further."""
+        if (
+            self._moving.state() == QAbstractAnimation.State.Running
+            or time.monotonic() - self._at < 0.8
+        ):
+            return
+        cap = int((self._pct + min(self.CREEP, (100 - self._pct) * 0.3)) * self.SCALE)
+        cur = self.bar.value()
+        if cur < cap:
+            self.bar.setValue(cur + max(1, (cap - cur) // 40))
+
+    def _fade_to(self, opacity: float, ms: int):
+        self._fading.stop()
+        self._fading.setStartValue(self._shade.opacity())
+        self._fading.setEndValue(opacity)
+        self._fading.setDuration(ms)
+        self._fading.start()
+
+    def _faded(self):
+        if not self._running and self._shade.opacity() <= 0.01:
+            self.bar.setValue(0)
+            self._pct = 0
+
+    def restyle(self):
+        """The bar's colours from the application's palette: the accent, on a track of the
+        text's colour faintly mixed into the window's."""
+        pal = QApplication.palette()
+        role = QPalette.ColorRole
+        accent = pal.color(role.Accent) if hasattr(role, "Accent") else pal.color(role.Highlight)
+        ground, ink = pal.color(role.Window), pal.color(role.WindowText)
+        t = 0.16 if ground.lightnessF() < 0.5 else 0.12
+        track = QColor.fromRgbF(
+            *(
+                a + (b - a) * t
+                for a, b in zip(
+                    (ground.redF(), ground.greenF(), ground.blueF()),
+                    (ink.redF(), ink.greenF(), ink.blueF()),
+                    strict=True,
+                )
+            )
+        )
+        r = self.bar.height() // 2
+        self.bar.setStyleSheet(
+            f"QProgressBar {{ border: none; border-radius: {r}px; background: {track.name()}; }}"
+            f"QProgressBar::chunk {{ border-radius: {r}px; background: {accent.name()}; }}"
+        )
+
+    def changeEvent(self, e):
+        # Light or dark: this widget has no style sheet of its own, so it hears of it.
+        super().changeEvent(e)
+        if e.type() == QEvent.Type.PaletteChange:
+            self.restyle()

@@ -406,11 +406,18 @@ nm_normalise_h2o <- function(df, model, resample_vars = NULL,
         if (is.null(n_cores)) " (Conservative mode)" else "")
     }
 
-    cl <- parallel::makeCluster(r_cores)
-    .nm_propagate_libpaths(cl)
-    on.exit(parallel::stopCluster(cl), add = TRUE)
+    # One worker is not a cluster: skip the SOCK round trip when the
+    # resolved count is 1 (see the same note in nm_normalise_lgb).
+    use_cluster <- r_cores > 1L
+    if (use_cluster) {
+      cl <- parallel::makeCluster(r_cores)
+      .nm_propagate_libpaths(cl)
+      on.exit(parallel::stopCluster(cl), add = TRUE)
+    }
+  } else {
+    use_cluster <- TRUE
   }
-  doSNOW::registerDoSNOW(cl)
+  if (use_cluster) doSNOW::registerDoSNOW(cl)
 
   # --- 6. Batch Size Calculation ---
   set.seed(seed)
@@ -463,12 +470,18 @@ nm_normalise_h2o <- function(df, model, resample_vars = NULL,
       pb$tick()
     }
 
-    # 7.1 Generate Resampled Data (Parallel R)
-    resampled_batch_list <- foreach::foreach(
-      s = current_seeds, .packages = c("data.table"),
-      .export = "nm_generate_resampled"
-    ) %dopar% {
-      nm_generate_resampled(df, resample_vars, replace, s, resample_df, resample_pools)
+    # 7.1 Generate Resampled Data (parallel only when a cluster exists)
+    resampled_batch_list <- if (use_cluster) {
+      foreach::foreach(
+        s = current_seeds, .packages = c("data.table"),
+        .export = "nm_generate_resampled"
+      ) %dopar% {
+        nm_generate_resampled(df, resample_vars, replace, s, resample_df, resample_pools)
+      }
+    } else {
+      lapply(current_seeds, function(s) {
+        nm_generate_resampled(df, resample_vars, replace, s, resample_df, resample_pools)
+      })
     }
     df_batch <- data.table::rbindlist(resampled_batch_list)
 
@@ -672,14 +685,22 @@ nm_normalise_lgb <- function(df, model, resample_vars = NULL,
   # with it on, chunk_size of them.
   r_cores <- .nm_resolve_cores(n_cores, n_tasks = max(lengths(seed_chunks)), limit = 4L)
 
-  # A pid-derived port, not makeCluster's RNG draw: a forked worker shares
-  # the parent's RNG state, so siblings would all draw the same port and every
-  # one after the first would fail to bind it. (nm_do_all_unc's members now run
-  # in PSOCK workers, not forks, but a caller may still fork around this.)
-  cl <- parallel::makeCluster(r_cores, port = .nm_sock_port())
-  .nm_propagate_libpaths(cl)
-  on.exit(parallel::stopCluster(cl), add = TRUE)
-  doSNOW::registerDoSNOW(cl)
+  # One worker is not a cluster. makeCluster(1) + register/stop costs ~0.5 s
+  # per call, and the foreach round trip another ~0.3 s at 300 samples of a
+  # 5,793-row frame, while the resampling it would distribute takes ~0.9 s
+  # in-process (measured on macOS, where lightgbm prediction is single-threaded
+  # regardless). Run serially when only one worker is wanted.
+  use_cluster <- r_cores > 1L
+  if (use_cluster) {
+    # A pid-derived port, not makeCluster's RNG draw: a forked worker shares
+    # the parent's RNG state, so siblings would all draw the same port and every
+    # one after the first would fail to bind it. (nm_do_all_unc's members now run
+    # in PSOCK workers, not forks, but a caller may still fork around this.)
+    cl <- parallel::makeCluster(r_cores, port = .nm_sock_port())
+    .nm_propagate_libpaths(cl)
+    on.exit(parallel::stopCluster(cl), add = TRUE)
+    doSNOW::registerDoSNOW(cl)
+  }
 
   if (verbose) {
     log$info("lightgbm normalisation: %d samples, %d batches, %d cores",
@@ -703,12 +724,19 @@ nm_normalise_lgb <- function(df, model, resample_vars = NULL,
     current_seeds <- seed_chunks[[i]]
     if (verbose && exists("pb")) pb$tick()
 
-    # Resample in parallel
-    resampled_batch_list <- foreach::foreach(
-      s = current_seeds, .packages = c("data.table"),
-      .export = "nm_generate_resampled"
-    ) %dopar% {
-      nm_generate_resampled(df, resample_vars, replace, s, resample_df, resample_pools)
+    # Resample (parallel only when a cluster exists -- `%dopar%` needs one,
+    # and with a single worker the round trip costs more than the work).
+    resampled_batch_list <- if (use_cluster) {
+      foreach::foreach(
+        s = current_seeds, .packages = c("data.table"),
+        .export = "nm_generate_resampled"
+      ) %dopar% {
+        nm_generate_resampled(df, resample_vars, replace, s, resample_df, resample_pools)
+      }
+    } else {
+      lapply(current_seeds, function(s) {
+        nm_generate_resampled(df, resample_vars, replace, s, resample_df, resample_pools)
+      })
     }
     df_batch <- data.table::rbindlist(resampled_batch_list)
 

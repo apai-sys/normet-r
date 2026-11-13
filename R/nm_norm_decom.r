@@ -31,9 +31,12 @@
 #' @param seed A random seed for reproducibility.
 #' @param importance_ascending Logical. If `TRUE`, sorts meteorological features by
 #'        ascending importance. (Used only when `method = "meteorology"`).
-#' @param n_cores Number of CPU cores to use for **H2O Initialization** (when
-#'        `backend = "h2o"`) and for parallel resampling in each
-#'        `nm_normalise()` call (default: detected cores minus one).
+#' @param n_cores Number of CPU cores. For `method = "emission"` it caps the
+#'        parallel decomposition stages (one per frozen time component, each
+#'        normalising serially); for `"meteorology"` it sizes the resampling
+#'        workers of every `nm_normalise()` call. It is also the H2O
+#'        allocation when `backend = "h2o"`. Default: detected cores minus
+#'        one.
 #' @param max_mem_size Maximum memory for H2O (e.g., "16G"). If NULL, auto-detected.
 #' @param resample_df External resampling pool. If NULL, `df` is used.
 #' @param memory_save Logical flag for memory-efficient normalisation.
@@ -227,9 +230,11 @@ nm_decompose <- function(method = "emission",
 #' @param model_config List of configuration parameters for model training.
 #' @param n_samples Number of resampling iterations per step (default 300).
 #' @param seed Random seed for reproducibility.
-#' @param n_cores Number of CPU cores to use for **H2O Initialization** (when
-#'        `backend = "h2o"`) and for parallel resampling in each
-#'        `nm_normalise()` call (default: detected cores minus one).
+#' @param n_cores Number of CPU cores: the cap on the parallel decomposition
+#'        stages (one per frozen time component; default: detected cores minus
+#'        one, and never more than the number of stages) and the H2O
+#'        allocation when `backend = "h2o"`. Each stage's worker normalises
+#'        serially, so the stages -- not the resampling -- run in parallel.
 #' @param max_mem_size Maximum memory for H2O (e.g., "16G"). If NULL, auto-detected.
 #' @param resample_df External resampling pool. **Important**: Usually the full dataset.
 #'        If NULL, defaults to `df`.
@@ -357,11 +362,6 @@ nm_decom_emi <- function(df = NULL, model = NULL, target = "value",
   if (length(model_feats) == 0) stop("None of the model features match columns in `df`.")
 
   # --- 5. Decomposition Loop ---
-  # Resolve effective resampling parallelism (mirrors Python's `_effective_cores`).
-  # No n_tasks cap here: this is forwarded to nm_normalise() rather than used to
-  # size a cluster directly, and nm_normalise() caps it against its own batches.
-  n_cores_eff <- .nm_resolve_cores(n_cores)
-
   result <- data.frame(date = df_work$date, observed = observed_series)
 
   # Define hierarchy: Base -> Trend -> Season -> Weekday -> Hour
@@ -378,26 +378,31 @@ nm_decom_emi <- function(df = NULL, model = NULL, target = "value",
     )
   }
 
-  tmp_results <- list()
-
-  # Start by assuming EVERYTHING needs to be resampled (shuffled)
+  # The stages are independent: each freezes one more time component and
+  # normalises with everything else resampled, always with the same seed and
+  # sample count, so their results do not depend on each other or on order.
+  # LightGBM's R build predicts single-threaded (the macOS binary carries no
+  # OpenMP), so one stage is one predict pass on one core; run the stages in
+  # parallel processes -- the pattern nm_do_all_unc uses -- with a serial
+  # resampler inside each (n_cores = 1 takes nm_normalise_lgb's cluster-free
+  # path). H2O models stay sequential: their prediction runs in the shared
+  # H2O cluster, which a worker process does not own.
+  resample_sets <- vector("list", length(decomp_vars))
   current_features_to_resample <- model_feats
-
   for (step in seq_along(decomp_vars)) {
-    var_to_freeze <- decomp_vars[step]
-    if (verbose) pb$tick()
-    .nm_progress_report(step - 1, length(decomp_vars))
-
     # If not 'base', freeze variable by REMOVING it from resampling list
-    if (var_to_freeze != "base") {
-      current_features_to_resample <- setdiff(current_features_to_resample, var_to_freeze)
+    if (decomp_vars[step] != "base") {
+      current_features_to_resample <- setdiff(current_features_to_resample, decomp_vars[step])
     }
+    resample_sets[[step]] <- current_features_to_resample
+  }
+  names(resample_sets) <- decomp_vars
 
-    # Run Normalisation
-    df_norm <- .nm_progress_part(step - 1, length(decomp_vars), nm_normalise(
+  run_stage <- function(vars_to_resample) {
+    nm_normalise(
       df = df_work,
       model = model,
-      resample_vars = current_features_to_resample,
+      resample_vars = vars_to_resample,
       resample_df = resample_df,
       resample_pools = resample_pools,
       n_samples = n_samples,
@@ -405,11 +410,36 @@ nm_decom_emi <- function(df = NULL, model = NULL, target = "value",
       memory_save = memory_save,
       verbose = FALSE,
       aggregate = TRUE,
-      n_cores = n_cores_eff,
+      n_cores = 1L,
       cache_dir = cache_dir
-    ))
+    )$normalised
+  }
 
-    tmp_results[[var_to_freeze]] <- df_norm$normalised
+  model_backend <- tryCatch(nm_detect_backend(model), error = function(e) NULL)
+  stage_workers <- if (identical(model_backend, "lightgbm")) {
+    .nm_resolve_cores(n_cores, n_tasks = length(decomp_vars))
+  } else {
+    1L
+  }
+
+  if (stage_workers > 1L) {
+    if (verbose) {
+      log$info("Decomposing %d stages in parallel on %d worker(s).", length(decomp_vars), stage_workers)
+      pb$tick(length(decomp_vars))
+    }
+    .nm_progress_report(0, length(decomp_vars))
+    cl <- parallel::makeCluster(stage_workers)
+    .nm_propagate_libpaths(cl)
+    on.exit(parallel::stopCluster(cl), add = TRUE)
+    tmp_results <- parallel::parLapply(cl, resample_sets, run_stage)
+  } else {
+    tmp_results <- vector("list", length(resample_sets))
+    for (step in seq_along(resample_sets)) {
+      if (verbose) pb$tick()
+      .nm_progress_report(step - 1, length(resample_sets))
+      tmp_results[[step]] <- run_stage(resample_sets[[step]])
+    }
+    names(tmp_results) <- names(resample_sets)
   }
 
   # Combine results
@@ -567,7 +597,8 @@ nm_decom_emi <- function(df = NULL, model = NULL, target = "value",
 # held at observed values, and each is evaluated once. Returns list(emi_total,
 # contributions), the contributions adding up to v(all fixed) - emi_total for
 # every method.
-.nm_attribute <- function(players, value_of, method, n_permutations, seed, verbose) {
+.nm_attribute <- function(players, value_of, method, n_permutations, seed, verbose,
+                          value_of_many = NULL) {
   k <- length(players)
   if (method == "shapley" && !is.null(n_permutations)) {
     n_orders <- n_permutations + n_permutations %% 2
@@ -601,6 +632,28 @@ nm_decom_emi <- function(df = NULL, model = NULL, target = "value",
   totals <- rep(list(numeric(length(emi_total))), k)
 
   if (method == "sequential") {
+    # The chain's k+1 coalitions do not depend on each other; when the caller
+    # can evaluate a batch (parallel processes), fill the memo before the walk.
+    prefixes <- vector("list", k + 1)
+    prefixes[[1]] <- integer(0)
+    for (i in seq_len(k)) prefixes[[i + 1]] <- c(prefixes[[i]], i)
+    if (!is.null(value_of_many)) {
+      resamples <- lapply(prefixes, function(fixed) {
+        resample <- unlist(
+          lapply(seq_len(k), function(i) if (!i %in% fixed) players[[i]]$feats),
+          use.names = FALSE
+        )
+        if (is.null(resample)) character(0) else resample
+      })
+      vals <- value_of_many(resamples)
+      for (j in seq_along(prefixes)) {
+        fixed <- prefixes[[j]]
+        key <- if (length(fixed)) paste(sort(fixed), collapse = ",") else "none"
+        assign(key, as.numeric(vals[[j]]), envir = values)
+      }
+      if (!is.null(pb)) pb$tick(length(prefixes))
+      .nm_progress_report(length(prefixes), planned)
+    }
     prev <- integer(0)
     for (i in seq_len(k)) {
       cur <- c(prev, i)
@@ -700,9 +753,11 @@ nm_decom_emi <- function(df = NULL, model = NULL, target = "value",
 #' @param seed Random seed for reproducibility.
 #' @param importance_ascending Logical. If TRUE, decomposes variables from least to most important.
 #'        If FALSE (default), decomposes from most important to least.
-#' @param n_cores Number of CPU cores to use for **H2O Initialization** (when
-#'        `backend = "h2o"`) and for parallel resampling in each
-#'        `nm_normalise()` call (default: detected cores minus one).
+#' @param n_cores Number of CPU cores: the cap on the parallel coalition
+#'        evaluations of the sequential (default) attribution -- one worker
+#'        per coalition, each normalising serially -- and the H2O allocation
+#'        when `backend = "h2o"` (default: detected cores minus one, and never
+#'        more than the number of coalitions).
 #' @param max_mem_size Maximum memory for H2O (e.g., "16G"). If NULL, auto-detected.
 #' @param resample_df External resampling pool. **Important**: Usually the full dataset.
 #'        If NULL, defaults to `df`.
@@ -856,11 +911,6 @@ nm_decom_met <- function(df = NULL, model = NULL, target = "value",
 
   if (length(contrib_candidates) == 0) log$warn("No weather variables found to decompose.")
 
-  # Resolve effective resampling parallelism (mirrors Python's `_effective_cores`).
-  # Forwarded to nm_normalise() rather than used to size a cluster here, so the
-  # batch-count cap is applied there.
-  n_cores_eff <- .nm_resolve_cores(n_cores)
-
   result <- data.frame(date = df_work$date, observed = observed_series)
 
   # --- 5. Attribution: one nm_normalise() run per coalition ---
@@ -880,11 +930,68 @@ nm_decom_met <- function(df = NULL, model = NULL, target = "value",
       memory_save = memory_save,
       verbose = FALSE,
       aggregate = TRUE,
-      n_cores = n_cores_eff,
+      n_cores = 1L,
       cache_dir = cache_dir
     )$normalised
   }
-  att <- .nm_attribute(plan$players, value_of, plan$method, n_permutations, seed, verbose)
+
+  # The sequential chain (the default) evaluates k+1 coalitions that do not
+  # depend on each other; run them one per worker with a serial resampler
+  # inside (LightGBM's R build predicts single-threaded, so one coalition is
+  # one core). Exact and sampled Shapley keep their own memoised loop, which
+  # also hits this batch only when the caller supplied it -- here, only for
+  # `sequential`, because the other methods' coalitions are drawn as they go.
+  model_backend <- tryCatch(nm_detect_backend(model), error = function(e) NULL)
+  coal_workers <- if (
+    identical(model_backend, "lightgbm") && identical(plan$method, "sequential")
+  ) {
+    .nm_resolve_cores(n_cores, n_tasks = length(plan$players) + 1L)
+  } else {
+    1L
+  }
+  value_of_many <- NULL
+  if (coal_workers > 1L) {
+    # A small environment, not this frame: a PSOCK worker gets the data and
+    # the model, not the frame's logger and progress bar.
+    worker_env <- new.env(parent = asNamespace("normet"))
+    worker_env$df_work <- df_work
+    worker_env$model <- model
+    worker_env$resample_df <- resample_df
+    worker_env$resample_pools <- resample_pools
+    worker_env$n_samples <- n_samples
+    worker_env$seed <- seed
+    worker_env$memory_save <- memory_save
+    worker_env$cache_dir <- cache_dir
+    stage_fun <- function(resample) {
+      nm_normalise(
+        df = df_work,
+        model = model,
+        resample_vars = resample,
+        resample_df = resample_df,
+        resample_pools = resample_pools,
+        n_samples = n_samples,
+        seed = seed,
+        memory_save = memory_save,
+        verbose = FALSE,
+        aggregate = TRUE,
+        n_cores = 1L,
+        cache_dir = cache_dir
+      )$normalised
+    }
+    environment(stage_fun) <- worker_env
+    value_of_many <- function(resamples) {
+      if (verbose) log$info("Evaluating %d coalitions on %d workers.", length(resamples), coal_workers)
+      cl <- parallel::makeCluster(coal_workers)
+      .nm_propagate_libpaths(cl)
+      on.exit(parallel::stopCluster(cl), add = TRUE)
+      parallel::parLapply(cl, resamples, stage_fun)
+    }
+  }
+
+  att <- .nm_attribute(
+    plan$players, value_of, plan$method, n_permutations, seed, verbose,
+    value_of_many = value_of_many
+  )
 
   # --- 6. Recompose Meteorological Components ---
   result$emi_total <- att$emi_total

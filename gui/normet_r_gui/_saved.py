@@ -23,6 +23,7 @@ import pandas as pd
 from PySide6.QtWidgets import QFileDialog, QMainWindow, QMessageBox
 
 from . import _settings
+from ._errors import read_error
 
 log = logging.getLogger(__name__)
 
@@ -152,7 +153,7 @@ class SavedResultsMixin(QMainWindow):
 
             bundle = joblib.load(path)
         except Exception as exc:  # noqa: BLE001 - say why
-            QMessageBox.critical(self, "Load failed", str(exc))
+            QMessageBox.critical(self, "Load failed", read_error(path, exc))
             return
         if not isinstance(bundle, dict) or "df_raw" not in bundle:
             QMessageBox.critical(self, "Load failed", "Not a normet session file.")
@@ -188,7 +189,7 @@ class SavedResultsMixin(QMainWindow):
                 text = fh.read()
             calls = _script.read_calls(text)
         except (OSError, SyntaxError, UnicodeDecodeError) as exc:
-            QMessageBox.critical(self, "Not a session script", str(exc))
+            QMessageBox.critical(self, "Not a session script", read_error(path, exc))
             return
         if "build_model" not in calls:
             QMessageBox.critical(

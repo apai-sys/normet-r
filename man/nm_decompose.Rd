@@ -60,9 +60,12 @@ training blind spot.}
 \item{importance_ascending}{Logical. If \code{TRUE}, sorts meteorological features by
 ascending importance. (Used only when \code{method = "meteorology"}).}
 
-\item{n_cores}{Number of CPU cores to use for \strong{H2O Initialization} (when
-\code{backend = "h2o"}) and for parallel resampling in each
-\code{nm_normalise()} call (default: detected cores minus one).}
+\item{n_cores}{Number of CPU cores. For \code{method = "emission"} it caps the
+parallel decomposition stages (one per frozen time component, each
+normalising serially); for \code{"meteorology"} it sizes the resampling
+workers of every \code{nm_normalise()} call. It is also the H2O
+allocation when \code{backend = "h2o"}. Default: detected cores minus
+one.}
 
 \item{max_mem_size}{Maximum memory for H2O (e.g., "16G"). If NULL, auto-detected.}
 
