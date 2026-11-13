@@ -45,6 +45,30 @@
   4-core SLURM job gets 4 and not the node's 166. H2O's own default
   (`nthreads = -1`) has always meant "all". Pass `n_cores` to override.
 
+### Fixed
+
+* **`nm_do_all_unc()` (LightGBM) and the multi-site drivers work from a script
+  or the console.** Called from the global environment, an argument such as
+  `df = my1` reached the PSOCK workers as an unevaluated promise, which each
+  worker then looked up in its own empty global environment: every ensemble
+  member failed with "No outputs generated", and `nm_do_all_multisite()`,
+  `nm_decompose_multisite()` and `nm_multisite_apply()` with "All per-site runs
+  failed". The R Assistant's multi-site job ran this way too. The arguments are
+  now evaluated before they are sent. Tests missed it because a `test_that()`
+  block's environment travels with the closure; the new tests call from
+  `globalenv()`.
+* **Worker errors are reported.** A failed ensemble member is logged with its
+  error, and the final error quotes the first one. A failed site is named in a
+  warning with its error, and when every site fails the error lists them all.
+  Both used to be replaced by `NULL`.
+* **`nm_do_all_multisite(return_models = TRUE)` returns the models**, as a list
+  named by site. They were assigned with `<<-` inside the workers, so the list
+  always came back empty.
+* **`nm_placebo_in_time()`'s `min_pre_period` and `placebo_every` are
+  documented as what they count: the treated unit's observations, not days.**
+  The defaults (30, 7) suit daily data; a monthly panel needs smaller values.
+  The "No valid placebo cutoffs" warning now gives the counts it compared.
+
 ### Documentation
 
 * **The README is a front page, and the manual moved to pkgdown articles.**

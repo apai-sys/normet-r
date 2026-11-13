@@ -42,11 +42,13 @@ nm_placebo_in_time(
 
 \item{post_agg}{Method to aggregate post-treatment effects: \code{"mean"} or \code{"sum"}.}
 
-\item{min_pre_period}{Integer. Minimum pre-period days before placebo
-cutoff. Default 30.}
+\item{min_pre_period}{Integer. Minimum number of the treated unit's
+observations (dates in \code{date_col}) before a placebo cutoff. A
+count of rows, not of calendar days: 30 is 30 days of daily data but
+30 months of monthly data. Default 30.}
 
-\item{placebo_every}{Integer. Step size (in days) between placebo cutoffs.
-Default 7.}
+\item{placebo_every}{Integer. Step between placebo cutoffs, in the same
+observations: 7 takes every seventh candidate date. Default 7.}
 
 \item{model_config}{List of model parameters passed to the backend.}
 

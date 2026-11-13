@@ -12,10 +12,12 @@ NULL
 #' effects provides a p-value for the true estimate.
 #'
 #' @inheritParams nm_placebo_in_space
-#' @param min_pre_period Integer. Minimum pre-period days before placebo
-#'        cutoff. Default 30.
-#' @param placebo_every Integer. Step size (in days) between placebo cutoffs.
-#'        Default 7.
+#' @param min_pre_period Integer. Minimum number of the treated unit's
+#'        observations (dates in \code{date_col}) before a placebo cutoff. A
+#'        count of rows, not of calendar days: 30 is 30 days of daily data but
+#'        30 months of monthly data. Default 30.
+#' @param placebo_every Integer. Step between placebo cutoffs, in the same
+#'        observations: 7 takes every seventh candidate date. Default 7.
 #' @param n_cores Number of CPU cores. For \code{scm_backend = "scm"}, the
 #'        placebo cutoffs are run in parallel via \pkg{foreach}/\pkg{doSNOW}
 #'        using this many workers (default: detected cores minus one). For
@@ -80,7 +82,14 @@ nm_placebo_in_time <- function(df, date_col = "date", unit_col = "code",
   placebo_candidates <- as.Date(placebo_candidates, origin = "1970-01-01")
 
   if (length(placebo_candidates) == 0) {
-    log$warn("No valid placebo cutoffs found.")
+    # Say what the count was: the defaults assume daily data, and a monthly panel
+    # with 30 pre-period months or fewer lands here with no other clue.
+    n_pre <- sum(treated_dates < cutoff_ts)
+    log$warn(paste0(
+      "No valid placebo cutoffs found: a fake cutoff needs min_pre_period = %d ",
+      "observations before it and the post-period's %d after it, within the %d ",
+      "pre-period observations. Both counts are rows (dates), not days."),
+      as.integer(min_pre_period), post_len, n_pre)
     return(list(treated = df_true, placebos = list(), p_value = NA_real_,
       ref_band_event_time = NULL, placebo_stats = numeric()))
   }
