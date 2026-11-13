@@ -20,3 +20,9 @@
 ^data-raw$
 ^gui$
 ^check$
+^CODE_OF_CONDUCT\.md$
+^SECURITY\.md$
+^CITATION\.cff$
+^vignettes/articles$
+^AGENTS\.md$
+^\.ruff_cache$

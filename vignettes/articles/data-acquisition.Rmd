@@ -1,0 +1,203 @@
+---
+title: "Data acquisition"
+---
+
+```{r, include = FALSE}
+# Most chunks download data or need an API key, a CDS account or a local
+# HYSPLIT install, so they are shown but not run when the site is built.
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>", eval = FALSE)
+```
+
+normet reads your own tables and has built-in adapters for the common sources
+of air-quality and meteorological data. Every adapter returns a plain
+`data.frame` with a `date` column, ready to pass to `nm_prepare_data()` or
+`nm_do_all()`.
+
+| Source | Functions | Needs |
+|---|---|---|
+| Your own files | `nm_read_time_series()`, `nm_read_table()` | — |
+| UK networks (AURN, AQE, SAQN, WAQN, NI, LMAM) | `nm_list_ukaq_stations()`, `nm_fetch_ukaq_measurements()` | — |
+| EEA Discomap | `nm_fetch_eea_data()` | — |
+| OpenAQ v3 | `nm_openaq_locations()`, `nm_fetch_openaq_measurements()` | `OPENAQ_API_KEY` |
+| ERA5 (Copernicus CDS) | `nm_fetch_era5_timeseries()` | a CDS account, the `ecmwfr` package |
+| ERA5 (Open-Meteo) | `nm_fetch_openmeteo_timeseries()` | — |
+| HYSPLIT back-trajectories | `nm_build_trajectory_features()`, `nm_run_back_trajectories()`, `nm_fetch_gdas1()` | HYSPLIT, to run trajectories |
+
+```{r, eval = TRUE}
+library(normet)
+```
+
+## Your own tables
+
+`nm_read_time_series()` reads CSV/TSV files with any separator, decimal commas,
+UTF-8/GB18030/Windows code pages and gzip compression, as well as Excel, Parquet,
+Feather and JSON. It finds the times by itself: a `date`/`datetime`/`time`
+column, separate date and time columns, or year/month/day/hour columns, in
+formats such as 31/01/2020, 01/31/2020, 2020-01-31T13:00+01:00, Unix seconds
+or Excel day numbers.
+
+```{r}
+df <- nm_read_time_series("site.csv", zone = "Europe/London")  # on the site's clock
+attr(df, "normet_dates")                    # how the times were found and read
+
+nm_clock_to_utc(df$date, "Europe/London")   # what ERA5/HYSPLIT are asked for
+```
+
+Times that carry their own UTC offset are each read by that offset:
+
+```{r, eval = TRUE}
+nm_parse_dates(c("2020-03-29T00:30+00:00", "2020-03-29T02:30+01:00"))
+```
+
+## UK air quality (AURN, AQE, SAQN, WAQN, NI, LMAM)
+
+The UK adapter reads DEFRA's whole-year archives for six networks
+(`source = "aurn"`, `"aqe"`, `"saqn"`, `"waqn"`, `"ni"`, or `"local"` for
+LMAM), or the near-real-time rolling window (`source = "aurn_live"`).
+
+```{r}
+# Browse available stations
+stations <- nm_list_ukaq_stations("aurn", pollutant = "NO2")
+head(stations)
+
+# Download hourly measurements (whole calendar years)
+df_aurn <- nm_fetch_ukaq_measurements("MY1", 2022, source = "aurn", pollutant = "NO2")
+
+# Or the near-real-time rolling window instead of the archive
+df_live <- nm_fetch_ukaq_measurements("MY1", 2026, source = "aurn_live", pollutant = "NO2")
+```
+
+Station codes are unique within a network but not across networks, so
+deduplicate on coordinates, not codes, when you combine sources (see
+`?nm_list_ukaq_stations`).
+
+## EEA Discomap
+
+```{r}
+df_eea <- nm_fetch_eea_data(
+  country   = "GB",
+  pollutant = "PM2.5",
+  year_from = 2021,
+  year_to   = 2022
+)
+```
+
+`nm_eea_pollutant_codes` maps the pollutant names to their EEA/EIONET codes.
+
+```{r, eval = TRUE}
+nm_eea_pollutant_codes
+```
+
+## OpenAQ v3
+
+OpenAQ needs a free API key. Set the `OPENAQ_API_KEY` environment variable or
+pass `api_key =`.
+
+```{r}
+# Find monitoring locations
+locs <- nm_openaq_locations(country = "GB", parameter = "pm25")
+
+# Download measurements
+df_oaq <- nm_fetch_openaq_measurements(
+  location_id = locs$id[1],
+  date_from   = "2022-01-01",
+  date_to     = "2022-06-30"
+)
+```
+
+## ERA5 meteorology from the Copernicus CDS
+
+`nm_fetch_era5_timeseries()` fetches ERA5 as single-point time series straight
+from the Climate Data Store, with no NetCDF handling. It needs a CDS account
+and the `ecmwfr` package.
+
+```{r}
+df_era5 <- nm_fetch_era5_timeseries(
+  sites     = data.frame(site = "MY1", lat = 51.52, lon = -0.15),
+  date_from = "2022-01-01",
+  date_to   = "2022-12-31",
+  variables = nm_era5_aq_variables_default,
+  cache_dir = ".era5_cache"
+)
+# Columns use short names: site, date, lat, lon, t2m, u10, v10, ...
+```
+
+## ERA5 meteorology from Open-Meteo
+
+Open-Meteo is a keyless alternative to the Copernicus CDS. It needs no account
+or `~/.cdsapirc` and serves the same ERA5 archive:
+
+```{r}
+met <- nm_fetch_openmeteo_timeseries(
+  sites     = list(MY1 = c(51.52, -0.15)),   # name = c(lat, lon)
+  date_from = "2022-01-01",
+  date_to   = "2022-12-31"
+)
+# Columns use short names: site, date, t2m, d2m, rh2m, sp, tcc, tp, ssrd,
+# u10, v10, blh, lat, lon. The names and units are the same as
+# nm_fetch_era5_timeseries() returns.
+```
+
+`nm_wind_to_uv()` converts wind speed and direction into `u`/`v` components.
+
+## HYSPLIT back-trajectories
+
+### From existing `tdump` files
+
+`nm_build_trajectory_features()` turns HYSPLIT back-trajectory output into
+per-receptor transport features. The `tdump` files can come from `splitr`,
+`pysplit` or `hyts_std`. The features are inflow direction, transport
+distance and speed, trajectory height, rainfall and boundary-layer height
+along the path, and the fraction of time spent over source regions.
+
+```{r}
+traj <- nm_build_trajectory_features(
+  "traj/tdump_*",
+  source_regions = list(industrial_NE = c(116.0, 39.0, 120.0, 42.0))
+)
+# traj has a `date` (receptor time) column and traj_* feature columns.
+# Trajectories started at several heights each get their own columns
+# (traj_dist_km_500m, traj_dist_km_1500m, ...).
+
+# Join backward: each hour takes the latest trajectory to have arrived, within
+# one release interval. (A nearest-time join would hand 04:00 the 06:00
+# trajectory.)
+panel <- nm_join_trajectory_features(panel, traj)
+```
+
+Then pass the `traj_*` columns to `nm_do_all()`. Put them in `resample_vars`
+as well to deweather transport. Leave them out of `resample_vars` to keep the
+transport signal.
+
+A two-day sample of raw `tdump` files ships with the package, and the bundled
+`traj_my1` dataset was built from files like these:
+
+```{r, eval = TRUE}
+tdump <- system.file("extdata", "traj", "tdump_2020010100", package = "normet")
+head(nm_read_trajectory_tdump(tdump), 3)
+```
+
+### Running HYSPLIT from R
+
+`nm_run_back_trajectories()` can also drive HYSPLIT (`hyts_std`) directly for
+a set of receptor times. `nm_fetch_gdas1()` downloads the matching GDAS1
+meteorology on demand:
+
+```{r}
+met_files <- nm_fetch_gdas1(
+  date_from = "2022-01-01", date_to = "2022-01-08", cache_dir = "gdas1_cache"
+)
+traj <- nm_run_back_trajectories(
+  times = my1$date, lat = 51.52, lon = -0.15,
+  met_files = met_files, hysplit_exec = "/opt/hysplit/exec/hyts_std",
+  hours_back = 72
+)
+```
+
+Receptor times are run on UTC (a POSIXct is an instant, whatever its time
+zone) and repeated times are run once. Times that no met file covers are
+skipped with a warning.
+
+The [Getting started](normet.html#transport-aware-normalisation) vignette
+shows how trajectory features change a normalisation. It compares a local-only
+model with a transport-aware one.

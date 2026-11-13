@@ -1,0 +1,134 @@
+---
+title: "Weather normalisation, step by step"
+---
+
+```{r, include = FALSE}
+# Training and normalising take minutes at realistic budgets, so the chunks are
+# shown but not run when the site is built. The Getting started vignette runs
+# the same steps on a small subset.
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>", eval = FALSE)
+```
+
+`nm_do_all()` runs the whole normalisation in one call (see the
+[README](https://github.com/apai-sys/normet-r#quick-start)). This article does
+the same work one step at a time, so that each step can be inspected, tuned and
+reused. The [Getting started](normet.html) vignette runs these steps on a
+small subset of the data, with output.
+
+The example uses the bundled `my1` dataset. It holds hourly NO2 at London
+Marylebone Road (MY1) for January to August 2020, together with meteorology.
+
+```{r}
+library(normet)
+
+covariates <- c("ws", "wd", "temp", "RH", "atmos_pres", "blh", "tcc", "tp", "ssrd")
+predictors <- c(covariates, "date_unix", "day_julian", "weekday", "hour")
+```
+
+`covariates` are the weather variables. `predictors` adds the time features
+that `nm_prepare_data()` computes from the `date` column.
+
+## 1. Prepare the data
+
+```{r}
+df_prep <- nm_prepare_data(
+  df             = my1,
+  target         = "NO2",
+  covariates     = covariates,   # weather only: time features are added here
+  split_method   = "random",
+  train_fraction = 0.75
+)
+```
+
+The target column is renamed to `value` and a `set` column marks the training
+and testing rows.
+
+## 2. Train a model
+
+```{r}
+model <- nm_train_model(
+  df           = df_prep,
+  target       = "value",
+  covariates   = predictors,
+  backend      = "lightgbm",          # or "h2o": see the Backends article
+  model_config = list(n_trials = 50, cv_folds = 5)
+)
+
+nm_modStats(df_prep, model)           # performance on the training and testing sets
+```
+
+`nm_build_model()` does steps 1 and 2 in one call and returns both `df_prep`
+and `model`. Models can be saved with `nm_save_model()` and restored with
+`nm_load_model()`.
+
+## 3. Explain the model
+
+```{r}
+# Feature importance
+nm_feature_importance(model)
+
+# Partial dependence plots
+pdp_data <- nm_pdp(df_prep, model, var_list = c("blh", "RH"))
+nm_plot_pdp(pdp_data)
+```
+
+## 4. Normalise for weather
+
+`nm_normalise()` repeatedly resamples the weather variables and averages the
+model's predictions. The result is a "de-weathered" series, from which the
+weather-driven variation has been removed.
+
+```{r}
+df_norm <- nm_normalise(
+  df            = df_prep,
+  model         = model,
+  resample_vars = covariates,
+  n_samples     = 600
+)
+nm_plot_normalise(df_norm)
+```
+
+Rather than guessing `n_samples`, `nm_normalise_auto()` draws resamples in
+batches and stops once the whole series has converged:
+
+```{r}
+auto <- nm_normalise_auto(
+  df            = df_prep,
+  model         = model,
+  resample_vars = covariates
+)
+cat("Samples used:", auto$best_n, "\n")
+head(auto$res)   # date | observed | normalised
+```
+
+`nm_normalise_ext()` adds two options: it can restrict the resampling pool
+(`conditional_on`) and return quantiles of each date's resampled distribution
+(`return_quantiles`).
+
+## 5. Rolling normalisation
+
+For trend analysis, `nm_rolling()` normalises within a moving window and
+produces one normalised value per window for each timestamp:
+
+```{r}
+df_rolling <- nm_rolling(
+  df            = df_prep,
+  target        = "value",
+  model         = model,
+  resample_vars = covariates,
+  n_samples     = 300,
+  window_days   = 14,
+  rolling_every = 7
+)
+nm_plot_rolling(df_rolling, data = df_prep)
+```
+
+## Next
+
+- [Decomposition and uncertainty](decomposition-uncertainty.html): separate
+  the emission and meteorological contributions, and put error bars on the
+  normalised series.
+- [Figures and reports](figures-reports.html): figure style, and HTML or
+  Markdown reports for a run.
+- [Multi-site pipelines and caching](multisite-caching.html): run the same
+  analysis across a station network.

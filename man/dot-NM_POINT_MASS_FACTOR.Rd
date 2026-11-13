@@ -15,4 +15,4 @@ An object of class \code{numeric} of length 1.
 A point forecast's MAE read as a normal's own MAE (sigma * sqrt(2/pi)),
 multiplied back to the sigma that would carry it: sqrt(pi/2).
 }
-\keyword{datasets}
+\keyword{internal}

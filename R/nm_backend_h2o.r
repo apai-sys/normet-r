@@ -269,6 +269,7 @@ nm_save_h2o <- function(model, path = "./", filename = "automl", verbose = TRUE)
 #' @param verbose Should the function print log messages? Default is TRUE.
 #'
 #' @return The loaded H2O model object with its "backend" attribute correctly set.
+#' @keywords internal
 nm_load_h2o <- function(path = "./", filename = "automl", verbose = TRUE) {
 
   log <- nm_get_logger("model.load.h2o")

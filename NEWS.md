@@ -45,6 +45,30 @@
   4-core SLURM job gets 4 and not the node's 166. H2O's own default
   (`nthreads = -1`) has always meant "all". Pass `n_cores` to override.
 
+### Documentation
+
+* **The README is a front page, and the manual moved to pkgdown articles.**
+  The 563-line README is now a short overview (features, installation, a quick
+  start, links). Its sections now live in eight articles under
+  `vignettes/articles/`: data acquisition, the step-by-step normalisation,
+  decomposition and uncertainty, causal inference, multi-site pipelines and
+  caching, the two backends, figures and reports, and the desktop GUI. Their
+  examples were checked against the current API. The old README used
+  columns that `my1` and `scm` do not have, `results$out` for `$res`,
+  `pollutant =` for `nm_openaq_locations()`'s `parameter =`, the ensemble
+  result for `nm_plot_uncertainty_bands()`, and two internal cache helpers. The
+  causal-inference article runs on the bundled `scm` panel when the site is
+  built. `_pkgdown.yml` groups the articles, lists the datasets and S3 methods
+  in the reference index, and sets up the home page sidebar.
+  `nm_require()`, `nm_load_h2o()` and `.NM_POINT_MASS_FACTOR`, which are not
+  exported, are now marked internal.
+* **Community files and citation.** The project now has a Code of Conduct
+  (Contributor Covenant 2.1), a security policy, an expanded contributing
+  guide, GitHub issue and pull-request templates, `inst/CITATION`
+  (`citation("normet")`) and `CITATION.cff`. The README's CRAN badge pointed
+  at a package that is not on CRAN, so it was replaced with the GitHub version
+  badge, and the install instructions use `remotes::install_github()`.
+
 # normet 1.0.0
 
 ### Added

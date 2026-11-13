@@ -1,0 +1,23 @@
+# This CITATION.cff describes the normet R package. Keep the version, title and
+# abstract in step with DESCRIPTION when they change.
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+type: software
+title: "normet: Normalisation, Decomposition, and Counterfactual Modelling for Air Quality Time-Series"
+version: 1.0.1
+abstract: >-
+  Provides a suite of tools for advanced air quality time series analysis.
+  Core functionalities include meteorological normalisation (de-weathering)
+  to reveal underlying trends in data like air pollution concentrations,
+  and causal inference using both classic and machine learning-based
+  Synthetic Control Methods (SCM). The package features high-level workflows
+  for uncertainty quantification, time-series decomposition, and robust
+  placebo tests, powered by H2O AutoML or lightgbm backends.
+authors:
+  - family-names: Song
+    given-names: Congbo
+    email: congbo.song@manchester.ac.uk
+    orcid: "https://orcid.org/0000-0001-7948-4834"
+license: GPL-3.0-only
+repository-code: "https://github.com/apai-sys/normet-r"
+url: "https://github.com/apai-sys/normet-r"

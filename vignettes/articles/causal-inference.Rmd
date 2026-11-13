@@ -1,0 +1,165 @@
+---
+title: "Causal inference with synthetic controls"
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>", fig.width = 7, fig.height = 4)
+```
+
+A normalised series removes the weather, but an intervention such as a
+low-emission zone still has to be separated from everything else that changed
+at the same time. Synthetic control methods (SCM) build a counterfactual for
+the treated site from a weighted combination of untreated "donor" sites.
+normet provides several SCM variants, significance tests and diagnostics.
+
+The chunks in this article run when the site is built, except ML-SCM, which
+needs a modelling backend.
+
+## Setup
+
+The bundled `scm` dataset is a monthly panel of observed and normalised
+(`NO2_dw`) NO2 for 104 UK monitoring sites (2016–2021). The question is the
+effect of the London Ultra Low Emission Zone (ULEZ, launched 2019-04-08) at
+Marylebone Road (`MY1`). Following the design of the
+[Getting started](normet.html) vignette, take the pre-COVID window, use
+traffic sites as the donor pool, and keep donors with complete coverage:
+
+```{r}
+library(normet)
+
+win <- scm[scm$date >= as.Date("2017-01-01") & scm$date < as.Date("2020-03-01"), ]
+traffic <- win[grepl("Traffic", win$type), ]
+n_months <- length(unique(traffic$date))
+coverage <- tapply(!is.na(traffic$NO2_dw), traffic$code, sum)
+panel <- traffic[traffic$code %in% names(coverage)[coverage == n_months], ]
+
+treated <- "MY1"
+donors  <- setdiff(unique(panel$code), treated)
+cutoff  <- "2019-04-01"
+length(donors)
+```
+
+## SCM variants
+
+`nm_run_scm()` is the common interface. `scm_backend = "scm"` is the augmented
+SCM (`nm_scm()`), and `"mlscm"` is the machine-learning variant (`nm_mlscm()`).
+The other estimators have their own functions with the same core arguments.
+
+```{r}
+scm_res <- nm_run_scm(
+  df = panel, date_col = "date", unit_col = "code", outcome_col = "NO2_dw",
+  treated_unit = treated, donors = donors, cutoff_date = cutoff,
+  scm_backend = "scm", verbose = FALSE
+)
+head(scm_res)
+nm_plot_time_series(scm_res, target = "effect", title = "ULEZ effect on normalised NO2 at MY1")
+```
+
+```{r, eval = FALSE}
+# ML-SCM: exploratory only, not recommended for inference (see ?nm_mlscm).
+# It trains a model, so it needs the lightgbm (default) or h2o backend.
+ml_res <- nm_run_scm(
+  df = panel, date_col = "date", unit_col = "code", outcome_col = "NO2_dw",
+  treated_unit = treated, donors = donors, cutoff_date = cutoff,
+  scm_backend = "mlscm"
+)
+```
+
+```{r}
+# Abadie (2010) quadratic-programme weights
+ab_res <- nm_scm_abadie(
+  df = panel, date_col = "date", unit_col = "code", outcome_col = "NO2_dw",
+  treated_unit = treated, donors = donors, cutoff_date = cutoff
+)
+
+# Difference-in-differences baseline
+did_res <- nm_did_baseline(
+  df = panel, date_col = "date", unit_col = "code", outcome_col = "NO2_dw",
+  treated_unit = treated, donors = donors, cutoff_date = cutoff
+)
+
+# Matrix-completion nuclear-norm minimisation
+mc_res <- nm_scm_mcnnm(
+  df = panel, date_col = "date", unit_col = "code", outcome_col = "NO2_dw",
+  treated_unit = treated, donors = donors, cutoff_date = cutoff
+)
+
+# Robust SCM: HSVT de-noising (Amjad, Shah & Shen 2018)
+rb_res <- nm_scm_robust(
+  df = panel, date_col = "date", unit_col = "code", outcome_col = "NO2_dw",
+  treated_unit = treated, donors = donors, cutoff_date = cutoff, verbose = FALSE
+)
+
+# Bayesian SCM (Dirichlet prior + Metropolis-Hastings)
+bayes_res <- nm_bayesian_scm(
+  df = panel, date_col = "date", unit_col = "code", outcome_col = "NO2_dw",
+  treated_unit = treated, donors = donors, cutoff_date = cutoff,
+  draws = 2000, ci_level = 0.95, verbose = FALSE
+)
+nm_plot_bayesian_scm(bayes_res, cutoff_date = cutoff)
+```
+
+For several treated units, each with its own cutoff, see
+`nm_run_scm_staggered()`. `nm_scm_all()` fits every unit in turn.
+
+## Significance tests
+
+```{r, warning = FALSE}
+# Conformal prediction interval on the average treatment effect
+ci <- nm_conformal_effect_interval(scm_res, cutoff_date = cutoff, ci_level = 0.95)
+str(ci)
+
+# Placebo in space: refit with every donor as the "treated" unit
+placebo <- nm_placebo_in_space(
+  df = panel, date_col = "date", unit_col = "code", outcome_col = "NO2_dw",
+  treated_unit = treated, donors = donors, cutoff_date = cutoff,
+  scm_backend = "scm", verbose = FALSE
+)
+# RMSPE ratio test on the placebo distribution
+rmspe <- nm_rmspe_ratio_test(placebo, cutoff_date = cutoff)
+rmspe$p_value
+```
+
+`nm_placebo_in_time()` is a historical falsification test. It moves the cutoff
+back into the pre-period, where there should be no effect. `min_pre_period` and
+`placebo_every` count observations: months, for this panel.
+
+```{r, warning = FALSE}
+tp <- nm_placebo_in_time(
+  df = panel, date_col = "date", unit_col = "code", outcome_col = "NO2_dw",
+  treated_unit = treated, donors = donors, cutoff_date = cutoff,
+  scm_backend = "scm", min_pre_period = 12, placebo_every = 1, verbose = FALSE
+)
+tp$p_value
+```
+
+`nm_pre_trend_test()` checks the pre-period for a trend in the gap between the
+treated unit and its synthetic control.
+
+## Effect bands and diagnostics
+
+```{r}
+# Bands from the placebo-in-space distribution
+bands <- nm_effect_bands_space(placebo, level = 0.95, method = "quantile", verbose = FALSE)
+nm_plot_effect_with_bands(bands, cutoff_date = cutoff)
+
+# Jackknife (or bootstrap) uncertainty over the donor pool
+jack <- nm_uncertainty_bands(
+  df = panel, date_col = "date", unit_col = "code", outcome_col = "NO2_dw",
+  treated_unit = treated, donors = donors, cutoff_date = cutoff,
+  scm_backend = "scm", method = "jackknife", verbose = FALSE
+)
+nm_plot_uncertainty_bands(jack, cutoff_date = cutoff)
+```
+
+```{r, results = "hide"}
+# Weight diagnostics, and how stable the weights are when each donor is left out
+diag <- nm_scm_diagnostics(scm_res, cutoff_date = cutoff)
+loo <- nm_loo_weight_stability(
+  df = panel, date_col = "date", unit_col = "code", outcome_col = "NO2_dw",
+  treated_unit = treated, donors = donors, cutoff_date = cutoff
+)
+```
+
+`nm_plot_scm_dashboard()` draws the fit, the effect and (optionally) the
+diagnostics on one figure.

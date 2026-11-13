@@ -1,0 +1,26 @@
+# Cites the software itself. The title, version and URL are read from DESCRIPTION,
+# so they stay in step with it.
+
+year <- NULL
+for (field in c("Date/Publication", "Date", "Packaged", "Built")) {
+  value <- meta[[field]]
+  if (!is.null(value)) {
+    year <- regmatches(value, regexpr("[0-9]{4}", value))
+    if (length(year)) break
+  }
+}
+if (!length(year)) year <- format(Sys.Date(), "%Y")
+
+bibentry(
+  bibtype = "Manual",
+  title = paste0("{normet}: ", meta$Title),
+  author = person("Congbo", "Song",
+                  comment = c(ORCID = "0000-0001-7948-4834")),
+  year = year,
+  note = paste("R package version", meta$Version),
+  url = meta$URL,
+  textVersion = paste0(
+    "Song C (", year, "). normet: ", meta$Title, ". R package version ",
+    meta$Version, ", ", meta$URL, "."
+  )
+)

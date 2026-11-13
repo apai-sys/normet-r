@@ -19,3 +19,4 @@ The loaded H2O model object with its "backend" attribute correctly set.
 \description{
 \code{nm_load_h2o} loads a previously saved H2O model from disk
 }
+\keyword{internal}

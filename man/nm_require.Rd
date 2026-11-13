@@ -39,3 +39,4 @@ select_fun <- nm_require("dplyr::select", hint = "install.packages('dplyr')")
 nm_require("notapackage", hint = "remotes::install_github('user/notapackage')")
 }
 }
+\keyword{internal}

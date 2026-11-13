@@ -2,7 +2,62 @@ url: https://github.com/apai-sys/normet-r
 template:
   bootstrap: 5
 
+home:
+  title: "normet: weather normalisation, decomposition and causal inference for air quality"
+  description: >
+    An R package for air-quality time-series analysis: machine-learning weather
+    normalisation, decomposition, uncertainty, and synthetic control methods.
+  sidebar:
+    structure: [links, license, community, citation, authors, dev]
+  links:
+  - text: Desktop GUI
+    href: articles/desktop-gui.html
+  - text: Python version (normet-py)
+    href: https://github.com/apai-sys/normet-py
+
+navbar:
+  structure:
+    left: [intro, reference, articles, news]
+    right: [search, github]
+
+articles:
+- title: Get started
+  navbar: ~
+  contents:
+  - normet
+- title: Data
+  navbar: Data
+  contents:
+  - articles/data-acquisition
+- title: Analysis
+  navbar: Analysis
+  contents:
+  - articles/normalisation-workflow
+  - articles/decomposition-uncertainty
+  - articles/causal-inference
+- title: Scaling up
+  navbar: Scaling up
+  contents:
+  - articles/multisite-caching
+  - articles/backends
+- title: Output and tools
+  navbar: Output and tools
+  contents:
+  - articles/figures-reports
+  - articles/desktop-gui
+
+news:
+  cran_dates: false
+
 reference:
+- title: Datasets
+  desc: Example data shipped with the package.
+  contents:
+  - my1
+  - my1_pm25
+  - traj_my1
+  - scm
+
 - title: Pipeline
   contents:
   - nm_do_all
@@ -78,6 +133,10 @@ reference:
   - nm_decompose
   - nm_decompose_multisite
   - nm_decompose_uncertainty
+  - print.nm_unc_decomposition
+  - summary.nm_unc_decomposition
+  - plot.nm_unc_decomposition
+  - as.data.frame.nm_unc_decomposition
   - nm_decom_emi
   - nm_decom_met
   - nm_multisite_apply
@@ -107,6 +166,7 @@ reference:
   - nm_spatial_summary
   - nm_did_baseline
   - nm_pre_trend_test
+  - print.nm_pre_trend
   - nm_detect_events
   - nm_anomaly_scores
   - nm_conformal_effect_interval
@@ -188,7 +248,6 @@ reference:
   - nm_error_model
   - nm_warn_experimental
   - nm_Stats
-
 
 - title: AI Agents
   desc: normet for an AI agent -- an MCP server, and the tools it serves.
