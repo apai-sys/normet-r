@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
 )
 
 from . import _settings, commandlog
+from ._errors import read_error
 from ._lists import _checked_items
 
 log = logging.getLogger(__name__)
@@ -253,14 +254,14 @@ class SessionMixin(QMainWindow):
                     Qt.CheckState.Checked if item.text() in feats else Qt.CheckState.Unchecked
                 )
         self._budget_values["h2o"] = c.get("time_budget", 60)
-        self._budget_values["lightgbm"] = c.get("lgb_trials", 6)
+        self._budget_values["lightgbm"] = c.get("lgb_trials", 20)
         self.backend_combo.setCurrentText(c.get("backend", "lightgbm"))
         self.split_combo.setCurrentText(c.get("split_method", "random"))
         self.train_fraction_spin.setValue(c.get("train_fraction", 0.75))
         self.budget_spin.setValue(
             self._budget_values.get(
                 self.backend_combo.currentText(),
-                60 if self.backend_combo.currentText() == "h2o" else 6,
+                60 if self.backend_combo.currentText() == "flaml" else 6,
             )
         )
         ests = set(c.get("flaml_estimators") or ["GBM"])  # H2O's include_algos here
@@ -330,7 +331,7 @@ class SessionMixin(QMainWindow):
                 self.apply_config(json.load(f))
             self.statusBar().showMessage(f"Loaded {os.path.basename(path)}")
         except Exception as exc:
-            QMessageBox.critical(self, "Load error", str(exc))
+            QMessageBox.critical(self, "Load error", read_error(path, exc))
 
     def _log_history(self, task: str, detail: str) -> None:
         if getattr(self, "_restoring", False):
@@ -420,6 +421,15 @@ class SessionMixin(QMainWindow):
         )
         if not path:
             return
+        # The figures and the page take seconds (scipy's first import alone can be
+        # most of it): the line and the cursor are painted before the window goes
+        # busy, or a status set and not drawn until the build ends says nothing.
+        from PySide6.QtCore import QEventLoop
+        from PySide6.QtWidgets import QApplication
+
+        self.statusBar().showMessage("Building report…")
+        QApplication.processEvents(QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents)
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         try:
             from .nm import generate_html_report, make_run
 
@@ -438,7 +448,12 @@ class SessionMixin(QMainWindow):
             else:
                 set_report_language(lang)
             generate_html_report(run, path, lang=lang)
-            self.statusBar().showMessage(f"Saved {os.path.basename(path)}")
-            log.info("HTML report written to %s", path)
         except Exception as exc:
-            QMessageBox.critical(self, "Report failed", str(exc))
+            QApplication.restoreOverrideCursor()
+            self.statusBar().clearMessage()
+            QMessageBox.critical(self, "Report failed", f"Could not build the report.\n{exc}")
+            return
+        QApplication.restoreOverrideCursor()
+        self.statusBar().clearMessage()
+        self.statusBar().showMessage(f"Saved {os.path.basename(path)}")
+        log.info("HTML report written to %s", path)

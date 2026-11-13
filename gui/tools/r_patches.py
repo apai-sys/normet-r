@@ -61,7 +61,10 @@ patch(
         self.budget_spin.setSuffix(" s")
         self.budget_spin.setToolTip("AutoML search time (flaml backend).")
         self._budget_label = QLabel("Time budget")
-        self._budget_values = {"flaml": 60, "lightgbm": 20}
+        # 6 trials is the published LightGBM protocol (normet_formal.py: n_trials=6,
+        # cv_folds=5, nrounds=400, early_stopping_rounds=30); the flaml budget above
+        # is a time in seconds.
+        self._budget_values = {"flaml": 60, "lightgbm": 6}
         self._prev_backend = "flaml"''',
     '''        self.budget_spin.setRange(1, 500)
         self.budget_spin.setValue(20)
@@ -146,19 +149,27 @@ patch(
         self._estimator_label.setVisible(is_h2o)
         self.estimator_list.setVisible(is_h2o)''',
 )
+# The train, CV and uncertainty runs all build their configuration in _model_config;
+# one patch there covers all three.
 patch(
-    "_run_train.py",
+    "_panel_train.py",
     "model config",
     '''        if backend == "flaml":
-            model_config = {
-                "time_budget": self.budget_spin.value(),
+            return {
+                "time_budget": budget,
                 "estimator_list": self._selected_estimators() or ["lgbm"],
             }''',
     '''        if backend == "h2o":
-            model_config = {
-                "max_runtime_secs": self.budget_spin.value(),
+            return {
+                "max_runtime_secs": budget,
                 "include_algos": self._selected_estimators() or ["GBM"],
             }''',
+)
+patch(
+    "_panel_train.py",
+    "model config: budget fallback",
+    'else self._budget_values.get(backend, 60 if backend == "flaml" else 6)',
+    'else self._budget_values.get(backend, 60 if backend == "h2o" else 20)',
 )
 patch(
     "_run_train.py",
@@ -174,26 +185,6 @@ patch(
     "chronos: CV guard",
     "        if self.model is None or self._is_chronos() or not self._check_data():",
     "        if self.model is None or not self._check_data():",
-)
-patch(
-    "_run_train.py",
-    "CV config: H2O's budget, per fold",
-    r'''        model_config = (
-            {
-                "time_budget": self.budget_spin.value(),
-                "estimator_list": self._selected_estimators() or ["lgbm"],
-            }
-            if backend == "flaml"
-            else {"n_trials": self.budget_spin.value()}
-        )''',
-    r'''        model_config = (
-            {
-                "max_runtime_secs": self.budget_spin.value(),
-                "include_algos": self._selected_estimators() or ["GBM"],
-            }
-            if backend == "h2o"
-            else {"n_trials": self.budget_spin.value()}
-        )''',
 )
 patch(
     "_run_train.py",
@@ -573,7 +564,7 @@ patch(
     "_session.py",
     "h2o budget restored",
     '''        self._budget_values["flaml"] = c.get("time_budget", 60)
-        self._budget_values["lightgbm"] = c.get("lgb_trials", 20)
+        self._budget_values["lightgbm"] = c.get("lgb_trials", 6)
         self.backend_combo.setCurrentText(c.get("backend", "flaml"))''',
     '''        self._budget_values["h2o"] = c.get("time_budget", 60)
         self._budget_values["lightgbm"] = c.get("lgb_trials", 20)
@@ -1509,20 +1500,6 @@ patch(
     '''        from .nm import decompose_uncertainty''',
 )
 patch(
-    "_run_analyse.py",
-    "unc: R's h2o budget is its runtime",
-    '''        cfg = (
-            {"time_budget": self.budget_spin.value()}
-            if self.unc_backend.currentText() == "flaml"
-            else {"n_trials": self.budget_spin.value()}
-        )''',
-    '''        cfg = (
-            {"max_runtime_secs": self.budget_spin.value()}
-            if self.unc_backend.currentText() == "h2o"
-            else {"n_trials": self.budget_spin.value()}
-        )''',
-)
-patch(
     "_tasks.py",
     "unc: enable on a model alone (no chronos here)",
     '''        self.unc_button.setEnabled(not busy and has_model and not self._is_chronos())
@@ -1588,4 +1565,25 @@ patch(
     "unc: the box's h2o, restored",
     '''    assert win.unc_backend.currentText() == "flaml"''',
     '''    assert win.unc_backend.currentText() == "h2o"''',
+)
+
+# The train panel's other backend here is H2O, not flaml (PR #87's dask of the
+# uncertainty tab's backend is the same test on lightgbm against h2o).
+patch(
+    "tests/test_gui_extra.py",
+    "model config budgets use the R backends",
+    '''        win.backend_combo.setCurrentText("flaml")
+        win.budget_spin.setValue(90)
+        win._budget_values["lightgbm"] = 33
+        assert win._model_config("lightgbm")["n_trials"] == 33
+        win.backend_combo.setCurrentText("lightgbm")
+        assert win._model_config("flaml")["time_budget"] == 90
+        assert win._model_config("lightgbm")["n_trials"] == 33''',
+    '''        win.backend_combo.setCurrentText("h2o")
+        win.budget_spin.setValue(90)
+        win._budget_values["lightgbm"] = 33
+        assert win._model_config("lightgbm")["n_trials"] == 33
+        win.backend_combo.setCurrentText("lightgbm")
+        assert win._model_config("h2o")["max_runtime_secs"] == 90
+        assert win._model_config("lightgbm")["n_trials"] == 33''',
 )

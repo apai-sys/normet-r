@@ -58,6 +58,7 @@ class TaskMixin(QMainWindow):
         # A notice asking for a step that has now been taken has been answered.
         for key, done in (
             ("need-data", has_data),
+            ("need-features", has_data and bool(self._selected_features())),
             ("need-model", has_model),
             ("need-normalise", has_y_inf),
         ):
@@ -66,10 +67,9 @@ class TaskMixin(QMainWindow):
         if hasattr(self, "_step_lights"):
             self._update_step_lights()
         has_result = bool(self.results)
-        self.exp_csv.setEnabled(has_data)
-        self.exp_html.setEnabled(has_result)
         self._export_action.setEnabled(has_data)
         self._report_action.setEnabled(has_result)
+        self.export_btn.setEnabled(has_data or has_result)
         self.cancel_btn.setEnabled(busy)
 
     def _task_started(self, name: str) -> None:

@@ -113,7 +113,7 @@ def test_matches_ranks_prefix_then_name_then_place():
 
 def test_palette_lists_menus_and_tabs(qapp):
     from normet_r_gui.main_window import MainWindow
-    from normet_r_gui.palette import CommandPalette, menu_commands, tab_commands
+    from normet_r_gui.palette import CommandPalette, menu_commands, open_palette, tab_commands
 
     win = MainWindow()
     try:
@@ -131,6 +131,18 @@ def test_palette_lists_menus_and_tabs(qapp):
         dlg._run()
         assert dlg.chosen is not None and dlg.chosen.text.startswith("Synthetic site")
         dlg.deleteLater()
+
+        # The Export menu hangs from the bar's button, not the menu bar, and the
+        # palette finds its commands as it finds File's: one export home still
+        # one place to look.
+        dlg = open_palette(win)
+        try:
+            places = {(c.text, c.where) for c in dlg.shown()}
+            assert ("Result table as CSV…", "Export") in places
+            assert ("English", "Export › HTML report") in places
+        finally:
+            dlg.close()
+            dlg.deleteLater()
     finally:
         win.close()
 
@@ -170,6 +182,56 @@ def test_appearance_is_remembered(qapp, tmp_path, monkeypatch):
     assert QSettings(ini, QSettings.Format.IniFormat).value("appearance") == "dark"
     with pytest.raises(ValueError):
         theme.theme_manager().set_appearance("sepia")
+
+
+def test_a_theme_switch_reaches_a_palette_style_sheet(qapp):
+    """A style sheet's `palette(role)` is resolved when the sheet is applied.
+
+    The welcome cards' background is `palette(base)`; after a switch to the dark
+    theme a card kept the light `palette(base)` it was polished with, and a plain
+    container kept the whole light palette (measured in cume, 2026-11-12). A theme
+    change re-applies such a sheet and clears inherited palettes, so the card and its
+    container take the new palette's colours.
+    """
+    from PySide6.QtGui import QColor, QPalette
+    from PySide6.QtWidgets import QFrame, QVBoxLayout, QWidget
+
+    from normet_r_gui.theme import _refresh_widget_palettes
+
+    was = QPalette(qapp.palette())
+
+    light = QPalette()
+    light.setColor(QPalette.ColorRole.Window, QColor(0xEF, 0xEF, 0xEF))
+    light.setColor(QPalette.ColorRole.Base, QColor(0xFF, 0xFF, 0xFF))
+    light.setColor(QPalette.ColorRole.WindowText, QColor(0, 0, 0))
+    dark = QPalette(light)
+    dark.setColor(QPalette.ColorRole.Window, QColor(0x32, 0x32, 0x32))
+    dark.setColor(QPalette.ColorRole.Base, QColor(0x17, 0x17, 0x17))
+    dark.setColor(QPalette.ColorRole.WindowText, QColor(0xFF, 0xFF, 0xFF))
+
+    try:
+        qapp.setPalette(light)
+        _refresh_widget_palettes()
+        holder = QWidget()
+        QVBoxLayout(holder).addWidget(QFrame())
+        card = holder.findChild(QFrame)
+        assert card is not None
+        card.setObjectName("themeCard")
+        card.setStyleSheet("#themeCard { background: palette(base); }")
+        card.setMinimumSize(60, 60)
+        holder.show()
+        qapp.processEvents()
+        assert card.grab().toImage().pixelColor(30, 30).name() == "#ffffff"
+
+        qapp.setPalette(dark)
+        _refresh_widget_palettes()
+        qapp.processEvents()
+        assert card.grab().toImage().pixelColor(30, 30).name() == "#171717"
+        assert holder.palette().color(QPalette.ColorRole.Window) == QColor(0x32, 0x32, 0x32)
+        holder.close()
+    finally:
+        qapp.setPalette(was)
+        _refresh_widget_palettes()
 
 
 def test_toolbar_icons_follow_the_theme(qapp):

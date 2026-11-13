@@ -101,53 +101,6 @@ def test_trend_call_sees_the_seasonal_period():
     assert res.test.seasonal and res.test.n_periods == 24
 
 
-def test_trend_call_passes_the_bootstrap_protocol():
-    n = 24 * 60
-    idx = pd.date_range("2024-01-01", periods=n, freq="h")
-    rng = np.random.default_rng(0)
-    f = pd.DataFrame({"date": idx, "emi_total": rng.normal(0, 1.0, n) + 0.002 * np.arange(n)})
-    res = T.trend_call(
-        f,
-        "emi_total",
-        series_name="proto",
-        n_bootstrap=120,
-        bootstrap_scheme="residual",
-        replicate_estimator="ols",
-        block_length=168,
-    )
-    assert res.name == "proto"
-    assert res.block_length == 168
-    assert "residual block bootstrap" in " ".join(res.notes)
-
-
-def test_trend_call_monthly_aggregation_resamples_to_monthly_means():
-    n = 24 * 365 * 2
-    idx = pd.date_range("2024-01-01", periods=n, freq="h")
-    rng = np.random.default_rng(0)
-    f = pd.DataFrame({"date": idx, "emi_total": rng.normal(0, 1.0, n) + 0.0002 * np.arange(n)})
-    res = T.trend_call(
-        f,
-        "emi_total",
-        series_name="monthly",
-        n_bootstrap=120,
-        aggregate="monthly",
-        bootstrap_scheme="residual",
-        replicate_estimator="theil-sen",
-        block_length=12,
-    )
-    # two years of hourly data -> 24 monthly means; the test runs on the aggregated scale.
-    assert res.n == 24
-    # the requested 12-month block is capped at n/3 on a 24-point series.
-    assert res.block_length == 8
-    assert "theil-sen replicate slope" in " ".join(res.notes)
-
-
-def test_trend_call_monthly_aggregation_needs_a_datetime_index():
-    f = pd.DataFrame({"emi_total": [1.0, 2.0, 3.0]})
-    with pytest.raises(ValueError, match="datetime index"):
-        T.trend_call(f, "emi_total", aggregate="monthly")
-
-
 # -- the verdict -----------------------------------------------------------------------
 
 

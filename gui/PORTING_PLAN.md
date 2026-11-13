@@ -714,6 +714,74 @@ as a single block.
   `vendor --check`: 0 of 98 files would change. No figure walk or manual rebuild: the walk hides the
   Assistant panel (`walk_gui.py` line 126), so no figure shows the model row or the Key… dialog.
 
+## Sync with normet-py main at b82c7ad (PRs #87/#88: cume alignment, one Export menu, manuals)
+
+- Vendored from normet-py `b82c7ad`: the GUI, its tests and the library modules under
+  `nm/` (the vendoring list gained `i18n.py`, so the gate now counts **102** files).
+  `r_patches.py` and `manual_patches.py` were updated to the new anchors; `_i18n.py` is
+  now a thin re-export of `nm/i18n.py` and `_errors.py` / `nm/i18n.py` are new.
+- What the window gains, all through the vendored code: the theme switch refreshes the
+  inherited palettes and every stylesheet built from `palette()`; the model list's
+  "Add a server…" is one dialog (name/address/model/key, validated in place); the
+  input box recalls the last 50 sent texts with Up/Down; a failed read names its file
+  (`_errors.read_error`); a report build shows "Building the report…" and a wait cursor
+  and reports failure in a dialog; a Chinese name inside a figure gets the Chinese face;
+  Ollama leaves the shipped providers (LM Studio stays; other local servers go through
+  "Add a server…"); startup reads the saved theme/language before `import normet`.
+- Manuals: the English book gains the Assistant's Up/Down recall and API Effort
+  sections; the Chinese book is a native rewrite (same chapters, labels, screenshot
+  arguments and numbers). The menu tables in both books follow the single
+  **⬇ Export** menu (result table CSV… = Ctrl+E; HTML report › English/中文).
+- All **23 figures redrawn in both languages** (the Export button is on every main
+  window screenshot; the numbers are unchanged). Both PDFs rebuilt: **61 EN / 63 ZH**
+  pages.
+- `python -m pytest gui/tests` -> **255 passed, 1 skipped** (same as before the sync);
+  `vendor --check`: **0 of 102 file(s) would change**.
+
+## Optimization pass on top of b82c7ad (normet-py `feature/perf-optimisation`, commits `182e232` + `1f9bfb4`, PR #89)
+
+- Re-vendored after the normet-py optimization branch: `causal/bands.py` (matplotlib
+  imported only inside its plotting helpers) and the window's `_widgets.py` plus the
+  new `_toolbar.py` (the figure toolbar moved out, so importing the window no longer
+  imports matplotlib). Gate: **0 of 103 files** would change.
+- The R window inherits both: `import normet_r_gui.main_window` is ~0.8 s with
+  `matplotlib` absent from `sys.modules` (it was ~1.2–1.5 s and loaded matplotlib at
+  import). The app itself still sets the Qt backend at launch (`app.main`).
+- R package (`R/`, this repo's own code, not vendored): `nm_normalise()` /
+  `nm_normalise_lgb()` skip the one-worker PSOCK cluster, and `nm_pdp()` predicts a
+  variable's whole stacked grid in one call. The emission decomposition's time-component
+  stages and the meteorology decomposition's sequential-attribution coalitions now run in
+  parallel processes (one serial resampler per worker). See `NEWS.md` for the
+  measurements (decompose 100 samples: 65.0 s serial, 20.2 s on the default; met
+  20 samples: 37.6 s -> 12.5 s; the weekday PDP curve 1.7 s -> 0.5 s).
+  `R CMD INSTALL .` was rerun; the full `testthat` suite passes; GUI suite
+  **255 passed, 1 skipped**.
+
+## GUI start-up: PySide6's source scan (2026-11-13, on top of the pass above)
+
+- Re-vendored after normet-py's second GUI-start change: `app.py` gained
+  `_skip_qt_import_scan()` (and `nm/io/tables.py` carries the faster
+  `read_table` from the same branch). Gate: **0 of 103 files** would change.
+- `import PySide6` replaces `builtins.__import__` with a hook that reads every
+  later module's source to look for `from __feature__ import ...`; a name
+  already in `pyside_feature_dict` is skipped. Importing normet after PySide6
+  measured **6.2 s against 1.1 s** in the other order in normet-py's tree (warm),
+  so the GUI entry gives the hook a mapping that answers "known" for every
+  non-Qt module. This window's own `gui/packaging/launcher.py` carries the same
+  patch, because it imports Qt before `normet_r_gui.app`; `app.main()` applies it
+  for `python -m normet_r_gui` too.
+- Measured here, source, offscreen: Qt then the window **3.3 s → 2.9 s** to the
+  constructed window warm (the window's imported subset is smaller than
+  normet-py's; the difference is larger in the frozen app, whose cold first run
+  read hundreds of files).
+- `python -m pytest gui/tests --ignore=gui/tests/test_gui_scm_inference.py` -> **249 passed,
+  1 skipped**, and that file alone with its crashing test deselected -> **5 passed,
+  1 deselected** (so **254 passed, 1 skipped** overall). The deselected
+  `test_the_fit_checks_run_on_the_example` hits the known local `numpy.linalg.inv`
+  bus error in a QThread (the same crash reproduces in normet-py on clean main; the
+  patch is import-time and is not active in tests that build `MainWindow` directly,
+  so it is unrelated). `vendor --check`: **0 of 103 files** would change.
+
 ## Local setup used here
 - R 4.3 + normet installed from this repo (`R CMD INSTALL .`), lightgbm R package
   built from GitHub source (`Rscript build_r.R` in microsoft/LightGBM).

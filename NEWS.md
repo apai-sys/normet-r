@@ -2,6 +2,38 @@
 
 ### Changed
 
+* **Emission decomposition runs its stages in parallel processes.** The
+  time-component stages are independent -- each freezes one more component
+  and normalises with the same seed and sample count -- and LightGBM's R
+  build predicts single-threaded (the macOS binary carries no OpenMP), so the
+  five stages used one core in turn. They now run one stage per PSOCK worker
+  with a serial resampler inside each (`nm_do_all_unc()`'s pattern). On the
+  reference 5,793-row record at 100 samples: **65.0 s serial, 28.8 s on 4
+  workers, 20.2 s on the default (5 workers)**, with results identical to
+  the last bit. H2O models stay sequential: their prediction runs in the
+  shared H2O cluster, which a worker process does not own.
+* **Meteorology decomposition runs its coalitions in parallel processes.**
+  Sequential attribution (the default) evaluates each coalition's
+  `nm_normalise()` independently, yet the chain used one core in turn -- and
+  every call started and stopped its own PSOCK cluster for a single
+  resample, so the default `n_cores` was *slower* than serial. The
+  coalitions now run one per PSOCK worker with a serial resampler inside.
+  On the reference record at 20 samples, measured back to back under the
+  same load: **default 37.6 s -> 12.5 s** (serial 33.6 s -> 25.6 s from the
+  fixed-cost change), results identical to the last bit. Sampled and exact
+  Shapley keep their memoised loop; H2O models stay sequential.
+* **Fewer fixed costs in normalise and PDP.** A normalisation that resolves
+  to one worker no longer starts a one-worker PSOCK cluster: `makeCluster(1)`
+  plus `doSNOW` registration plus the `foreach` round trip cost ~0.5 s per
+  call at 5,793 rows and ~0.9 s at 300 samples, while the resampling they
+  distribute takes ~0.9 s in-process. The batch loop now runs `lapply()`
+  there. `nm_decompose(method = "emission")` calls `nm_normalise()` once per
+  time component, so the saving compounds: 73.5 s -> 64.0 s at 100 samples,
+  and a 300-sample normalisation 41.8 s -> 39.0 s (results bit-identical).
+  `nm_pdp()` predicts each variable's whole grid in one stacked call instead
+  of one call per grid point (the weekday curve 1.7 s -> 0.5 s; the
+  benchmark's `temp`/`ws`/`weekday` request 9.6 s -> 7.8 s; identical
+  results), and its single-worker path also skips the cluster.
 * **H2O initialisation now uses the whole allocation.** `nm_init_h2o()` sized
   the cluster at `max(1, cores - 2)`, which on a 4-core job handed H2O two of
   the four cores while the LightGBM backend used all of them. The R side

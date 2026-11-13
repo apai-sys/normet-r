@@ -35,13 +35,15 @@ Run before saying a change is done, and report the actual output:
 
 ```bash
 PY=/Users/user/miniforge3/envs/normet/bin/python
-cd gui && $PY tools/vendor_py_gui.py ../normet-py --check   # 0 of 98 would change
+cd gui && $PY tools/vendor_py_gui.py ../../normet-py --check   # 0 of 103 would change
 cd gui && OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 $PY -m pytest -q -p no:cacheprovider tests/
 ```
 
-The GUI suite baseline is **237 passed / 1 skipped**. A single R-RPC test can flake on a
-transient socket/port error (`creation of server socket failed`); re-run just that test to
-confirm it is transient before treating it as a regression.
+The GUI suite baseline is **255 passed / 1 skipped**; on this Mac the SCM test
+`test_gui_scm_inference.py::test_the_fit_checks_run_on_the_example` hits a known QThread
+`numpy.linalg.inv` bus error, so deselect it and expect **254 passed / 1 skipped**. A single
+R-RPC test can flake on a transient socket/port error (`creation of server socket failed`);
+re-run just that test to confirm it is transient before treating it as a regression.
 
 ## The figure walks and the manual
 

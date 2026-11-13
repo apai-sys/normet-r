@@ -21,7 +21,6 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMenu,
     QPlainTextEdit,
-    QProgressBar,
     QPushButton,
     QSplitter,
     QTabWidget,
@@ -32,15 +31,16 @@ from PySide6.QtWidgets import (
 from . import _settings, commandlog, theme
 from ._constants import DOCS_URL
 from ._data_tab import DataTab
-from ._widgets import CanvasTab, FlowLayout
+from ._widgets import CanvasTab, FlowLayout, SmoothProgress
 from .theme import muted_color
 from .welcome import Welcome
 from .workers import QtLogHandler
 
 
 def report_language() -> str:
-    """The language a report is written in: the one last chosen under Export HTML Report,
-    kept between sessions; the system's until one is chosen, as the window's."""
+    """The language a report is written in: the one last chosen in the Export menu's
+    HTML report, kept between sessions; the system's until one is chosen, as the
+    window's."""
     from PySide6.QtCore import QSettings
 
     from . import uilang
@@ -122,15 +122,9 @@ class ShellMixin(QMainWindow):
         fm.addAction("Load Session S&cript…", lambda: self.load_session_script())
         fm.addSeparator()
         fm.addAction("&Methods Paragraph…", self.show_methods_paragraph)
-        self._export_action = fm.addAction("&Export Current Result…", self._export_current)
-        self._export_action.setShortcut("Ctrl+E")
-        self._export_action.setEnabled(False)
-        # The report's language is chosen where the report is exported, as cume's: a
-        # submenu of the export, not a setting of its own.
-        report_menu = fm.addMenu("Export &HTML Report")
-        self._report_languages(report_menu)
-        self._report_action = report_menu.menuAction()
-        self._report_action.setEnabled(False)
+        # The exports have one home, the action bar's Export menu (the user,
+        # 2026-11-12): the result table and the report's languages side by side
+        # there, not in File and on two buttons as well.
         fm.addAction("Save Session as &Script…", self.save_script)
         fm.addSeparator()
         fm.addAction("Save Con&fig…", self.save_config)
@@ -452,9 +446,8 @@ class ShellMixin(QMainWindow):
         self.assistant.composer.setFocus()
 
     def _build_status_bar(self) -> None:
-        self.progress = QProgressBar()
-        self.progress.setRange(0, 1)
-        self.progress.setMaximumWidth(220)
+        self.progress = SmoothProgress()
+        self.progress.layout().setContentsMargins(0, 0, 8, 0)
         self.cancel_btn = QPushButton("Cancel")
         self.cancel_btn.setEnabled(False)
         self.cancel_btn.setToolTip(
@@ -462,6 +455,12 @@ class ShellMixin(QMainWindow):
             "discarded when the background computation eventually finishes."
         )
         self.cancel_btn.clicked.connect(self._abandon_task)
+        # Esc abandons the running task, as the Cancel button does.
+        from PySide6.QtCore import Qt
+        from PySide6.QtGui import QShortcut
+
+        esc = QShortcut(Qt.Key.Key_Escape, self)
+        esc.activated.connect(self._abandon_task)
         # How far the analysis has come, one light per step; a click opens its page.
         self._step_lights: dict[str, QLabel] = {}
         lights = QWidget()
@@ -658,19 +657,29 @@ class ShellMixin(QMainWindow):
         self.panel_btn.setToolTip("Fold the parameter panel away or bring it back (Ctrl+B / ⌘B).")
         self.panel_btn.clicked.connect(lambda: self.toggle_panel())
         h.addWidget(self.panel_btn)
-        self.exp_csv = QPushButton("⬇  Export result CSV")
-        self.exp_csv.setToolTip("Export the current tab's result table as CSV.")
-        self.exp_csv.clicked.connect(self._export_current)
-        self.exp_csv.setEnabled(False)
-        self.exp_html = QPushButton("📄  HTML report")
-        self.exp_html.setToolTip(
-            "Single-file HTML report of the current tab's result,\nwith provenance metadata."
+        # Every export in one menu (the user, 2026-11-12): the result table and the
+        # report's languages, each entry on while the window has what it writes.
+        self.export_btn = QPushButton("⬇  Export")
+        self.export_btn.setToolTip(
+            "The current tab's result table as CSV,\nor the result as a single-file HTML report."
         )
-        # The report in a language picked from the button's menu, as File's.
-        html_menu = QMenu(self.exp_html)
-        self._report_languages(html_menu)
-        self.exp_html.setMenu(html_menu)
-        self.exp_html.setEnabled(False)
+        self.export_btn.setEnabled(False)
+        export_menu = QMenu(self.export_btn)
+        self._export_action = export_menu.addAction("Result table as CSV…", self._export_current)
+        self._export_action.setShortcut("Ctrl+E")
+        self._export_action.setEnabled(False)
+        # An action in a button's menu is not in the window's shortcut context by
+        # itself: added to the window too, Ctrl+E reaches it, and the menu still
+        # shows it.
+        self.addAction(self._export_action)
+        export_menu.addSeparator()
+        # The report's language is chosen where the report is exported: a submenu of
+        # the export, not a setting of its own.
+        report_menu = export_menu.addMenu("HTML report")
+        self._report_languages(report_menu)
+        self._report_action = report_menu.menuAction()
+        self._report_action.setEnabled(False)
+        self.export_btn.setMenu(export_menu)
         self.scm_btn = QPushButton("🧪  SCM Studio")
         self.scm_btn.setToolTip(
             "Synthetic-control (counterfactual) analysis on panel data\n— treated unit vs. donor pool."
@@ -694,6 +703,5 @@ class ShellMixin(QMainWindow):
         h.addWidget(self.data_btn)
         h.addWidget(self.transport_btn)
         h.addWidget(self.scm_btn)
-        h.addWidget(self.exp_csv)
-        h.addWidget(self.exp_html)
+        h.addWidget(self.export_btn)
         return bar

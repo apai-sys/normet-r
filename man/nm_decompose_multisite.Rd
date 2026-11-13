@@ -28,9 +28,12 @@ nm_decompose_multisite(
 
 \item{backend}{The modeling backend to use (default 'lightgbm', or 'h2o').}
 
-\item{n_cores}{Number of CPU cores to use for \strong{H2O Initialization} (when
-\code{backend = "h2o"}) and for parallel resampling in each
-\code{nm_normalise()} call (default: detected cores minus one).}
+\item{n_cores}{Number of CPU cores. For \code{method = "emission"} it caps the
+parallel decomposition stages (one per frozen time component, each
+normalising serially); for \code{"meteorology"} it sizes the resampling
+workers of every \code{nm_normalise()} call. It is also the H2O
+allocation when \code{backend = "h2o"}. Default: detected cores minus
+one.}
 
 \item{...}{Additional arguments passed to \code{nm_decompose}.}
 }

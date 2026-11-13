@@ -47,7 +47,6 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QMainWindow,
     QMessageBox,
-    QProgressBar,
     QPushButton,
     QSplitter,
     QTabWidget,
@@ -59,12 +58,14 @@ from .nm import style as S
 from .nm.utils._time import to_datetime_coerced
 
 from ._clock import TaskClock
+from ._errors import read_error
 from ._lists import ALL_TIP, _toggle_all
 from ._widgets import (
     CanvasTab,
     NoWheelComboBox,
     NoWheelDoubleSpinBox,
     NoWheelSpinBox,
+    SmoothProgress,
     hint_label,
     run_button,
 )
@@ -299,9 +300,8 @@ class SCMWindow(QMainWindow):
         splitter.setSizes([self.panel.least_width, 970])  # no gap: see StepPanel.least_width
         self.setCentralWidget(splitter)
 
-        self.progress = QProgressBar()
-        self.progress.setRange(0, 1)
-        self.progress.setMaximumWidth(220)
+        self.progress = SmoothProgress()
+        self.progress.layout().setContentsMargins(0, 0, 8, 0)
         self.cancel_btn = QPushButton("Cancel")
         self.cancel_btn.setEnabled(False)
         self.cancel_btn.setToolTip(
@@ -649,7 +649,7 @@ class SCMWindow(QMainWindow):
         try:
             df = read_table(path)
         except Exception as exc:  # noqa: BLE001 - a file pandas cannot read, said as it is
-            QMessageBox.critical(self, "Failed to read the file", str(exc))
+            QMessageBox.critical(self, "Failed to read the file", read_error(path, exc))
             return
         self._ingest(df, os.path.basename(path))
 

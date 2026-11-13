@@ -78,6 +78,7 @@ TEST_HELPERS = {"_uilang_smoke.py": "_py_uilang_smoke.py"}
 
 #: Library modules copied as they are, by their path under normet/ (pure Python).
 LIBRARY = [
+    "i18n.py",
     "style.py",
     "figstyle.py",
     "plotting.py",

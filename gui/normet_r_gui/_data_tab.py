@@ -48,9 +48,8 @@ from PySide6.QtWidgets import (
 
 from .nm import style as S
 
-from ._widgets import CanvasTab, NoWheelComboBox, fill_sortable, table_context_menu
+from ._widgets import CanvasTab, NoWheelComboBox, fill_sortable, hint_style, table_context_menu
 from .dataframe_model import DataFrameModel
-from .theme import muted_color, theme_manager
 
 PICK_HINT = (
     "Drag across the plot, or click it, to list the rows of a span (Shift adds another); "
@@ -90,10 +89,7 @@ PICKED_ROWS = 20_000
 _SPAN = re.compile(r"^\s*(?P<a>[^.]+?)\s*(?:\.\.\s*(?P<b>.+?))?\s*$")
 _EXCLUDED = "#8e8e93"
 _PICKED = "#ff3b30"
-#: Missing cells of the overview's strips. apply_figure_theme recolours a figure in
-#: place but leaves colormaps alone, so this must read on both the light and the dark
-#: figure background: a mid grey, not a near-white one.
-_MISSING = "#8e8e93"
+_MISSING = "#d1d1d6"
 
 
 # -- the rows left out ------------------------------------------------------------------
@@ -426,14 +422,8 @@ class DataTab(QWidget):
         self.pick_info.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         said.addWidget(self.pick_info, 1)
         self.hover = QLabel("")
-        self.hover.setStyleSheet(f"color:{muted_color()};")
+        self.hover.setStyleSheet(hint_style())
         self.hover.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop)
-        try:
-            theme_manager().themeChanged.connect(
-                lambda dark: self.hover.setStyleSheet(f"color:{muted_color(dark)};")
-            )
-        except RuntimeError:
-            pass
         said.addWidget(self.hover, 0, Qt.AlignmentFlag.AlignTop)
         pl.addLayout(said)
         # Under the plot, the rows picked: every column, those left out in grey. Rows are

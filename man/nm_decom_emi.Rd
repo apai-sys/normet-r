@@ -51,9 +51,11 @@ function's warning).}
 
 \item{seed}{Random seed for reproducibility.}
 
-\item{n_cores}{Number of CPU cores to use for \strong{H2O Initialization} (when
-\code{backend = "h2o"}) and for parallel resampling in each
-\code{nm_normalise()} call (default: detected cores minus one).}
+\item{n_cores}{Number of CPU cores: the cap on the parallel decomposition
+stages (one per frozen time component; default: detected cores minus
+one, and never more than the number of stages) and the H2O
+allocation when \code{backend = "h2o"}. Each stage's worker normalises
+serially, so the stages -- not the resampling -- run in parallel.}
 
 \item{max_mem_size}{Maximum memory for H2O (e.g., "16G"). If NULL, auto-detected.}
 
