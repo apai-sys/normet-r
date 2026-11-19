@@ -1,0 +1,89 @@
+---
+title: "Multi-site pipelines and caching"
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>", eval = FALSE)
+```
+
+```{r}
+library(normet)
+
+covariates <- c("ws", "wd", "temp", "RH", "atmos_pres", "blh", "tcc", "tp", "ssrd")
+predictors <- c(covariates, "date_unix", "day_julian", "weekday", "hour")
+```
+
+## Multi-site pipelines
+
+A station network is one long table with a site column (`df_network` below,
+with a `site` column). The multi-site drivers split it by site, run the same
+analysis on each site in its own worker process, and bind the results back
+together with the site column appended.
+
+```{r}
+# Normalise all sites in parallel
+multi <- nm_do_all_multisite(
+  df            = df_network,
+  site_col      = "site",
+  target        = "NO2",
+  covariates    = predictors,
+  resample_vars = covariates,
+  n_samples     = 300
+)
+# return_models = TRUE also returns each site's model: list(res = , models = )
+
+# Decompose every site
+multi_emi <- nm_decompose_multisite(
+  df = df_network, site_col = "site", method = "emission",
+  target = "NO2", covariates = predictors
+)
+```
+
+`nm_multisite_apply()` runs any function of the form `function(df, ...)` once
+per site:
+
+```{r}
+site_summary <- function(df, ...) {
+  data.frame(n = nrow(df), mean_no2 = mean(df$NO2, na.rm = TRUE))
+}
+nm_multisite_apply(df_network, site_col = "site", func = site_summary, n_cores = 4)
+```
+
+`site_kwarg =` names an argument of `func` that receives the site's value, for
+functions that need to know which site they are working on. Pass `n_cores` to
+limit the number of worker processes.
+
+## Caching
+
+`nm_do_all()`, `nm_build_model()`, `nm_train_model()`, `nm_normalise()` and
+`nm_decompose()` accept a `cache_dir`. Their results are keyed by a SHA-1 hash
+of the data and the configuration, so a second run with unchanged inputs is
+read from disk instead of recomputed:
+
+```{r}
+results <- nm_do_all(
+  df = my1, target = "NO2", covariates = predictors, resample_vars = covariates,
+  cache_dir = ".normet_cache"
+)
+# The same call again returns at once, from .normet_cache/<key>.rds
+```
+
+The hashing helpers are exported, so your own slow steps can be cached the
+same way:
+
+```{r}
+cache <- nm_make_cache(".normet_cache")          # creates the directory
+key   <- nm_config_hash(nm_dataframe_hash(my1), target = "NO2", n_samples = 300)
+path  <- file.path(cache$path, paste0(key, ".rds"))
+
+if (file.exists(path)) {
+  result <- readRDS(path)
+} else {
+  result <- my_slow_function(my1)
+  saveRDS(result, path)
+}
+```
+
+`nm_model_hash()` hashes a trained model. When the memoise package is
+installed, `cache$memoise` is `memoise::memoise`, for function-level
+memoisation.

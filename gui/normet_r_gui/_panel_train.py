@@ -1,0 +1,217 @@
+"""Step 1's box: backend, split, budget, seed.
+
+Also the question the rest of the window asks about that box: which estimators
+are ticked.  It reads the box this mixin built, which is an attribute of the window.
+"""
+
+from __future__ import annotations
+
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import (
+    QAbstractItemView,
+    QFormLayout,
+    QGroupBox,
+    QLabel,
+    QListWidget,
+    QListWidgetItem,
+    QMainWindow,
+)
+
+from ._lists import _checked_items
+from ._widgets import (
+    NoWheelComboBox,
+    NoWheelDoubleSpinBox,
+    NoWheelSpinBox,
+    run_button,
+)
+
+
+class TrainPanelMixin(QMainWindow):
+    def _build_train_box(self) -> QGroupBox:
+        """Step 1: backend, split, budget, seed, device — and fine-tuning."""
+        box = QGroupBox("Train model")
+        form = QFormLayout(box)
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        self.backend_combo = NoWheelComboBox()
+        self.backend_combo.addItems(["lightgbm", "h2o"])
+        self.backend_combo.setToolTip(
+            "lightgbm = LightGBM with random hyperparameter search (fast, default).\n"
+            "h2o = H2O AutoML search (uses the search models below; needs Java and the h2o R package)."
+        )
+        self.backend_combo.currentTextChanged.connect(self._train_backend_changed)
+        form.addRow("Backend", self.backend_combo)
+        self.split_combo = NoWheelComboBox()
+        self.split_combo.addItems(["random", "ts", "month_ts", "season_ts"])
+        self.split_combo.setToolTip("How the train/test split is drawn.")
+        self._split_label = QLabel("Split method")
+        form.addRow(self._split_label, self.split_combo)
+        self.train_fraction_spin = NoWheelDoubleSpinBox()
+        self.train_fraction_spin.setRange(0.1, 0.95)
+        self.train_fraction_spin.setSingleStep(0.05)
+        self.train_fraction_spin.setValue(0.75)
+        self._train_fraction_label = QLabel("Training fraction")
+        form.addRow(self._train_fraction_label, self.train_fraction_spin)
+        self.budget_spin = NoWheelSpinBox()
+        self.budget_spin.setRange(1, 500)
+        self.budget_spin.setValue(20)
+        self.budget_spin.setToolTip("Random hyperparameter-search trials (LightGBM backend).")
+        self._budget_label = QLabel("Search trials")
+        self._budget_values = {"h2o": 5, "lightgbm": 20}
+        self._prev_backend = "lightgbm"
+        form.addRow(self._budget_label, self.budget_spin)
+        # H2O only: which AutoML algorithms to search over (include_algos).
+        self.estimator_list = QListWidget()
+        self.estimator_list.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
+        self.estimator_list.setMaximumHeight(96)
+        self.estimator_list.setToolTip(
+            "H2O AutoML algorithms to search over (include_algos), within the model bound.\n"
+            "GBM is the fastest and usually sufficient; tick more to widen the search."
+        )
+        for name, tip in [
+            ("GBM", "Gradient boosting machine (default, fast)"),
+            ("DRF", "Distributed random forest (+ extremely randomised trees)"),
+            ("GLM", "Generalised linear model (elastic net)"),
+            ("DeepLearning", "Feed-forward neural network"),
+            ("XGBoost", "XGBoost (not available on Apple-Silicon H2O builds)"),
+            ("StackedEnsemble", "Ensemble of the other models (needs ≥ 2 base models)"),
+        ]:
+            item = QListWidgetItem(name)
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            item.setCheckState(Qt.CheckState.Checked if name == "GBM" else Qt.CheckState.Unchecked)
+            item.setToolTip(tip)
+            self.estimator_list.addItem(item)
+        self._estimator_label = QLabel("Algorithms")
+        form.addRow(self._estimator_label, self.estimator_list)
+        self._estimator_label.setVisible(False)  # lightgbm first: no search space to pick
+        self.estimator_list.setVisible(False)
+        self._train_form = form
+        self.seed_spin = NoWheelSpinBox()
+        self.seed_spin.setRange(0, 2_147_483_647)
+        self.seed_spin.setValue(7_654_321)
+        self._seed_label = QLabel("Seed")
+        form.addRow(self._seed_label, self.seed_spin)
+        self.train_button = run_button(
+            "▶  Train model",
+            "Prepare the data and train the machine-learning model.\nEverything below needs a trained model.",
+        )
+        self.train_button.clicked.connect(self._run_train)
+        self.train_button.setShortcut("Ctrl+Return")
+        form.addRow(self.train_button)
+        # Walk-forward validation of the trained model form: the same backend
+        # retrained on expanding windows, each future block scored once. The
+        # random split's R² is an optimist's number; this checks it.
+        self.cv_folds_spin = NoWheelSpinBox()
+        self.cv_folds_spin.setRange(2, 10)
+        self.cv_folds_spin.setValue(5)
+        self.cv_folds_spin.setToolTip(
+            "Walk-forward folds. Each fold trains on all data before its test block\n"
+            "and scores the block after it, so no future hour is ever in training."
+        )
+        self._cv_folds_label = QLabel("CV folds")
+        form.addRow(self._cv_folds_label, self.cv_folds_spin)
+        # LightGBM's own protocol, as a published run states it: boosting rounds,
+        # early stopping and the hyperparameter-search folds.  Kept apart from
+        # CV folds above, which are walk-forward validation of the trained form.
+        # The published LightGBM protocol (normet_formal.py): 400 boosting rounds,
+        # early stopping after 30, a 5-fold hyperparameter search.  The library's own
+        # defaults (1000/20) remain one edit away, but a fresh run here is the paper's.
+        self.lgb_rounds = NoWheelSpinBox()
+        self.lgb_rounds.setRange(50, 20_000)
+        self.lgb_rounds.setValue(400)
+        self.lgb_rounds.setToolTip(
+            "Boosting rounds for the final LightGBM fit (num_boost_round). "
+            "Early stopping may end it sooner."
+        )
+        self._lgb_rounds_label = QLabel("LGB rounds")
+        form.addRow(self._lgb_rounds_label, self.lgb_rounds)
+        self.lgb_early = NoWheelSpinBox()
+        self.lgb_early.setRange(0, 500)
+        self.lgb_early.setValue(30)
+        self.lgb_early.setToolTip(
+            "Rounds without improvement before a LightGBM fit stops (0: no early "
+            "stopping). 30 is the project protocol."
+        )
+        self._lgb_early_label = QLabel("LGB early stop")
+        form.addRow(self._lgb_early_label, self.lgb_early)
+        self.lgb_cv_folds = NoWheelSpinBox()
+        self.lgb_cv_folds.setRange(2, 10)
+        self.lgb_cv_folds.setValue(5)
+        self.lgb_cv_folds.setToolTip(
+            "Folds the LightGBM hyperparameter search cross-validates on. "
+            "Separate from the walk-forward CV below, which scores the chosen form."
+        )
+        self._lgb_cv_label = QLabel("LGB search folds")
+        form.addRow(self._lgb_cv_label, self.lgb_cv_folds)
+        for _w in (self.lgb_rounds, self.lgb_early, self.lgb_cv_folds):
+            _w.setVisible(False)
+        for _l in (self._lgb_rounds_label, self._lgb_early_label, self._lgb_cv_label):
+            _l.setVisible(False)
+        self.cv_button = run_button(
+            "▶  Walk-forward CV",
+            "Retrain on expanding windows and score each future block.\n"
+            "Checks the single split's R² against future-ordered evidence.\n"
+            "Needs a trained model, and takes that training time once per fold.",
+        )
+        self.cv_button.clicked.connect(self._run_cv)
+        form.addRow(self.cv_button)
+        return box
+
+    def _train_backend_changed(self, backend: str) -> None:
+        """The budget row means seconds for H2O, search trials for LightGBM; the
+        algorithm checklist only applies to H2O's AutoML search."""
+        self._budget_values[self._prev_backend] = self.budget_spin.value()
+        self._prev_backend = backend
+        if backend == "h2o":
+            # A model count trains each model to convergence (reproducible); the 600 s
+            # cap is a safety valve for a record where one model is very slow.
+            self._budget_label.setText("Search models")
+            self.budget_spin.setRange(1, 100)
+            self.budget_spin.setSuffix("")
+            self.budget_spin.setToolTip(
+                "H2O AutoML models to train (max_models; Stacked Ensembles not counted).\n"
+                "The run stops at this many models, or at the 600 s safety cap."
+            )
+        else:
+            self._budget_label.setText("Search trials")
+            self.budget_spin.setRange(1, 500)
+            self.budget_spin.setSuffix("")
+            self.budget_spin.setToolTip("Random hyperparameter-search trials (LightGBM backend).")
+        self.budget_spin.setValue(self._budget_values.get(backend, 5 if backend == "h2o" else 20))
+        is_h2o = backend == "h2o"
+        self._estimator_label.setVisible(is_h2o)
+        self.estimator_list.setVisible(is_h2o)
+
+    def _selected_estimators(self) -> list[str]:
+        return _checked_items(self.estimator_list)
+
+    def _model_config(self, backend: str | None = None) -> dict:
+        """The backend's training configuration, as the train, CV and
+        uncertainty runs all pass it.  h2o trains a model count under a time cap;
+        LightGBM uses the random search's trial count plus its boosting
+        protocol -- rounds, early stopping and the search's CV folds.
+
+        Where the run's backend is not the one the panel stands on (the
+        uncertainty tab's own backend), its budget is the value kept for that
+        backend, not the spin box showing the other one's.
+        """
+        current = self.backend_combo.currentText()
+        backend = backend or current
+        budget = (
+            self.budget_spin.value()
+            if backend == current
+            else self._budget_values.get(backend, 5 if backend == "h2o" else 20)
+        )
+        if backend == "h2o":
+            return {
+                "max_models": budget,
+                "max_runtime_secs": 600,
+                "include_algos": self._selected_estimators() or ["GBM"],
+            }
+        if backend == "lightgbm":
+            return {
+                "n_trials": budget,
+                "cv_folds": self.lgb_cv_folds.value(),
+                "nrounds": self.lgb_rounds.value(),
+                "early_stopping_rounds": self.lgb_early.value(),
+            }
+        return {}

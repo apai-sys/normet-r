@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# Build normet-r.app with PyInstaller and package it into a compressed DMG.
+#
+# The app is a Qt front-end only: it requires R (with the normet package)
+# to be installed on the target machine — R is NOT bundled.
+#
+# Usage:  gui/packaging/macos/build_dmg.sh [python]
+
+set -euo pipefail
+
+PY="${1:-python3}"
+HERE="$(cd "$(dirname "$0")" && pwd)"
+GUI_DIR="$(cd "$HERE/../.." && pwd)"     # …/normet-r/gui
+DIST="$GUI_DIR/dist/macos"               # matches the workflow's gui/dist/macos/*.dmg upload path
+APP_NAME="Normet"
+VERSION="$("$PY" -c 'import importlib.metadata as m; print(m.version("normet-r-gui"))')"
+
+# pandas' table readers are imported by name at run time, so they are only bundled if
+# the build env has them: fail here, not in the app.
+"$PY" -c 'import pyarrow, openpyxl, xlrd' 2>/dev/null || {
+    echo "ERROR: install the GUI's dependencies first:  $PY -m pip install -e gui"; exit 1; }
+
+echo "==> Building $APP_NAME $VERSION with $("$PY" --version 2>&1)"
+cd "$GUI_DIR"
+
+# The spec every platform builds from: one list of what the app reaches only by name
+# (the backends Figure for Print saves with, pandas' readers), its data and the
+# manuals. Flags of its own here had drifted from it -- Save stopped for want of
+# matplotlib's PDF backend, which the spec named.
+"$PY" -m PyInstaller "$GUI_DIR/packaging/normet_r_gui.spec" \
+    --noconfirm \
+    --clean \
+    --distpath "$DIST" \
+    --workpath "$GUI_DIR/build/pyinstaller"
+
+APP="$DIST/$APP_NAME.app"
+[ -d "$APP" ] || { echo "ERROR: $APP not produced"; exit 1; }
+
+echo "==> Staging DMG contents"
+STAGE="$(mktemp -d)"
+trap 'rm -rf "$STAGE"' EXIT
+cp -R "$APP" "$STAGE/"
+ln -s /Applications "$STAGE/Applications"
+
+DMG="$DIST/${APP_NAME}-${VERSION}-macos-$(uname -m).dmg"
+rm -f "$DMG"
+
+echo "==> Creating $DMG"
+hdiutil create -volname "$APP_NAME $VERSION" \
+    -srcfolder "$STAGE" \
+    -ov -format UDZO "$DMG"
+
+echo "==> Done: $DMG"
+du -sh "$DMG"

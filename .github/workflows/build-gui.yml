@@ -1,0 +1,121 @@
+name: Build GUI installers
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "gui/**"
+      - ".github/workflows/build-gui.yml"
+  workflow_dispatch:   # trigger a build manually from the Actions tab
+
+defaults:
+  run:
+    working-directory: gui
+
+jobs:
+  smoke-test:
+    name: GUI import smoke test (Linux, offscreen)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install system Qt libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libegl1 libgl1 libxkbcommon0 libdbus-1-3 libxcb-cursor0
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: "release"
+          use-public-rspm: true
+      - name: Install the normet package
+        # The window's steps (training, normalising, the Methods paragraph) run in R;
+        # without it they used to hang the job for hours on a read from an R that
+        # never answered. Installing it here — the same way R-CMD-check does — means
+        # the GUI tests exercise the real R bridge, not just the offscreen window.
+        run: |
+          install.packages("remotes", repos = "https://cloud.r-project.org")
+          remotes::install_local("..", dependencies = TRUE)  # the R package is one up
+        shell: Rscript {0}
+      - name: Install GUI package
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+      - name: Import the GUI package offscreen
+        run: |
+          QT_QPA_PLATFORM=offscreen python -c "
+          from PySide6.QtWidgets import QApplication
+          app = QApplication([])
+          from normet_r_gui.main_window import MainWindow
+          w = MainWindow()
+          print('MainWindow constructed OK')
+          "
+      - name: GUI tests (the window in Chinese, the trajectory join)
+        run: |
+          pip install pytest pytest-timeout
+          # --timeout: a headless run must never wait on a dialog or an R call that
+          # never answers; timeout-minutes on the job is the backstop.
+          QT_QPA_PLATFORM=offscreen python -m pytest -q --timeout=300 --timeout-method=thread tests
+
+  build:
+    name: Build (${{ matrix.os }})
+    needs: smoke-test
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest, ubuntu-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install GUI package + PyInstaller
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e . pyinstaller
+
+      # ---------------- macOS: .app bundle + .dmg ----------------
+      - name: Build macOS app + dmg
+        if: runner.os == 'macOS'
+        run: packaging/macos/build_dmg.sh "$(python -c 'import sys; print(sys.executable)')"
+
+      # ---------------- Windows / Linux: PyInstaller onedir ----------------
+      - name: Build executable (Windows/Linux)
+        if: runner.os != 'macOS'
+        run: pyinstaller --noconfirm packaging/normet_r_gui.spec
+
+      # ---------------- Windows: Inno Setup installer ----------------
+      - name: Install Inno Setup
+        if: runner.os == 'Windows'
+        run: choco install innosetup --no-progress -y
+
+      - name: Build Windows installer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ver = (Select-String -Path pyproject.toml -Pattern '^version\s*=\s*"([^"]+)"').Matches[0].Groups[1].Value
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DAppVersion=$ver" packaging\windows\installer.iss
+
+      # ---------------- Linux: AppImage ----------------
+      - name: Build Linux AppImage
+        if: runner.os == 'Linux'
+        run: bash packaging/linux/build_appimage.sh
+
+      # ---------------- Upload artifacts ----------------
+      - name: Upload installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: normet-gui-${{ runner.os }}
+          path: |
+            gui/dist/macos/*.dmg
+            gui/dist/*.exe
+            gui/dist/*.AppImage
+          if-no-files-found: warn

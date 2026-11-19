@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "normet-r-gui"
+version = "1.0.0"
+description = "Qt front-end for the normet R package (runs analyses via Rscript)"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = [
+    "numpy>=1.22",
+    "pandas>=2.0",
+    "scipy>=1.10",
+    "joblib>=1.2",
+    "matplotlib>=3.6",
+    "PySide6-Essentials>=6.5",
+    # The readers pandas needs for the tables Open Data offers beyond text: Parquet and
+    # Feather (pyarrow), .xlsx/.xlsm (openpyxl), .xls (xlrd).
+    "pyarrow>=10.0.1",
+    "openpyxl>=3.1",
+    "xlrd>=2.0",
+    # The Data Studio's EEA and OpenAQ adapters and its OpenStreetMap basemap.
+    "requests>=2.31",
+    "Pillow>=9.0",
+]
+
+[project.optional-dependencies]
+# Source regions read from GeoJSON / Shapefiles in the Transport Studio.
+geo = ["shapely>=2.0", "pyshp>=2.3"]
+
+[project.gui-scripts]
+normet-r-gui = "normet_r_gui:main"
+
+[tool.setuptools.packages.find]
+include = ["normet_r_gui*"]
+
+[tool.setuptools.package-data]
+normet_r_gui = ["rpc.R", "assets/*.png"]

@@ -1,0 +1,85 @@
+---
+title: "Decomposition and uncertainty"
+---
+
+```{r, include = FALSE}
+# These analyses train models and resample hundreds of times, so the chunks
+# are shown but not run when the site is built.
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>", eval = FALSE)
+```
+
+A normalised series tells you what remains once the weather is averaged out.
+This article goes two steps further. It splits the series into its drivers,
+and it puts error bars on the normalised estimate. It reuses `df_prep`,
+`model`, `covariates` and `predictors` from
+[Weather normalisation, step by step](normalisation-workflow.html).
+
+```{r}
+library(normet)
+
+covariates <- c("ws", "wd", "temp", "RH", "atmos_pres", "blh", "tcc", "tp", "ssrd")
+predictors <- c(covariates, "date_unix", "day_julian", "weekday", "hour")
+build   <- nm_build_model(my1, target = "NO2", covariates = predictors)
+df_prep <- build$df_prep
+model   <- build$model
+```
+
+## Decomposition
+
+`nm_decompose()` separates the series into the components attributable to
+different drivers:
+
+- `method = "emission"` isolates the contribution of the time-based features
+  (trend, season, weekday, hour) from the weather-driven part.
+- `method = "meteorology"` gives the contribution of each weather variable,
+  or of named groups of them (`groups =`), to the target.
+
+```{r}
+df_emi <- nm_decompose(method = "emission",    df = df_prep, target = "value",
+                       model = model, n_samples = 300)
+df_met <- nm_decompose(method = "meteorology", df = df_prep, target = "value",
+                       model = model, n_samples = 300)
+
+nm_plot_decomposition_stack(df_emi)
+```
+
+`nm_decom_emi()` and `nm_decom_met()` are the two methods' own functions.
+`nm_decompose()` dispatches to them. For a station network,
+`nm_decompose_multisite()` runs the decomposition once per site (see
+[Multi-site pipelines and caching](multisite-caching.html)).
+
+## Uncertainty ensemble
+
+`nm_do_all_unc()` trains `n_models` models, each with its own seed, normalises
+with each, and summarises the spread across the ensemble:
+
+```{r}
+unc <- nm_do_all_unc(
+  df            = my1,
+  target        = "NO2",
+  covariates    = predictors,
+  resample_vars = covariates,
+  n_models      = 10,
+  n_samples     = 300
+)
+head(unc$res)     # observed, one normalised_<seed> column per member, then
+                  # mean, std, median, lower_bound, upper_bound, weighted
+unc$mod_stats     # performance metrics of every ensemble member
+```
+
+`nm_decompose_uncertainty()` answers a related question: how much of a
+de-weathered estimate's total spread is due to the weather resampling, and how
+much to the form of the model? Its result has `print()`, `summary()`, `plot()`
+and `as.data.frame()` methods.
+
+## Trends in the normalised series
+
+Once a series is normalised, these functions test and describe its trend:
+
+- `nm_trend()`: the Mann-Kendall test and the Theil-Sen slope. Where the
+  residuals are autocorrelated, a block-bootstrap interval is added.
+- `nm_trend_breaks()`: where the trend breaks. Each segment gets its own
+  Theil-Sen slope.
+- `nm_mann_kendall()` and `nm_theil_sen()`: the two tests on their own.
+
+See their reference pages for the arguments and the output.
