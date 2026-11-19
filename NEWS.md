@@ -459,6 +459,10 @@
   in the reference index, and sets up the home page sidebar.
   `nm_require()`, `nm_load_h2o()` and `.NM_POINT_MASS_FACTOR`, which are not
   exported, are now marked internal.
+* **A package-level help page.** `?normet` (from `R/normet-package.R`) gives
+  an overview of the three layers — weather normalisation, decomposition and
+  uncertainty, causal inference — with links to the main entry points, the
+  getting-started vignette and the user guide.
 * **Community files and citation.** The project now has a Code of Conduct
   (Contributor Covenant 2.1), a security policy, an expanded contributing
   guide, GitHub issue and pull-request templates, `inst/CITATION`

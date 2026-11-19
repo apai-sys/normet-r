@@ -53,6 +53,10 @@ news:
   cran_dates: false
 
 reference:
+- title: Overview
+  contents:
+  - normet
+
 - title: Datasets
   desc: Example data shipped with the package.
   contents:
