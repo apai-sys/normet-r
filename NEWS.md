@@ -1,4 +1,4 @@
-# normet 1.0.0
+# normet 0.3.0
 
 ### Added
 

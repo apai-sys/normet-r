@@ -4,7 +4,7 @@ cff-version: 1.2.0
 message: "If you use this software, please cite it as below."
 type: software
 title: "normet: Meteorological Normalisation, Decomposition, and Counterfactual Modelling for Air Quality Time Series"
-version: 1.0.0
+version: 0.3.0
 date-released: "2026-11-19"
 abstract: >-
   Provides a suite of tools for advanced air quality time series analysis.

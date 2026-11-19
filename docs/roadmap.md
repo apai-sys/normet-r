@@ -1,10 +1,10 @@
 # Roadmap
 
-`normet` (R) is at version **1.0.0**. 1.0 was about *hardening* rather than
+`normet` (R) is at version **0.3.0**. 0.3 was about *hardening* rather than
 adding features, and it commits the package to API stability for downstream
 users.
 
-## What 1.0 means
+## What 0.3 means
 
 - **Public API is stable.** Anything exported from the package — the `nm_*`
   functions and datasets — follows [Semantic Versioning](https://semver.org).

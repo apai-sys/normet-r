@@ -217,7 +217,7 @@ reference:
   title = {{normet}: Meteorological Normalisation, Decomposition, and Counterfactual Modelling for Air Quality Time Series},
   author = {Congbo Song},
   year = {2026},
-  note = {R package version 1.0.0},
+  note = {R package version 0.3.0},
   url = {https://github.com/apai-sys/normet-r},
 }
 ```

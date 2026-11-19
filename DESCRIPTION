@@ -1,7 +1,7 @@
 Package: normet
 Type: Package
 Title: Meteorological Normalisation, Decomposition, and Counterfactual Modelling for Air Quality Time Series
-Version: 1.0.0
+Version: 0.3.0
 Authors@R: person("Congbo", "Song", email = "congbo.song@manchester.ac.uk", role = c("aut", "cre"),
                    comment = c(ORCID = "0000-0001-7948-4834"))
 Maintainer: Congbo Song <congbo.song@manchester.ac.uk>
