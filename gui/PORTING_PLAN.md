@@ -1,6 +1,6 @@
 # R GUI = normet-py's GUI on the R package — work in progress
 
-Branch `claude/zealous-mendel-4f3qnp`. Steps 1-10 done (see Progress), uncommitted.
+Steps 1-10 done (see Progress).
 
 ## Goal (from the user)
 

@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Instructions for coding agents (opencode, Claude Code, ...) working in this repository.
+Instructions for coding agents working in this repository.
 They hold for every session and survive context compaction, so read them again before
 acting on a terse prompt such as "continue".
 
