@@ -1006,6 +1006,18 @@ as a single block.
   skipped** (the added test is the legacy-seconds fallback). `AGENTS.md`'s suite
   baseline moves to **260 passed / 1 skipped**.
 
+## Sync with normet-py main at 18f3b41 (conda recipe; no vendored change)
+
+- Vendored from normet-py main at `18f3b41` (PRs #1/#2: a conda recipe for the
+  PyPI sdist — `packaging/conda/meta.yaml` and `packaging/conda/README.md`, with a
+  pointer from `packaging/README.md`; `e181974` uses `matplotlib-base` and the
+  global `python_min`; `f614c17` puts the `nm.datasets` loader in the recipe's
+  test). Gate: **0 of 103 file(s)** would change — the commits touch only Python
+  packaging, `CHANGELOG.md` and `packaging/README.md`, none of which is vendored.
+  No walk or PDF rebuild; no suite re-run (no code changed; the last run was
+  **260 passed, 1 skipped**).
+- normet-py is at version 0.3.0, the same version this package now ships.
+
 ## Local setup used here
 - R 4.3 + normet installed from this repo (`R CMD INSTALL .`), lightgbm R package
   built from GitHub source (`Rscript build_r.R` in microsoft/LightGBM).
