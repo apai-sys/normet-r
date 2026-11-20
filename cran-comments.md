@@ -13,6 +13,11 @@
   PDF version checks OK; the note is a property of the local Tidy, not of the
   package.
 
+## win-builder
+
+- R-devel (R 4.6.2, Windows Server 2022): 0 errors, 0 warnings, 1 note
+  (New submission).
+
 ## Test environments
 
 - Local: macOS 27.2.1 (aarch64-apple-darwin20), R 4.4.1
