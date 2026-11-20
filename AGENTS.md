@@ -29,6 +29,33 @@ acting on a terse prompt such as "continue".
   window does differently because it runs R) and `manual_patches.py` (the manual's numbers
   are patched to this window's own run).
 
+## The package and CRAN
+
+- The root R package is the CRAN-bound artefact. Its version lives in `DESCRIPTION`
+  (0.3.0 — the first CRAN release, submitted 2026-11-20 and with CRAN for pretest and
+  review) and must match `CITATION.cff` and the top `NEWS.md` heading.
+- Before a release, build and check the tarball, upload the same file to win-builder for
+  R-devel (the form at win-builder.r-project.org), and confirm the `R-CMD-check` matrix
+  is green on the commit:
+
+  ```bash
+  R CMD build .
+  R CMD check --as-cran normet_0.3.0.tar.gz
+  ```
+
+  Expect 0 ERROR and 0 WARNING on both. The NOTEs are the ones explained in
+  `cran-comments.md` (a new submission; on this Mac, future file timestamps and local
+  HTML Tidy); read win-builder's log from the email it sends.
+- `cran-comments.md` is the submission's comment file — keep it in step with the check
+  results. It, `AGENTS.md` and the built tarballs are kept out of the package by
+  `.Rbuildignore`.
+- Submit the checked tarball rather than rebuilding:
+  `Rscript -e 'devtools:::upload_cran(devtools::as.package("."), normalizePath("normet_0.3.0.tar.gz"))'`
+  (`devtools::submit_cran()` prompts interactively and rebuilds). CRAN then mails a
+  confirmation link to the maintainer; once confirmed, the package appears in
+  `https://cran.r-project.org/incoming/` (`pending/`, then `pretest/`). Answer reviewer
+  mail from the `DESCRIPTION` maintainer address.
+
 ## Verification gate
 
 Run before saying a change is done, and report the actual output:
@@ -71,6 +98,10 @@ test to confirm it is transient before treating it as a regression.
 
 ## Conventions
 
+- Keep tooling out of the repository's record: commit messages carry no attribution
+  trailer, branch names are plain, and prose names a coding tool only where the feature
+  is about it (the MCP server, the GUI assistant's backends). The GitHub contributors
+  list must stay free of tooling.
 - One sync per normet-py main commit; record it in `gui/PORTING_PLAN.md` (what changed, the
   py sha, the walk/PDF/suite results).
 - The result tabs and the status-bar step lights follow the workflow's order — the
