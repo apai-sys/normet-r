@@ -26,7 +26,7 @@ nm_plot_polar(
 \item{wd_col}{Character. Wind direction column (degrees). Default "wd".}
 
 \item{statistic}{Character. Aggregation: "mean", "median", "max", "sum",
-or "p\if{html}{\out{<NN>}}" e.g. "p95". Default "mean".}
+or a percentile such as "p95". Default "mean".}
 
 \item{n_bins_ws}{Integer. Speed bins. Default 8.}
 

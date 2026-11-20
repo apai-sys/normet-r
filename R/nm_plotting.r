@@ -63,7 +63,7 @@ nm_resample_mean <- function(df, resample, date_col = "date") {
 #' @param ws_col Character. Wind speed column. Default "ws".
 #' @param wd_col Character. Wind direction column (degrees). Default "wd".
 #' @param statistic Character. Aggregation: "mean", "median", "max", "sum",
-#'        or "p<NN>" e.g. "p95". Default "mean".
+#'        or a percentile such as "p95". Default "mean".
 #' @param n_bins_ws Integer. Speed bins. Default 8.
 #' @param n_bins_wd Integer. Direction bins. Default 36.
 #' @param title Character. Optional title.

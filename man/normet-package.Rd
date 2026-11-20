@@ -8,7 +8,7 @@
 \description{
 \if{html}{\figure{logo.png}{options: style='float: right' alt='logo' width='120'}}
 
-Provides a suite of tools for advanced air quality time series analysis. Core functionalities include meteorological normalisation (de-weathering) to reveal underlying trends in data like air pollution concentrations, and causal inference using both classic and machine learning-based Synthetic Control Methods (SCM). The package features high-level workflows for uncertainty quantification, time-series decomposition, and robust placebo tests, powered by H2O AutoML or lightgbm backends.
+Provides a suite of tools for advanced air quality time series analysis. Core functionalities include meteorological normalisation, which normalises away the weather-driven variation to reveal underlying trends in data like air pollution concentrations, and causal inference using both classic and machine learning-based Synthetic Control Methods. The package features high-level workflows for uncertainty quantification, time-series decomposition, and robust placebo tests, powered by automated machine learning in H2O or by gradient-boosting back ends.
 }
 \details{
 \code{normet} brings three layers together behind one API:
